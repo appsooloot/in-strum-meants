@@ -46,7 +46,8 @@ final class AppModelTests: XCTestCase {
     }
 
     private func makeModel() -> AppModel {
-        AppModel(engine: engine, store: store, launchGuard: LaunchGuard(directory: dir))
+        AppModel(engine: engine, store: store, launchGuard: LaunchGuard(directory: dir),
+                 presets: PresetStore(directory: dir.appendingPathComponent("Presets")))
     }
 
     func testLaunchRestoresSavedInstrument() async throws {
@@ -244,5 +245,56 @@ final class AppModelTests: XCTestCase {
         XCTAssertEqual(m.themeState(for: ButterflyGardenModel.id).values["rays"], .number(0.9))
         m.autosave()
         XCTAssertEqual(store.load().themeStates[ButterflyGardenModel.id]?.values["rays"], .number(0.9))
+    }
+
+    func testDefaultReactionIsExpressivePianist() {
+        let m = makeModel()
+        XCTAssertEqual(m.reactionName, "Expressive Pianist")
+        XCTAssertEqual(m.reaction, ReactionPresets.expressivePianist)
+        XCTAssertEqual(m.allReactions().prefix(6).map(\.name), ReactionPresets.all.map(\.name))
+    }
+
+    func testChoosingReactionPersists() {
+        let m = makeModel()
+        m.setReaction(ReactionPresets.all[3])
+        XCTAssertEqual(makeModel().reactionName, "Music Party")
+        XCTAssertEqual(makeModel().reaction, ReactionPresets.musicParty)
+    }
+
+    func testEditedMappingIsCustomAndSavable() {
+        let m = makeModel()
+        var map = m.reaction
+        map.links.removeFirst()
+        m.setReactionMap(map)
+        XCTAssertEqual(m.reactionName, "Custom")
+        m.saveReaction(named: "My Style")
+        XCTAssertTrue(m.allReactions().contains { $0.name == "My Style" && $0.map == map })
+        XCTAssertEqual(m.reactionName, "My Style")
+    }
+
+    func testLooksIncludeBuiltInsAndSavedOnes() {
+        let m = makeModel()
+        m.setTheme(ButterflyGardenModel.id)
+        XCTAssertEqual(m.lookPresets().prefix(6).map(\.name), ButterflyGardenModel.builtInLooks.map(\.name))
+        m.saveThemeState(ThemeState(values: ["rays": .number(0.95)]), for: ButterflyGardenModel.id)
+        m.saveLook(named: "Bright")
+        XCTAssertTrue(m.lookPresets().contains { $0.name == "Bright" })
+    }
+
+    func testApplyingLookSetsStateAndName() {
+        let m = makeModel()
+        m.setTheme(ButterflyGardenModel.id)
+        let look = ButterflyGardenModel.builtInLooks[3]
+        m.applyLook(look)
+        XCTAssertEqual(m.themeState(for: ButterflyGardenModel.id).values["time"], .choice("Moonlight"))
+        XCTAssertEqual(m.themeState(for: ButterflyGardenModel.id).lookPresetName, look.name)
+    }
+
+    func testSurpriseChangesTheLook() {
+        let m = makeModel()
+        m.setTheme(ButterflyGardenModel.id)
+        let before = m.themeState(for: ButterflyGardenModel.id)
+        m.surprise()
+        XCTAssertNotEqual(m.themeState(for: ButterflyGardenModel.id), before)
     }
 }
