@@ -56,6 +56,7 @@ public enum RenderScale {
         let w = max(1, points.0), h = max(1, points.1)
         var s = max(1, backingScale) * (factor[quality] ?? 1)
         if quality == .lite { s = min(s, (liteMaxPixels / (w * h)).squareRoot()) }
-        return (max(1, Int((w * s).rounded())), max(1, Int((h * s).rounded())))
+        let round: (Double) -> Int = quality == .lite ? { Int($0.rounded(.down)) } : { Int($0.rounded()) }
+        return (max(1, round(w * s)), max(1, round(h * s)))
     }
 }
