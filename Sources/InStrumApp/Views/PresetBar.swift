@@ -32,7 +32,7 @@ struct PresetBar: View {
                     Text("Morph between two looks").font(.caption).foregroundStyle(.secondary)
                     HStack {
                         picker($morphA)
-                        Slider(value: $morphT, in: 0...1) { _ in } onEditingChanged: { _ in }
+                        Slider(value: $morphT, in: 0...1)
                             .onChange(of: morphT) { _ in applyMorph() }
                         picker($morphB)
                     }
