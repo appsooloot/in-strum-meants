@@ -332,7 +332,7 @@ final class AppModelTests: XCTestCase {
         XCTAssertEqual(c.year, 2018); XCTAssertEqual(i.year, 2016)
         XCTAssertGreaterThan(c.tempoBPM, 0); XCTAssertGreaterThan(i.tempoBPM, 0)
         XCTAssertEqual(CreditLibrary.credit(id: "innerbloom"), i)
-        XCTAssertTrue(PatchLibrary.all.allSatisfy { $0.creditID.flatMap(CreditLibrary.credit(id:)) != nil })
+        XCTAssertTrue(PatchLibrary.all.allSatisfy { $0.creditID.flatMap { CreditLibrary.credit(id: $0) } != nil })
     }
 
     func testPresetNamesCarryCredit() {

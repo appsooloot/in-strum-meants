@@ -53,6 +53,8 @@ public final class AppModel: ObservableObject {
 
     /// The loaded instrument's own dials (knobs/sliders in its window).
     @Published public private(set) var dials: [DialInfo] = []
+    /// The preset on the loaded built-in instrument (nil for plugins).
+    @Published public private(set) var builtInPatch: Patch?
     /// Dials moved since the instrument loaded (offered first in the mapping editor).
     @Published public private(set) var movedDials: [UInt64] = []
     private var dialReader: DialReader?
@@ -130,6 +132,7 @@ public final class AppModel: ObservableObject {
         }
         settings.instrument = choice
         watchDials()
+        updateBuiltInPatch()
         status = .playing(instrumentName: choice.name)
         autosave()
         let launchGuard = self.launchGuard
@@ -182,6 +185,28 @@ public final class AppModel: ObservableObject {
 
     public nonisolated var audioLevel: Float { engine.audioLevel }
     public nonisolated var soundReading: SoundReading { engine.soundReading }
+
+    /// True when the loaded instrument is one of the app's own.
+    public var isBuiltIn: Bool { settings.instrument.flatMap { BuiltInCatalog.engine(for: $0) } != nil }
+
+    /// Sets a built-in instrument's dials to a preset and saves it. Does nothing for plugins.
+    public func applyPatch(_ patch: Patch) {
+        guard let choice = settings.instrument, BuiltInCatalog.engine(for: choice) == patch.engine else { return }
+        engine.applyPatch(patch)
+        builtInPatch = patch
+        autosave()
+    }
+
+    private func updateBuiltInPatch() {
+        guard let choice = settings.instrument, let kind = BuiltInCatalog.engine(for: choice) else { builtInPatch = nil; return }
+        if let id = engine.builtInPatchID, let saved = PatchLibrary.all.first(where: { $0.id == id && $0.engine == kind }) {
+            builtInPatch = saved
+        } else {
+            let first = PatchLibrary.defaultPatch(for: kind)
+            engine.applyPatch(first)
+            builtInPatch = first
+        }
+    }
 
     private func watchDials() {
         dialReader = nil
