@@ -18,8 +18,8 @@ final class PerformanceStateTests: XCTestCase {
         XCTAssertNil(s.heldNotes[60])
     }
     func testPedalThreshold() {
-        XCTAssertEqual(s.apply(.controlChange(channel: 0, controller: 64, value: 63), at: 0), [.pedal(down: false, amount: 63.0 / 127)])
-        XCTAssertEqual(s.apply(.controlChange(channel: 0, controller: 64, value: 64), at: 0), [.pedal(down: true, amount: 64.0 / 127)])
+        XCTAssertEqual(s.apply(.controlChange(channel: 0, controller: 64, value: 63), at: 0), [.pedal(down: false, amount: Float(63) / 127)])
+        XCTAssertEqual(s.apply(.controlChange(channel: 0, controller: 64, value: 64), at: 0), [.pedal(down: true, amount: Float(64) / 127)])
         XCTAssertTrue(s.pedalDown)
     }
     func testPedalUpDoesNotReleaseHeldNotes() {
@@ -41,7 +41,7 @@ final class PerformanceStateTests: XCTestCase {
     }
     func testRepeatedNoteRetriggers() {
         _ = s.apply(.noteOn(channel: 0, note: 60, velocity: 40), at: 0)
-        XCTAssertEqual(s.apply(.noteOn(channel: 0, note: 60, velocity: 120), at: 0.1).first, .noteOn(note: 60, velocity: 120.0 / 127))
+        XCTAssertEqual(s.apply(.noteOn(channel: 0, note: 60, velocity: 120), at: 0.1).first, .noteOn(note: 60, velocity: Float(120) / 127))
     }
     func testAllNotesOffCCClearsEverything() {
         _ = s.apply(.noteOn(channel: 0, note: 60, velocity: 80), at: 0)
@@ -70,7 +70,7 @@ final class PerformanceStateTests: XCTestCase {
         XCTAssertEqual(s.intensity, peak / 2, accuracy: 0.02)
     }
     func testNotesOutside88KeysStillReportedForSound() {
-        XCTAssertEqual(s.apply(.noteOn(channel: 0, note: 10, velocity: 100), at: 0), [.noteOn(note: 10, velocity: 100.0 / 127)])
+        XCTAssertEqual(s.apply(.noteOn(channel: 0, note: 10, velocity: 100), at: 0), [.noteOn(note: 10, velocity: Float(100) / 127)])
     }
     func testOtherMessagesProduceNoEvents() {
         XCTAssertEqual(s.apply(.pitchBend(channel: 0, value: 9000), at: 0), [])
