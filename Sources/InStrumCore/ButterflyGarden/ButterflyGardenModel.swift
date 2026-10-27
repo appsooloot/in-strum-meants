@@ -57,6 +57,26 @@ public struct ButterflyGardenModel: ThemeModel {
     static let silenceToLand = 4.0
     static let maxBlooms = 120
 
+    private static let layout = KeyboardLayout.keys()
+    private static let centres: [Float] = (21...108).map { n in
+        let k = KeyboardLayout.key(for: UInt8(n))!; return k.x + k.width / 2
+    }
+
+    /// Settings read once per frame (not per note).
+    private struct Cfg {
+        var sizeMin: Float, sizeMax: Float, colorSource: String, wingStyle: String, wingMix: Float
+        var landOnHeld: Bool, flutter: Float, lifespan: Float, minVelocity: Float, spawnRate: Double
+        var chordSpiral: Float, flowerKind: Int
+        init(_ p: ParameterSet) {
+            sizeMin = Float(p.number("size.min")); sizeMax = Float(p.number("size.max"))
+            colorSource = p.choice("color.source"); wingStyle = p.choice("wings.style"); wingMix = Float(p.number("wings.mix"))
+            landOnHeld = p.number("land.onHeld") > 0.5; flutter = Float(p.number("flutter.speed"))
+            lifespan = Float(p.number("lifespan")); minVelocity = Float(p.number("spawn.minVelocity"))
+            spawnRate = p.number("spawn.rate"); chordSpiral = Float(p.number("chord.spiral"))
+            flowerKind = ["Mixed", "Roses", "Poppies", "Lotus", "Wildflowers", "Cherry Blossom"].firstIndex(of: p.choice("flowers.types")) ?? 0
+        }
+    }
+
     private struct Flyer {
         var b: Butterfly
         var velocity: SIMD3<Float>
@@ -91,13 +111,17 @@ public struct ButterflyGardenModel: ThemeModel {
     public mutating func handle(_ e: PerformanceEvent) { pending.append(e) }
 
     private static func keyCentre(_ note: UInt8) -> Float? {
-        KeyboardLayout.key(for: note).map { $0.x + $0.width / 2 }
+        (21...108).contains(note) ? centres[Int(note) - 21] : nil
     }
 
     public mutating func step(dt: Double, params p: ParameterSet, roles: RoleValues, inputs: InputFrame, quality: QualityLevel) -> GardenFrame {
         let fdt = Float(dt)
         time += dt
-        for e in pending { apply(e, params: p, roles: roles) }
+        if !pending.isEmpty {
+            let cfg = Cfg(p)
+            lastCap = min(Int(p.number("butterflies.max")), Self.qualityCap[quality] ?? 600)
+            for e in pending { apply(e, cfg: cfg, roles: roles) }
+        }
         pending.removeAll(keepingCapacity: true)
         sinceNote += dt
 
@@ -183,7 +207,7 @@ public struct ButterflyGardenModel: ThemeModel {
             let note = UInt8(i + 21)
             if let v = held[note] { keyGlow[i] = max(keyGlow[i] * fall, v * 0.6) } else { keyGlow[i] *= fall }
         }
-        let keys = KeyboardLayout.keys().map { k in
+        let keys = Self.layout.map { k in
             KeyVisual(key: k, pressed: held[k.note] != nil, glow: keyGlow[Int(k.note) - 21])
         }
 
@@ -218,7 +242,7 @@ public struct ButterflyGardenModel: ThemeModel {
             time: time)
     }
 
-    private mutating func apply(_ e: PerformanceEvent, params p: ParameterSet, roles: RoleValues) {
+    private mutating func apply(_ e: PerformanceEvent, cfg c: Cfg, roles: RoleValues) {
         switch e {
         case let .noteOn(note, velocity):
             held[note] = velocity
@@ -226,12 +250,12 @@ public struct ButterflyGardenModel: ThemeModel {
             guard let x = Self.keyCentre(note) else { return }
             melodyX = x
             if let i = hovering.removeValue(forKey: note) { flyers[i].b.homeNote = nil }
-            addBloom(at: x, note: note, params: p)
-            guard Double(velocity) >= p.number("spawn.minVelocity") else { return }
-            spawnBudget += p.number("spawn.rate")
+            addBloom(at: x, note: note, kind: c.flowerKind)
+            guard velocity >= c.minVelocity else { return }
+            spawnBudget = min(spawnBudget + c.spawnRate, 2)
             guard spawnBudget >= 1 else { return }
             spawnBudget -= 1
-            spawn(note: note, x: x, velocity: velocity, params: p, roles: roles)
+            spawn(note: note, x: x, velocity: velocity, cfg: c, roles: roles)
         case let .noteOff(note):
             held[note] = nil
             if let i = hovering.removeValue(forKey: note) {
@@ -245,7 +269,7 @@ public struct ButterflyGardenModel: ThemeModel {
                 flyers[i].velocity.x *= 1 + 2 * speed
             }
         case let .chord(notes):
-            spiral = Float(p.number("chord.spiral"))
+            spiral = c.chordSpiral
             let xs = notes.compactMap(Self.keyCentre)
             if !xs.isEmpty { spiralCentre = xs.reduce(0, +) / Float(xs.count) }
             chordHue = Float((notes.min() ?? 0) % 12) / 12
@@ -262,32 +286,29 @@ public struct ButterflyGardenModel: ThemeModel {
         }
     }
 
-    private mutating func spawn(note: UInt8, x: Float, velocity v: Float, params p: ParameterSet, roles: RoleValues) {
+    private mutating func spawn(note: UInt8, x: Float, velocity v: Float, cfg c: Cfg, roles: RoleValues) {
         let pitch = (Float(note) - 21) / 87
-        let sizeMin = Float(p.number("size.min")), sizeMax = Float(p.number("size.max"))
-        let size = (sizeMax + (sizeMin - sizeMax) * pitch) * (0.6 + 0.8 * v) * (1 + 0.5 * Float(roles[.size]))
+        let size = (c.sizeMax + (c.sizeMin - c.sizeMax) * pitch) * (0.6 + 0.8 * v) * (1 + 0.5 * Float(roles[.size]))
         let hue: Float
-        switch p.choice("color.source") {
+        switch c.colorSource {
         case "Chord": hue = chordHue
         case "Velocity": hue = 0.75 - 0.7 * v
         case "Palette": hue = 0.08 + rng.range(-0.04, 0.04)
         default: hue = Float(note % 12) / 12
         }
-        let styleChoice = p.choice("wings.style")
         let style: Int
-        if styleChoice == "Mix" {
-            let variety = Float(p.number("wings.mix"))
-            style = rng.unit() < variety ? 1 + Int(rng.unit() * 8) % 8 : 1
+        if c.wingStyle == "Mix" {
+            style = rng.unit() < c.wingMix ? 1 + Int(rng.unit() * 8) % 8 : 1
         } else {
-            style = Self.wingStyles.firstIndex(of: styleChoice) ?? 1
+            style = Self.wingStyles.firstIndex(of: c.wingStyle) ?? 1
         }
         serial += 1
         let b = Butterfly(position: SIMD3<Float>(x, 0.08, rng.range(0.2, 0.8)), size: size, hue: hue,
                           flapPhase: rng.unit(), flapRate: 0, style: style, glow: v, landed: false,
-                          homeNote: p.number("land.onHeld") > 0.5 ? note : nil, opacity: 0)
+                          homeNote: c.landOnHeld ? note : nil, opacity: 0)
         flyers.append(Flyer(b: b, velocity: SIMD3<Float>(rng.range(-0.1, 0.1), 0.3 + 0.4 * v, 0),
-                            baseFlap: Float(p.number("flutter.speed")) * (4 + 6 * pitch),
-                            lifespan: Float(p.number("lifespan")) * rng.range(0.8, 1.2),
+                            baseFlap: c.flutter * (4 + 6 * pitch),
+                            lifespan: c.lifespan * rng.range(0.8, 1.2),
                             hoverHeight: 0.15 + 0.15 * v, seed: rng.unit(), serial: serial))
         if b.homeNote != nil { hovering[note] = flyers.count - 1 }
         if flyers.count > lastCap * 2 { trim(to: lastCap) }
@@ -308,9 +329,7 @@ public struct ButterflyGardenModel: ThemeModel {
         for (i, f) in flyers.enumerated() { if let n = f.b.homeNote { hovering[n] = i } }
     }
 
-    private mutating func addBloom(at x: Float, note: UInt8, params p: ParameterSet) {
-        let types = ["Mixed", "Roses", "Poppies", "Lotus", "Wildflowers", "Cherry Blossom"]
-        let chosen = types.firstIndex(of: p.choice("flowers.types")) ?? 0
+    private mutating func addBloom(at x: Float, note: UInt8, kind chosen: Int) {
         let kind = chosen == 0 ? 1 + Int(rng.unit() * 5) % 5 : chosen
         blooms.append(Bloom(x: x, openness: 0.05, hue: Float(note % 12) / 12, age: 0, kind: kind))
         if blooms.count > Self.maxBlooms { blooms.removeFirst(blooms.count - Self.maxBlooms) }
