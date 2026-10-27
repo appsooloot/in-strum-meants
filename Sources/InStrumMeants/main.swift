@@ -1,2 +1,3 @@
 import InStrumApp
-print("In Strum Meants")
+
+InStrumMeantsApp.main()
