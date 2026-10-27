@@ -6,8 +6,7 @@ import Metal
 final class RenderStackTests: XCTestCase {
     private func makeStack() throws -> RenderStack {
         guard let device = MTLCreateSystemDefaultDevice() else { throw XCTSkip("No Metal device") }
-        guard let stack = RenderStack(device: device, pixelFormat: .bgra8Unorm) else { return XCTFail("stack") as! RenderStack }
-        return stack
+        return try XCTUnwrap(RenderStack(device: device, pixelFormat: .bgra8Unorm))
     }
     func testPostShadersCompile() throws {
         guard let device = MTLCreateSystemDefaultDevice() else { throw XCTSkip("No Metal device") }
