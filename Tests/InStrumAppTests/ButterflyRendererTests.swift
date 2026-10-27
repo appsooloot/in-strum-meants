@@ -47,6 +47,9 @@ final class PreviewRenderTests: XCTestCase {
         for (t, image) in zip(times, images) {
             try PreviewRenderer.writePNG(image, to: url.appendingPathComponent("butterfly-t\(Int(t)).png"))
         }
+        if let image = preview.render(themeID: MidnightSteinwayModel.id, at: [5]).first {
+            try PreviewRenderer.writePNG(image, to: url.appendingPathComponent("steinway-t5.png"))
+        }
         for tod in ["Dawn", "Moonlight"] {
             var p = ParameterSet(specs: ButterflyGardenModel.parameters, macroTargets: ButterflyGardenModel.macroTargets)
             p.set("time", .choice(tod))

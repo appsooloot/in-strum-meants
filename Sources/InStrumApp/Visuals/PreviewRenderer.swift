@@ -26,22 +26,46 @@ final class PreviewRenderer {
         self.device = device; self.queue = queue; self.stack = stack; self.target = target
     }
 
-    /// Simulates the demo performance at 60 fps and captures a frame at each time (seconds, ascending).
-    func renderButterflyGarden(at times: [Double], params: ParameterSet? = nil) -> [CGImage] {
-        guard let renderer = ButterflyRenderer(device: device) else { return [] }
-        let p = params ?? ParameterSet(specs: ButterflyGardenModel.parameters, macroTargets: ButterflyGardenModel.macroTargets)
-        var driver = DemoDriver<ButterflyGardenModel>()
-        var images: [CGImage] = []
+    /// Simulates the demo performance at 60 fps through the app's SceneDirector and captures
+    /// a frame of `themeID` at each time (seconds).
+    func render(themeID: String, at times: [Double], state: ThemeState = ThemeState()) -> [CGImage] {
+        let director = SceneDirector(themeID: themeID, state: state, reaction: ReactionPresets.expressivePianist)
+        var perf = PerformanceState()
+        let script = ScriptedPerformance.demo
+        var next = 0, time = 0.0
         let dt = 1.0 / 60
+        var garden: ButterflyRenderer?, steinway: SteinwayRenderer?
+        var images: [CGImage] = []
         for t in times.sorted() {
-            while driver.time + dt <= t {
-                let frame = driver.advance(dt: dt, params: p)
-                renderer.update(frame, params: p, quality: .high, gentle: false, dt: dt,
-                                size: CGSize(width: width, height: height))
+            var current: ThemeRenderer?
+            while time + dt <= t || current == nil {
+                time += dt
+                var events: [PerformanceEvent] = []
+                while next < script.count, script[next].time <= time {
+                    events += perf.apply(script[next].message, at: script[next].time)
+                    next += 1
+                }
+                director.handle(events, at: time)
+                let frame = director.step(dt: dt, t: time, quality: .high)
+                let size = CGSize(width: width, height: height)
+                if let g = frame as? GardenFrame {
+                    if garden == nil { garden = ButterflyRenderer(device: device) }
+                    garden?.update(g, params: director.parameters, quality: .high, gentle: false, dt: dt, size: size)
+                    current = garden
+                } else if let f = frame as? SteinwayFrame {
+                    if steinway == nil { steinway = SteinwayRenderer(device: device) }
+                    steinway?.update(f, quality: .high, gentle: false, dt: dt)
+                    current = steinway
+                }
+                if time + dt > t { break }
             }
-            if let image = capture(renderer) { images.append(image) }
+            if let r = current, let image = capture(r) { images.append(image) }
         }
         return images
+    }
+
+    func renderButterflyGarden(at times: [Double], params: ParameterSet? = nil) -> [CGImage] {
+        render(themeID: ButterflyGardenModel.id, at: times, state: ThemeState(values: params?.saved ?? [:]))
     }
 
     private func capture(_ renderer: ThemeRenderer) -> CGImage? {
@@ -106,33 +130,3 @@ final class PreviewRenderer {
     }
 }
 
-/// Plays ScriptedPerformance.demo through the same pieces the app uses:
-/// performance state → playing analysis → inputs → reactions → theme model.
-struct DemoDriver<T: ThemeModel> {
-    private(set) var time = 0.0
-    private var model = T()
-    private var state = PerformanceState()
-    private var analyzer = PlayingAnalyzer()
-    private let hub = InputHub()
-    private let reaction = ReactionPresets.expressivePianist
-    private var next = 0
-
-    mutating func advance(dt: Double, params: ParameterSet) -> T.Frame {
-        time += dt
-        let script = ScriptedPerformance.demo
-        while next < script.count, script[next].time <= time {
-            let msg = script[next].message
-            for e in state.apply(msg, at: script[next].time) {
-                model.handle(e)
-                analyzer.handle(e, at: script[next].time)
-                InputRouting.route(e, into: hub, at: script[next].time)
-            }
-            next += 1
-        }
-        hub.set(.held, state.heldNotes.isEmpty ? 0 : 1, at: time)
-        analyzer.publish(to: hub, at: time)
-        let frame = hub.frame(at: time, listenStrength: 1)
-        let (roles, offsets) = reaction.evaluate(frame)
-        return model.step(dt: dt, params: params.withOffsets(offsets), roles: roles, inputs: frame, quality: .high)
-    }
-}
