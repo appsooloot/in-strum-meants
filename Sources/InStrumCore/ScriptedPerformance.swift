@@ -1,7 +1,7 @@
-/// A 14-second demo performance used for preview frames and tests:
+/// An 18-second demo performance used for preview frames and tests:
 /// soft melody, hard notes, a pedalled chord, a fast run, a crescendo, then silence.
 public enum ScriptedPerformance {
-    public static let duration = 14.0
+    public static let duration = 18.0
 
     public static let demo: [(time: Double, message: MIDIMessage)] = {
         var m: [(Double, MIDIMessage)] = []
@@ -22,7 +22,7 @@ public enum ScriptedPerformance {
         for (i, n) in run.enumerated() { note(6.0 + Double(i) * 0.06, n, 82, 0.08) }
         // 7.5–9 s: crescendo
         for i in 0..<6 { note(7.6 + Double(i) * 0.25, UInt8(55 + i * 2), UInt8(50 + i * 14), 0.2) }
-        // 9–14 s: silence (butterflies land after 4 s)
+        // 9–18 s: silence (butterflies land after 4 s)
         return m.sorted { $0.0 < $1.0 }
     }()
 }

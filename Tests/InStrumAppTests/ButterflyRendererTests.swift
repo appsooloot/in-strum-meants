@@ -41,7 +41,7 @@ final class PreviewRenderTests: XCTestCase {
         let url = URL(fileURLWithPath: dir, isDirectory: true)
         try FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
         let preview = try XCTUnwrap(PreviewRenderer(width: 1280, height: 720))
-        let times: [Double] = [1, 3, 5, 7, 13]
+        let times: [Double] = [1, 3, 5, 7, 17]
         let images = preview.renderButterflyGarden(at: times)
         XCTAssertEqual(images.count, times.count)
         for (t, image) in zip(times, images) {

@@ -50,7 +50,7 @@ extension ButterflyGardenModel {
         slider("sun.angle", "Sun position", "Light & atmosphere", 0...1, 0.7, surprise: 0.2...0.9),
         slider("rays", "God-rays", "Light & atmosphere", 0...1, 0.55, hero: true, surprise: 0.2...0.9),
         slider("mist", "Mist", "Light & atmosphere", 0...1, 0.25, surprise: 0...0.6),
-        slider("dof", "Depth of field", "Light & atmosphere", 0...1, 0.5, surprise: 0.2...0.8),
+        slider("dof", "Depth of field", "Light & atmosphere", 0...1, 0.35, surprise: 0.1...0.6),
         slider("glow", "Glow", "Light & atmosphere", 0...1, 0.5, surprise: 0.2...0.8),
         slider("grain", "Film grain", "Light & atmosphere", 0...1, 0.15, surprise: 0...0.4),
         choice("grade", "Colour grade", "Light & atmosphere", ["Natural", "Warm Film", "Cool Film", "Dreamy", "Vivid"], "Warm Film"),

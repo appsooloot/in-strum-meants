@@ -47,7 +47,7 @@ enum PostShaders {
                                texture2d<float> depth [[texture(1)]], constant DofU& u [[buffer(0)]]) {
         float d = depth.sample(lin, in.uv).r;
         float coc = clamp(abs(d - u.focus) * u.strength * 2.0, 0.0, 1.0);
-        float2 t = 1.0 / float2(src.get_width(), src.get_height()) * coc * 9.0;
+        float2 t = 1.0 / float2(src.get_width(), src.get_height()) * coc * 6.0;
         float3 acc = src.sample(lin, in.uv).rgb;
         float w = 1.0;
         for (int i = 0; i < 16; i++) {

@@ -13,19 +13,19 @@ final class ButterflyRenderer: ThemeRenderer {
     static let particleCounts: [QualityLevel: (pollen: Int, petals: Int, fireflies: Int)] = [
         .lite: (300, 60, 40), .high: (900, 180, 90), .ultra: (2400, 400, 160),
     ]
-    static let skies: [String: (top: SIMD3<Float>, horizon: SIMD3<Float>, night: Float)] = [
-        "Dawn": (SIMD3(0.42, 0.45, 0.70), SIMD3(1.0, 0.66, 0.55), 0),
-        "Morning": (SIMD3(0.35, 0.60, 0.92), SIMD3(0.85, 0.92, 0.98), 0),
-        "Golden Hour": (SIMD3(0.45, 0.55, 0.80), SIMD3(1.0, 0.72, 0.38), 0),
-        "Dusk": (SIMD3(0.20, 0.18, 0.42), SIMD3(0.98, 0.50, 0.42), 0),
-        "Moonlight": (SIMD3(0.02, 0.03, 0.09), SIMD3(0.08, 0.12, 0.25), 1),
+    static let skies: [String: (top: SIMD3<Float>, mid: SIMD3<Float>, horizon: SIMD3<Float>, night: Float)] = [
+        "Dawn": (SIMD3(0.35, 0.42, 0.72), SIMD3(0.9, 0.62, 0.7), SIMD3(1.3, 0.85, 0.7), 0),
+        "Morning": (SIMD3(0.25, 0.5, 0.95), SIMD3(0.55, 0.75, 1.0), SIMD3(0.95, 0.98, 1.0), 0),
+        "Golden Hour": (SIMD3(0.30, 0.38, 0.70), SIMD3(0.95, 0.62, 0.55), SIMD3(1.5, 0.95, 0.45), 0),
+        "Dusk": (SIMD3(0.12, 0.10, 0.30), SIMD3(0.6, 0.3, 0.45), SIMD3(1.3, 0.55, 0.35), 0),
+        "Moonlight": (SIMD3(0.01, 0.02, 0.07), SIMD3(0.03, 0.06, 0.15), SIMD3(0.08, 0.14, 0.28), 1),
     ]
     static let grades = ["Natural", "Warm Film", "Cool Film", "Dreamy", "Vivid"]
     static let finishes = ["Lacquer", "Satin", "Ivory", "Brushed metal", "Gold", "Pearl"]
 
     private let device: MTLDevice
     private let sky, wings, blooms, trails, particles, keys: MTLRenderPipelineState
-    private var uniforms = [SIMD4<Float>](repeating: .zero, count: 9)
+    private var uniforms = [SIMD4<Float>](repeating: .zero, count: 10)
     private var butterflySprites: [Sprite] = []
     private var bloomSprites: [Sprite] = []
     private var trailSprites: [Sprite] = []
@@ -87,6 +87,7 @@ final class ButterflyRenderer: ThemeRenderer {
             SIMD4(Float(size.width), Float(size.height), Float(f.time), keyTop),
             SIMD4(sunX, sunY, f.rays, f.mist),
             SIMD4(sky.top, sky.night),
+            SIMD4(sky.mid, 0),
             SIMD4(sky.horizon, Float(p.number("foliage"))),
             SIMD4(f.breeze.x, limited.sparkle, f.petals, f.fireflies),
             SIMD4(f.cameraZoom, f.cameraOffset.x, f.cameraOffset.y, Float(p.number("parallax"))),
