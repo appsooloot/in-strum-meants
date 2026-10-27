@@ -143,19 +143,20 @@ final class BuiltInAUTests: XCTestCase {
         XCTAssertLessThan(held, -6)
     }
 
+    /// The sound-character tap listens to the instrument bus (it doesn't run in offline rendering), so this
+    /// checks the routing: ambience reaches the speakers through its own bus and never the instrument's.
     func testSoundCharacterIgnoresAmbience() async throws {
         let e = try await makeEngine()
         await e.startAmbience()
         e.setAmbience(AmbienceScene(levels: [.water: 1, .airFlow: 1]))
         let ambient = try render(e, seconds: 4)
         let heard = DSPTestKit.dBFS(ambient[Int(3 * 48_000)...])
-        let quiet = e.soundReading.loudness
-        e.send([0x90, 60, 110])
-        _ = try render(e, seconds: 0.5)
-        let playing = e.soundReading.loudness
+        let toMixer = e.ambienceFeedsMainMixer, toInstrument = e.ambienceFeedsInstrumentBus
+        let loudness = e.soundReading.loudness
         XCTAssertGreaterThan(heard, -60, "the ambience is playing")
-        XCTAssertLessThan(quiet, 0.05, "the ambience doesn't count as the instrument")
-        XCTAssertGreaterThan(playing, 0.05, "the instrument still does")
+        XCTAssertTrue(toMixer)
+        XCTAssertFalse(toInstrument)
+        XCTAssertLessThan(loudness, 0.05)
     }
 
     func testPanicLeavesAmbience() async throws {

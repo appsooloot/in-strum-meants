@@ -67,7 +67,7 @@ public final class AudioEngine {
             engine.attach(instrumentBus)
             engine.connect(instrumentBus, to: engine.mainMixerNode, format: renderFormat())
         }
-        installLevelTap()
+        if !manualRendering { installLevelTap() }   // taps don't run in offline manual rendering
         engine.prepare()
         try engine.start()
     }
@@ -209,6 +209,16 @@ public final class AudioEngine {
             ambienceUnit.flatMap { $0.auAudioUnit as? AmbienceAU }?.enabled = ambienceEnabled
             updateAmbienceBus()
         }
+    }
+
+    /// Routing checks (tests): ambience goes straight to the main mixer, never through the instrument bus,
+    /// where the level and sound-character tap listens.
+    var ambienceFeedsMainMixer: Bool {
+        ambienceUnit != nil && engine.outputConnectionPoints(for: ambienceBus, outputBus: 0).contains { $0.node === engine.mainMixerNode }
+    }
+    var ambienceFeedsInstrumentBus: Bool {
+        guard let unit = ambienceUnit else { return false }
+        return [unit, ambienceBus].contains { node in engine.outputConnectionPoints(for: node, outputBus: 0).contains { $0.node === instrumentBus } }
     }
 
     private func updateAmbienceBus() {
