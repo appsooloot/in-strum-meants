@@ -164,6 +164,17 @@ public final class AudioEngine {
         set { engine.mainMixerNode.outputVolume = max(0, min(1, newValue)) }
     }
 
+    // MARK: - Ambience
+
+    @MainActor
+    public func startAmbience() async {}
+
+    public func setAmbience(_ scene: AmbienceScene) {}
+
+    public var ambienceVolume: Float = 0.25
+
+    public var ambienceEnabled = true
+
     /// Offline rendering, for tests only.
     public func renderOffline(frames: AVAudioFrameCount) throws -> AVAudioPCMBuffer {
         let buffer = AVAudioPCMBuffer(pcmFormat: engine.manualRenderingFormat, frameCapacity: frames)!

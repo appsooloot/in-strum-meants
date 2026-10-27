@@ -31,6 +31,12 @@ final class FakeEngine: InstrumentEngine {
     var moods: [Mood] = []
     func applyPatch(_ patch: Patch) { applied.append(patch) }
     func setMood(_ mood: Mood) { moods.append(mood) }
+    var scenes: [AmbienceScene] = []
+    var ambienceVolume: Float = 0.25
+    var ambienceEnabled = true
+    var ambienceStarts = 0, startedBeforeAmbience = false
+    func startAmbience() async { ambienceStarts += 1; startedBeforeAmbience = started > 0 }
+    func setAmbience(_ s: AmbienceScene) { scenes.append(s) }
 }
 
 @MainActor
@@ -61,6 +67,13 @@ final class AppModelTests: XCTestCase {
         XCTAssertEqual(m.status, .playing(instrumentName: "Splice INSTRUMENT"))
         XCTAssertEqual(engine.loaded, [splice])
         XCTAssertEqual(engine.started, 1)
+    }
+
+    func testLaunchStartsAmbienceAfterSound() async {
+        let m = makeModel()
+        await m.launch(skipPluginInSafeMode: false)
+        XCTAssertEqual(engine.ambienceStarts, 1)
+        XCTAssertTrue(engine.startedBeforeAmbience)
     }
 
     func testFirstLaunchAsksForInstrument() async {

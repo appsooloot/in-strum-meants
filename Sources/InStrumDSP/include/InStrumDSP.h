@@ -57,6 +57,32 @@ void isd_synth_render(ISDSynth *synth, float *left, float *right, int frames);
 void isd_synth_all_notes_off(ISDSynth *synth);
 int isd_synth_active_voices(const ISDSynth *synth);
 
+// ---------- Ambience (generated live, never loops) ----------
+typedef enum {
+    ISD_AMB_WATER, ISD_AMB_CRICKETS, ISD_AMB_BREEZE, ISD_AMB_OWL, ISD_AMB_RAIN_WATER, ISD_AMB_RAIN_GLASS,
+    ISD_AMB_DAWN_CHORUS, ISD_AMB_SHIP_HUM, ISD_AMB_AIR_FLOW, ISD_AMB_CHIME, ISD_AMB_HULL_TICKS, ISD_AMB_WIND,
+    ISD_AMB_COUNT
+} ISDAmbienceSource;
+
+typedef struct ISDAmbience ISDAmbience;
+/// The same seed gives the same ambience.
+ISDAmbience *isd_ambience_create(double sampleRate, int maxFrames, uint64_t seed);
+void isd_ambience_destroy(ISDAmbience *ambience);
+/// Any thread. 0…1; the source glides to it over 2.5 s. Continuous sources sit near −24 dBFS RMS at 1.
+void isd_ambience_set_level(ISDAmbience *ambience, ISDAmbienceSource source, float level);
+/// Any thread. 0 distant (roomy, softer top) … 1 all around you (close, dry, wide).
+void isd_ambience_set_closeness(ISDAmbience *ambience, float closeness);
+/// Any thread. 0…1 while playing: ducks up to 4 dB within half a second, swells back over about 2 s.
+void isd_ambience_set_activity(ISDAmbience *ambience, float activity);
+/// Any thread. 0 warm early night … 1 cool late night (crickets chirp up to 40% slower).
+void isd_ambience_set_night_cool(ISDAmbience *ambience, float cool);
+/// Any thread. 0.5…1.5: multiplies how often things happen (calls, chirps, drops, chimes).
+void isd_ambience_set_density(ISDAmbience *ambience, float density);
+/// Any thread. Thunder rolls in 0.5 s (near) to 6 s (far) later.
+void isd_ambience_trigger_thunder(ISDAmbience *ambience, float distance);
+/// Render thread. Overwrites `left`/`right`.
+void isd_ambience_render(ISDAmbience *ambience, float *left, float *right, int frames);
+
 #ifdef __cplusplus
 }
 #endif
