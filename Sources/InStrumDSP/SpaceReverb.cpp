@@ -36,13 +36,14 @@ SpaceReverb::SpaceReverb(double sampleRate, int /*maxFrames*/) : sr(sampleRate) 
 
 void SpaceReverb::configure(float size, float damping, float predelayMs, float shimmer) {
     size = std::clamp(size, 0.f, 1.f); damping = std::clamp(damping, 0.f, 1.f); shimmer = std::clamp(shimmer, 0.f, 1.f);
-    float rt60 = 1.2f + 6.8f * size;
+    // Shimmer feeds energy back in, so the tank's own decay is shortened a little to keep the total tail similar.
+    float rt60 = (1.2f + 6.8f * size) * (1.f - 0.3f * shimmer);
     float scale = 0.5f + 1.5f * size;
     float cutoff = 1500.f + (1.f - damping) * 14000.f;
     for (int i = 0; i < kLines; ++i) {
         float samples = kBaseMs[i] * 0.001f * (float)sr * scale;
         length[i].setTarget(samples);
-        gain[i] = std::pow(10.f, -3.f * samples / (rt60 * (float)sr)) * (1.f - 0.25f * shimmer);
+        gain[i] = std::pow(10.f, -3.f * samples / (rt60 * (float)sr));
         damp[i].setCutoff(cutoff, sr);
     }
     predelaySamples.setTarget(std::clamp(predelayMs, 0.f, 80.f) * 0.001f * (float)sr);

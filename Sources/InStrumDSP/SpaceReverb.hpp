@@ -22,13 +22,14 @@ private:
         int w = 0;
         void init(int length) { buf.assign((size_t)length, 0.f); w = 0; }
         void write(float x) { buf[(size_t)w] = x; if (++w == (int)buf.size()) w = 0; }
-        /// Linear-interpolated read `d` samples behind the next write.
+        /// Linear-interpolated read of the sample written `d` samples before the most recent one (d ≥ 0).
+        /// Integer and fractional parts are split first so large buffers keep full precision.
         float read(float d) const {
             int n = (int)buf.size();
-            float pos = (float)w - d;
-            while (pos < 0) pos += (float)n;
-            int i0 = (int)pos; float f = pos - (float)i0;
-            int i1 = i0 + 1 == n ? 0 : i0 + 1;
+            float whole = std::floor(d);
+            int id = (int)whole; float f = d - whole;
+            int i0 = w - 1 - id; while (i0 < 0) i0 += n;
+            int i1 = i0 - 1; if (i1 < 0) i1 += n;
             return buf[(size_t)i0] + f * (buf[(size_t)i1] - buf[(size_t)i0]);
         }
         float tap(int d) const { int i = w - d; while (i < 0) i += (int)buf.size(); return buf[(size_t)i]; }
