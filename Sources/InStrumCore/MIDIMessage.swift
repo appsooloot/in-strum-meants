@@ -2,11 +2,14 @@
 public enum MIDIMessage: Equatable {
     /// Velocity is always 1...127; a velocity-0 note-on is reported as `.noteOff`.
     case noteOn(channel: UInt8, note: UInt8, velocity: UInt8)
-    case noteOff(channel: UInt8, note: UInt8)
+    /// Release velocity is kept (64 when the keyboard sends none, e.g. velocity-0 note-on).
+    case noteOff(channel: UInt8, note: UInt8, velocity: UInt8 = 64)
     case controlChange(channel: UInt8, controller: UInt8, value: UInt8)
     /// 0...16383, centre 8192.
     case pitchBend(channel: UInt8, value: UInt16)
-    /// Recognised but unused here (aftertouch, program change).
+    case channelPressure(channel: UInt8, value: UInt8)
+    case polyPressure(channel: UInt8, note: UInt8, value: UInt8)
+    /// Recognised but unused here (program change).
     case other
 }
 
@@ -59,7 +62,9 @@ public struct MIDIParser {
         case 0x90:
             return d[1] == 0 ? .noteOff(channel: ch, note: d[0])
                              : .noteOn(channel: ch, note: d[0], velocity: d[1])
-        case 0x80: return .noteOff(channel: ch, note: d[0])
+        case 0x80: return .noteOff(channel: ch, note: d[0], velocity: d[1])
+        case 0xA0: return .polyPressure(channel: ch, note: d[0], value: d[1])
+        case 0xD0: return .channelPressure(channel: ch, value: d[0])
         case 0xB0: return .controlChange(channel: ch, controller: d[0], value: d[1])
         case 0xE0: return .pitchBend(channel: ch, value: UInt16(d[0]) | (UInt16(d[1]) << 7))
         default: return .other

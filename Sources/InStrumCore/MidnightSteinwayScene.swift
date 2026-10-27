@@ -49,6 +49,8 @@ public struct MidnightSteinwayScene: VisualScene {
             held = .init(repeating: false, count: 88)
             pedalDown = false
             bloom = 0
+        case .control, .pitchBend, .pressure, .release:
+            break
         }
     }
 

@@ -1,0 +1,120 @@
+import Foundation
+
+public enum InputFamily: String, CaseIterable, Codable, CodingKeyRepresentable {
+    case keys, playing, sound, dials, listening
+
+    public var displayName: String {
+        switch self {
+        case .keys: return "Keys"
+        case .playing: return "Playing"
+        case .sound: return "Sound"
+        case .dials: return "Instrument dials"
+        case .listening: return "Listening"
+        }
+    }
+}
+
+/// A named input, e.g. "keys.velocity". The family is the part before the dot.
+public struct InputID: Hashable, Codable, RawRepresentable {
+    public let rawValue: String
+    public init(rawValue: String) { self.rawValue = rawValue }
+    public init(_ raw: String) { rawValue = raw }
+
+    public var family: InputFamily {
+        InputFamily(rawValue: String(rawValue.prefix { $0 != "." })) ?? .keys
+    }
+
+    // Keys
+    public static let velocity = InputID("keys.velocity")
+    public static let held = InputID("keys.held")
+    public static let pedal = InputID("keys.pedal")
+    public static let softPedal = InputID("keys.softPedal")
+    public static let sostenuto = InputID("keys.sostenuto")
+    public static let modWheel = InputID("keys.modWheel")
+    public static let pitchBend = InputID("keys.pitchBend")
+    public static let pressure = InputID("keys.pressure")
+    public static let expression = InputID("keys.expression")
+    public static let releaseSpeed = InputID("keys.releaseSpeed")
+    public static func cc(_ n: UInt8) -> InputID { InputID("keys.cc\(n)") }
+    // Playing
+    public static let busyness = InputID("playing.busyness")
+    public static let direction = InputID("playing.direction")
+    public static let leap = InputID("playing.leap")
+    public static let crescendo = InputID("playing.crescendo")
+    public static let spread = InputID("playing.spread")
+    public static let repetition = InputID("playing.repetition")
+    public static let silence = InputID("playing.silence")
+    public static let chordMajor = InputID("playing.chordMajor")
+    public static let chordMinor = InputID("playing.chordMinor")
+    public static let chordTense = InputID("playing.chordTense")
+    // Sound
+    public static let attack = InputID("sound.attack")
+    public static let brightness = InputID("sound.brightness")
+    public static let ring = InputID("sound.ring")
+    public static let texture = InputID("sound.texture")
+    public static let loudness = InputID("sound.loudness")
+    public static let width = InputID("sound.width")
+    // Dials
+    public static func dial(_ address: UInt64) -> InputID { InputID("dials.\(address)") }
+    // Listening
+    public static let level = InputID("listening.level")
+    public static let bass = InputID("listening.bass")
+    public static let mid = InputID("listening.mid")
+    public static let treble = InputID("listening.treble")
+    public static let beat = InputID("listening.beat")
+}
+
+/// Smoothed input values for one frame. Missing inputs read 0.
+public struct InputFrame {
+    public var values: [InputID: Double]
+    public init(values: [InputID: Double] = [:]) { self.values = values }
+    public subscript(_ id: InputID) -> Double { values[id] ?? 0 }
+}
+
+/// Collects raw inputs and smooths them (fast rise, slower fall). Not thread-safe:
+/// use from one thread (the render loop).
+public final class InputHub {
+    public static let riseTime = 0.03
+    public static let fallTime = 0.25
+
+    private var target: [InputID: Double] = [:]
+    private var current: [InputID: Double] = [:]
+    private var lastTime: Double?
+
+    public init() {}
+
+    /// Sets a held value (pedal, mod wheel, busyness…).
+    public func set(_ id: InputID, _ value: Double, at t: Double) {
+        advance(to: t)
+        target[id] = value
+    }
+
+    /// A momentary value (velocity, beat): jumps up immediately, then fades.
+    public func pulse(_ id: InputID, _ value: Double, at t: Double) {
+        advance(to: t)
+        current[id] = max(current[id] ?? 0, value)
+        target[id] = 0
+    }
+
+    public func frame(at t: Double, listenStrength: Double) -> InputFrame {
+        advance(to: t)
+        var out: [InputID: Double] = [:]
+        for (id, v) in current { out[id] = id.family == .listening ? v * listenStrength : v }
+        return InputFrame(values: out)
+    }
+
+    /// All inputs seen so far (for the mapping editor).
+    public var knownInputs: [InputID] { Array(Set(target.keys).union(current.keys)) }
+
+    private func advance(to t: Double) {
+        guard let last = lastTime else { lastTime = t; return }
+        let dt = t - last
+        guard dt > 0 else { return }
+        lastTime = t
+        for (id, goal) in target {
+            let now = current[id] ?? 0
+            let tau = goal > now ? Self.riseTime : Self.fallTime
+            current[id] = goal + (now - goal) * exp(-dt / tau)
+        }
+    }
+}

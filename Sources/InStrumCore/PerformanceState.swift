@@ -10,6 +10,14 @@ public enum PerformanceEvent: Equatable {
     /// Three or more notes struck within `chordWindow`, sorted ascending.
     case chord(notes: [UInt8])
     case allNotesOff
+    /// Any other controller (mod wheel, expression, knobs…), value 0...1.
+    case control(controller: UInt8, value: Float)
+    /// -1...1, 0 = centre.
+    case pitchBend(Float)
+    /// Aftertouch 0...1.
+    case pressure(Float)
+    /// How quickly a key was let go: 0 slow ... 1 fast.
+    case release(note: UInt8, speed: Float)
 }
 
 /// Tracks held notes, pedal, chords and playing intensity.
@@ -40,10 +48,10 @@ public struct PerformanceState {
             var events: [PerformanceEvent] = [.noteOn(note: note, velocity: velocity)]
             if let chord = detectChord(at: t) { events.append(.chord(notes: chord)) }
             return events
-        case let .noteOff(_, note):
+        case let .noteOff(_, note, velocity):
             heldNotes[note] = nil
             strikeTimes[note] = nil
-            return [.noteOff(note: note)]
+            return [.noteOff(note: note), .release(note: note, speed: Float(velocity) / 127)]
         case let .controlChange(_, controller, value):
             switch controller {
             case 64:
@@ -52,9 +60,13 @@ public struct PerformanceState {
             case 120, 123:
                 return reset()
             default:
-                return []
+                return [.control(controller: controller, value: Float(value) / 127)]
             }
-        case .pitchBend, .other:
+        case let .pitchBend(_, value):
+            return [.pitchBend(max(-1, min(1, (Float(value) - 8192) / 8191)))]
+        case let .channelPressure(_, value), let .polyPressure(_, _, value):
+            return [.pressure(Float(value) / 127)]
+        case .other:
             return []
         }
     }
