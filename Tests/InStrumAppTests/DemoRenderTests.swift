@@ -5,11 +5,12 @@ import AVFoundation
 import InStrumDSP
 
 /// Writes demo audio and spectrograms when DEMO_DIR is set (CI previews and releases).
+@MainActor
 final class DemoRenderTests: XCTestCase {
-    static let rate = 48_000.0
+    nonisolated static let rate = 48_000.0
 
     /// Renders a phrase through the Sound Core (stereo, interleaving left then right).
-    static func render(_ engine: ISDEngine, _ phrase: [(time: Double, message: MIDIMessage)], tail: Double = 4) -> (l: [Float], r: [Float])? {
+    nonisolated static func render(_ engine: ISDEngine, _ phrase: [(time: Double, message: MIDIMessage)], tail: Double = 4) -> (l: [Float], r: [Float])? {
         guard let synth = isd_synth_create(engine, rate, 512) else { return nil }
         defer { isd_synth_destroy(synth) }
         let total = Int(((phrase.last?.time ?? 0) + tail) * rate), block = 256
@@ -30,7 +31,7 @@ final class DemoRenderTests: XCTestCase {
         return (l, r)
     }
 
-    static func writeWAV(_ audio: (l: [Float], r: [Float]), to url: URL) throws {
+    nonisolated static func writeWAV(_ audio: (l: [Float], r: [Float]), to url: URL) throws {
         let format = AVAudioFormat(standardFormatWithSampleRate: rate, channels: 2)!
         let settings: [String: Any] = [AVFormatIDKey: kAudioFormatLinearPCM, AVSampleRateKey: rate, AVNumberOfChannelsKey: 2,
                                        AVLinearPCMBitDepthKey: 24, AVLinearPCMIsFloatKey: false, AVLinearPCMIsBigEndianKey: false]
