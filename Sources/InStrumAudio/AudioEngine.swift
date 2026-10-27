@@ -1,6 +1,7 @@
 import AVFoundation
 import AudioToolbox
 import InStrumCore
+import os
 
 public enum AudioEngineError: Error, Equatable {
     case pluginNotFound(String)
@@ -15,9 +16,8 @@ public final class AudioEngine {
     private let engine = AVAudioEngine()
     private let manualRendering: Bool
     private var instrument: AVAudioUnit?
-    private let lock = NSLock()
-    private var midiBlock: AUScheduleMIDIEventBlock?
-    private var level: Float = 0
+    private struct Shared { var midiBlock: AUScheduleMIDIEventBlock?; var level: Float = 0 }
+    private let shared = OSAllocatedUnfairLock(uncheckedState: Shared())
     private var configObserver: NSObjectProtocol?
 
     public init(manualRendering: Bool = false) {
@@ -60,12 +60,13 @@ public final class AudioEngine {
            let state = try? PropertyListSerialization.propertyList(from: data, format: nil) as? [String: Any] {
             unit.auAudioUnit.fullState = state
         }
-        lock.lock(); midiBlock = nil; lock.unlock()
+        shared.withLockUnchecked { $0.midiBlock = nil }
         if let old = instrument { engine.detach(old) }
         engine.attach(unit)
         engine.connect(unit, to: engine.mainMixerNode, format: nil)
         instrument = unit
-        lock.lock(); midiBlock = unit.auAudioUnit.scheduleMIDIEventBlock; lock.unlock()
+        let block = unit.auAudioUnit.scheduleMIDIEventBlock
+        shared.withLockUnchecked { $0.midiBlock = block }
         if !engine.isRunning { try engine.start() }
     }
 
@@ -75,7 +76,7 @@ public final class AudioEngine {
     }
 
     public func send(_ bytes: [UInt8]) {
-        lock.lock(); let block = midiBlock; lock.unlock()
+        let block = shared.withLockUnchecked { $0.midiBlock }
         guard let block, !bytes.isEmpty else { return }
         bytes.withUnsafeBufferPointer { p in
             block(AUEventSampleTimeImmediate, 0, p.count, p.baseAddress!)
@@ -93,8 +94,7 @@ public final class AudioEngine {
     }
 
     public var audioLevel: Float {
-        lock.lock(); defer { lock.unlock() }
-        return level
+        shared.withLockUnchecked { $0.level }
     }
 
     public var loadedAudioUnit: AUAudioUnit? { instrument?.auAudioUnit }
@@ -130,7 +130,7 @@ public final class AudioEngine {
             var sum: Float = 0
             for i in 0..<n { sum += data[0][i] * data[0][i] }
             let rms = min(1, sqrtf(sum / Float(n)) * 2)
-            self.lock.lock(); self.level = rms; self.lock.unlock()
+            self.shared.withLockUnchecked { $0.level = rms }
         }
     }
 
