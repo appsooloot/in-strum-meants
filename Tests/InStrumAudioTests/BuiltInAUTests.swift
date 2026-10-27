@@ -84,6 +84,7 @@ final class BuiltInAUTests: XCTestCase {
     func testCatalogListsAvailableInstruments() throws {
         let all = BuiltInCatalog.instruments
         XCTAssertTrue(all.contains { $0.name == "Felt Glass" })
+        XCTAssertTrue(all.contains { $0.name == "Orbit Pad" })
         XCTAssertTrue(all.allSatisfy { $0.manufacturer == "In Strum Meants" })
         for info in all {
             let engine = try XCTUnwrap(BuiltInCatalog.engine(for: info.choice()))
@@ -122,13 +123,24 @@ final class BuiltInAUTests: XCTestCase {
         let e = try await makeEngine()
         e.send([0x90, 60, 110])
         _ = try render(e, seconds: 0.2)
-        let next = try choice()   // Orbit Pad once Task 6 lands
+        let next = try choice("Orbit Pad")
         try await e.loadInstrument(next)
         let after = try render(e, seconds: 0.25)
         let finite = after.allSatisfy { $0.isFinite }
         let tail = DSPTestKit.dBFS(after[Int(0.05 * 48_000)...])
         XCTAssertTrue(finite)
         XCTAssertLessThan(tail, -100)
+    }
+
+    func testOrbitPadPlaysThroughTheUnit() async throws {
+        let e = try await makeEngine(rate: 44_100, "Orbit Pad")
+        e.send([0x90, 63, 100])
+        let out = try render(e, seconds: 1.5, block: 512, rate: 44_100)
+        let finite = out.allSatisfy { $0.isFinite }
+        let held = DSPTestKit.dBFS(out[Int(1.0 * 44_100)...])
+        XCTAssertTrue(finite)
+        XCTAssertGreaterThan(held, -45)
+        XCTAssertLessThan(held, -6)
     }
 
     func testMoodReachesTheInstrument() async throws {

@@ -81,17 +81,41 @@ enum DSPTestKit {
         return saa > 0 && sbb > 0 ? sab / (saa * sbb).squareRoot() : 0
     }
 
-    /// Hann-windowed power spectrum of `x` zero-padded to `size` (a power of two).
+    /// Power spectrum of `x` zero-padded to `size` (a power of two), 4-term Blackman–Harris window:
+    /// sidelobes below −92 dB, so a sinusoid's leakage beyond ±5 bins stays near −87 dB (Hann leaks −40 dB past ±3).
     static func powerSpectrum(_ x: [Float], size: Int) -> [Double] {
         var log2n = 0
         while (1 << log2n) < size { log2n += 1 }
         let n = 1 << log2n
         var buf = [Float](repeating: 0, count: n)
         let m = min(x.count, n)
-        var w = [Float](repeating: 0, count: m)
-        vDSP_hann_window(&w, vDSP_Length(m), Int32(vDSP_HANN_NORM))
-        for i in 0..<m { buf[i] = x[i] * w[i] }
+        for i in 0..<m {
+            let t = 2 * Double.pi * Double(i) / Double(max(1, m - 1))
+            let w = 0.35875 - 0.48829 * cos(t) + 0.14128 * cos(2 * t) - 0.01168 * cos(3 * t)
+            buf[i] = x[i] * Float(w)
+        }
         return magnitudes(buf, log2n: log2n).map { Double($0) * Double($0) }
+    }
+
+    /// Power-weighted mean frequency within ±`cents` of `hz` (Hann window, zero-padded to 2^18): the centre of a
+    /// detuned unison cluster, which a single-peak search cannot find while the voices beat.
+    static func clusterCentre(_ x: [Float], sampleRate: Double, near hz: Double, cents: Double = 30) -> Double {
+        let log2n = 18, n = 1 << log2n
+        let count = min(x.count, n)
+        var buf = [Float](repeating: 0, count: n)
+        var w = [Float](repeating: 0, count: count)
+        vDSP_hann_window(&w, vDSP_Length(count), Int32(vDSP_HANN_NORM))
+        for i in 0..<count { buf[i] = x[i] * w[i] }
+        let mags = magnitudes(buf, log2n: log2n)
+        let binHz = sampleRate / Double(n), lo = hz * pow(2, -cents / 1200), hi = hz * pow(2, cents / 1200)
+        var num = 0.0, den = 0.0
+        for (i, m) in mags.enumerated() {
+            let f = Double(i) * binHz
+            guard f >= lo, f <= hi else { continue }
+            let p = Double(m) * Double(m)
+            num += f * p; den += p
+        }
+        return den > 0 ? num / den : 0
     }
 
     static func cents(_ f: Double, _ ref: Double) -> Double { 1200 * log2(f / ref) }
