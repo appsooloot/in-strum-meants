@@ -4,6 +4,7 @@ import AudioToolbox
 @testable import InStrumAudio
 @testable import InStrumCore
 
+@MainActor
 final class AudioEngineTests: XCTestCase {
     let dls = InstrumentChoice(name: "Apple DLS Synth",
                                componentType: kAudioUnitType_MusicDevice,
@@ -88,5 +89,19 @@ final class AudioEngineTests: XCTestCase {
         let e = try await makeEngine()
         e.masterVolume = 0.25
         XCTAssertEqual(e.masterVolume, 0.25, accuracy: 0.001)
+    }
+
+    func testStartTwiceIsHarmless() throws {
+        let e = AudioEngine(manualRendering: true)
+        try e.start()
+        XCTAssertNoThrow(try e.start())
+    }
+
+    func testInstrumentRendersAtOutputRate() async throws {
+        let e = AudioEngine(manualRendering: true, manualSampleRate: 48_000)
+        try e.start()
+        try await e.loadInstrument(dls)
+        let rate = try XCTUnwrap(e.loadedAudioUnit).outputBusses[0].format.sampleRate
+        XCTAssertEqual(rate, 48_000)
     }
 }

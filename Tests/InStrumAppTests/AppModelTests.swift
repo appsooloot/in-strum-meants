@@ -13,9 +13,13 @@ final class FakeEngine: InstrumentEngine {
     var state: Data? = Data([1, 2, 3])
     var audioLevel: Float = 0
     var masterVolume: Float = 0.8
+    var loadDelay: UInt64 = 0
+    var log: [String] = []
 
     func start() throws { started += 1 }
     func loadInstrument(_ choice: InstrumentChoice) async throws {
+        log.append("load")
+        if loadDelay > 0 { try? await Task.sleep(nanoseconds: loadDelay) }
         if let e = loadError { throw e }
         loaded.append(choice)
     }
@@ -156,5 +160,40 @@ final class AppModelTests: XCTestCase {
         m.setVolume(0.3)
         XCTAssertEqual(engine.masterVolume, 0.3, accuracy: 0.001)
         XCTAssertEqual(store.load().masterVolume, 0.3, accuracy: 0.001)
+    }
+
+    private func info(_ name: String, _ sub: UInt32) -> PluginInfo {
+        PluginInfo(id: name, name: name, manufacturer: "Test",
+                   description: AudioComponentDescription(componentType: kAudioUnitType_MusicDevice,
+                                                          componentSubType: sub, componentManufacturer: 0x54455354,
+                                                          componentFlags: 0, componentFlagsMask: 0))
+    }
+
+    func testConcurrentChoosesLoadOnlyOnce() async {
+        let m = makeModel()
+        await m.launch(skipPluginInSafeMode: false)
+        engine.loadDelay = 50_000_000
+        async let a: Void = m.choose(info("One", 1))
+        async let b: Void = m.choose(info("Two", 2))
+        _ = await (a, b)
+        XCTAssertEqual(engine.loaded.count, 1)
+        XCTAssertFalse(m.isLoading)
+    }
+
+    func testLaunchIsIdempotent() async throws {
+        var s = AppSettings.default; s.instrument = splice; try store.save(s)
+        let m = makeModel()
+        await m.launch(skipPluginInSafeMode: false)
+        await m.launch(skipPluginInSafeMode: false)
+        XCTAssertEqual(engine.started, 1)
+        XCTAssertEqual(engine.loaded.count, 1)
+    }
+
+    func testInstrumentChangeClosesPluginWindowFirst() async {
+        let m = makeModel()
+        await m.launch(skipPluginInSafeMode: false)
+        m.willChangeInstrument = { [engine] in engine!.log.append("close-window") }
+        await m.choose(info("One", 1))
+        XCTAssertEqual(engine.log, ["close-window", "load"])
     }
 }
