@@ -1,4 +1,5 @@
 import AVFoundation
+import InStrumCore
 import os
 
 /// One of the instrument's own controls (a knob, slider or switch in its window).
@@ -26,8 +27,8 @@ public final class DialReader {
     public init(audioUnit: AUAudioUnit) {
         let all = audioUnit.parameterTree?.allParameters ?? []
         var params: [UInt64: AUParameter] = [:], infos: [UInt64: DialInfo] = [:], list: [DialInfo] = []
-        // The set's mood is not a dial (it reaches built-in instruments as hidden `mood.*` parameters).
-        for p in all where params[p.address] == nil && !p.identifier.hasPrefix("mood.") {
+        // The set's mood is not a dial (it reaches built-in instruments as hidden mood parameters).
+        for p in all where params[p.address] == nil && !Mood.parameterIdentifiers.contains(p.identifier) {
             let name = p.displayName.isEmpty ? p.identifier : p.displayName
             let info = DialInfo(address: p.address, name: name.isEmpty ? "Dial \(p.address)" : name)
             params[p.address] = p; infos[p.address] = info; list.append(info)

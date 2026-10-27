@@ -18,11 +18,11 @@ const ISDParamInfo kFeltGlassParams[] = {
     {ISD_P_WARMTH, "warmth", "Warmth", 0.f, 1.f, 0.60f, 0},
     {ISD_P_RING, "ring", "Ring", 0.f, 1.f, 0.55f, 0},
     {ISD_P_WIDTH, "width", "Width", 0.f, 1.f, 0.50f, 0},
-    {ISD_P_MOOD_ENERGY, "mood.energy", "Mood energy", 0.f, 1.f, 0.5f, 0},
-    {ISD_P_MOOD_WARMTH, "mood.warmth", "Mood warmth", 0.f, 1.f, 0.5f, 0},
-    {ISD_P_MOOD_BRIGHTNESS, "mood.brightness", "Mood brightness", 0.f, 1.f, 0.5f, 0},
-    {ISD_P_MOOD_SPACE, "mood.space", "Mood space", 0.f, 1.f, 0.5f, 0},
-    {ISD_P_MOOD_MOTION, "mood.motion", "Mood motion", 0.f, 1.f, 0.5f, 0},
+    {ISD_P_MOOD_ENERGY, "moodEnergy", "Mood energy", 0.f, 1.f, 0.5f, 0},
+    {ISD_P_MOOD_WARMTH, "moodWarmth", "Mood warmth", 0.f, 1.f, 0.5f, 0},
+    {ISD_P_MOOD_BRIGHTNESS, "moodBrightness", "Mood brightness", 0.f, 1.f, 0.5f, 0},
+    {ISD_P_MOOD_SPACE, "moodSpace", "Mood space", 0.f, 1.f, 0.5f, 0},
+    {ISD_P_MOOD_MOTION, "moodMotion", "Mood motion", 0.f, 1.f, 0.5f, 0},
 };
 
 struct ParamTable { const ISDParamInfo *items; int count; };

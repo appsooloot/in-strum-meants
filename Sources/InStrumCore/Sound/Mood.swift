@@ -12,8 +12,11 @@ public struct Mood: Codable, Equatable {
     /// Spaceship Lounge.
     public static let dreamy = Mood(energy: 0.35, warmth: 0.3, brightness: 0.5, space: 0.95, motion: 0.6)
 
-    /// Values keyed by the built-in instruments' `mood.*` parameter identifiers.
+    /// The built-in instruments' hidden mood parameters (Audio Unit identifiers can't contain dots).
+    public static let parameterIdentifiers: Set<String> = ["moodEnergy", "moodWarmth", "moodBrightness", "moodSpace", "moodMotion"]
+
+    /// Values keyed by those identifiers.
     public var parameterValues: [String: Double] {
-        ["mood.energy": energy, "mood.warmth": warmth, "mood.brightness": brightness, "mood.space": space, "mood.motion": motion]
+        ["moodEnergy": energy, "moodWarmth": warmth, "moodBrightness": brightness, "moodSpace": space, "moodMotion": motion]
     }
 }

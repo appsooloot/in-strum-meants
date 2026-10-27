@@ -109,6 +109,6 @@ final class FeltGlassTests: XCTestCase {
         let count = Int(isd_synth_param_count(ISD_ENGINE_FELT_GLASS))
         let ids = (0..<count).compactMap { isd_synth_param_info(ISD_ENGINE_FELT_GLASS, Int32($0)) }.map { String(cString: $0.pointee.identifier) }
         XCTAssertEqual(Set(ids), ["fineTune", "transpose", "space", "felt", "glass", "warmth", "ring", "width",
-                                  "mood.energy", "mood.warmth", "mood.brightness", "mood.space", "mood.motion"])
+                                  "moodEnergy", "moodWarmth", "moodBrightness", "moodSpace", "moodMotion"])
     }
 }
