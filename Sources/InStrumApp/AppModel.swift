@@ -20,6 +20,10 @@ public final class AppModel: ObservableObject {
 
     @Published public private(set) var status: Status = .starting
     @Published public private(set) var midiSourceNames: [String] = []
+    /// True while a plugin is being loaded; new choices are ignored until it finishes.
+    @Published public private(set) var isLoading = false
+    /// Called just before the instrument changes (e.g. to close the old plugin's window).
+    public var willChangeInstrument: (@MainActor () -> Void)?
     /// True when the previous run ended without settling (offer Safe Mode before launching).
     public let offersSafeMode: Bool
 
@@ -38,6 +42,7 @@ public final class AppModel: ObservableObject {
     private let store: SettingsStore
     private let launchGuard: LaunchGuard
     private var settings: AppSettings
+    private var launched = false
     private var autosaveTimer: Timer?
     private var terminateObserver: NSObjectProtocol?
 
@@ -51,7 +56,10 @@ public final class AppModel: ObservableObject {
 
     // MARK: - Launch and instruments
 
+    /// Runs once; later calls do nothing.
     public func launch(skipPluginInSafeMode: Bool) async {
+        guard !launched else { return }
+        launched = true
         engine.masterVolume = settings.masterVolume
         do { try engine.start() } catch {
             status = .needsInstrument(message: "Sound output couldn't start. Check your speakers or headphones, then reopen the app.")
@@ -71,10 +79,14 @@ public final class AppModel: ObservableObject {
     }
 
     public func choose(_ plugin: PluginInfo) async {
+        guard !isLoading else { return }
         await load(plugin.choice())
     }
 
     private func load(_ choice: InstrumentChoice) async {
+        isLoading = true
+        defer { isLoading = false }
+        willChangeInstrument?()
         do {
             try await engine.loadInstrument(choice)
         } catch let AudioEngineError.pluginNotFound(name) {

@@ -15,13 +15,15 @@ public final class AudioEngine {
 
     private let engine = AVAudioEngine()
     private let manualRendering: Bool
+    private let manualSampleRate: Double
     private var instrument: AVAudioUnit?
     private struct Shared { var midiBlock: AUScheduleMIDIEventBlock?; var level: Float = 0 }
     private let shared = OSAllocatedUnfairLock(uncheckedState: Shared())
     private var configObserver: NSObjectProtocol?
 
-    public init(manualRendering: Bool = false) {
+    public init(manualRendering: Bool = false, manualSampleRate: Double = 44_100) {
         self.manualRendering = manualRendering
+        self.manualSampleRate = manualSampleRate
     }
 
     deinit {
@@ -30,22 +32,28 @@ public final class AudioEngine {
         engine.stop()
     }
 
+    /// Safe to call more than once.
     public func start() throws {
+        if engine.isRunning { return }
         if manualRendering {
-            let format = AVAudioFormat(standardFormatWithSampleRate: 44_100, channels: 2)!
-            try engine.enableManualRenderingMode(.offline, format: format, maximumFrameCount: 4096)
+            if !engine.isInManualRenderingMode {
+                let format = AVAudioFormat(standardFormatWithSampleRate: manualSampleRate, channels: 2)!
+                try engine.enableManualRenderingMode(.offline, format: format, maximumFrameCount: 4096)
+            }
         } else {
             setOutputBufferSize()
             installLevelTap()
-            configObserver = NotificationCenter.default.addObserver(
+            if configObserver == nil { configObserver = NotificationCenter.default.addObserver(
                 forName: .AVAudioEngineConfigurationChange, object: engine, queue: .main
-            ) { [weak self] _ in self?.restartAfterConfigurationChange() }
+            ) { [weak self] _ in self?.restartAfterConfigurationChange() } }
         }
         _ = engine.mainMixerNode   // make sure the graph has an output path
         engine.prepare()
         try engine.start()
     }
 
+    /// Graph changes and plugin state happen on the main thread.
+    @MainActor
     public func loadInstrument(_ choice: InstrumentChoice) async throws {
         guard let component = PluginCatalog.component(for: choice) else {
             throw AudioEngineError.pluginNotFound(choice.name)
@@ -63,13 +71,14 @@ public final class AudioEngine {
         shared.withLockUnchecked { $0.midiBlock = nil }
         if let old = instrument { engine.detach(old) }
         engine.attach(unit)
-        engine.connect(unit, to: engine.mainMixerNode, format: nil)
+        engine.connect(unit, to: engine.mainMixerNode, format: renderFormat())
         instrument = unit
         let block = unit.auAudioUnit.scheduleMIDIEventBlock
         shared.withLockUnchecked { $0.midiBlock = block }
         if !engine.isRunning { try engine.start() }
     }
 
+    @MainActor
     public func currentInstrumentState() -> Data? {
         guard let state = instrument?.auAudioUnit.fullState else { return nil }
         return try? PropertyListSerialization.data(fromPropertyList: state, format: .binary, options: 0)
@@ -113,6 +122,14 @@ public final class AudioEngine {
 
     // MARK: - Private
 
+    /// Render the instrument at the output device's rate so nothing is resampled.
+    private func renderFormat() -> AVAudioFormat {
+        var rate = manualRendering ? engine.manualRenderingFormat.sampleRate
+                                   : engine.outputNode.outputFormat(forBus: 0).sampleRate
+        if rate <= 0 { rate = 44_100 }
+        return AVAudioFormat(standardFormatWithSampleRate: rate, channels: 2)!
+    }
+
     private func setOutputBufferSize() {
         guard let unit = engine.outputNode.audioUnit else { return }
         var frames = Self.outputBufferFrames
@@ -135,6 +152,10 @@ public final class AudioEngine {
     }
 
     private func restartAfterConfigurationChange() {
+        if let unit = instrument {
+            engine.disconnectNodeOutput(unit)
+            engine.connect(unit, to: engine.mainMixerNode, format: renderFormat())
+        }
         setOutputBufferSize()
         installLevelTap()
         engine.prepare()

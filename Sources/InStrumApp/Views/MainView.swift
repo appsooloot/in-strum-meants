@@ -19,6 +19,7 @@ struct MainView: View {
         }
         .background(Color(red: 0.043, green: 0.035, blue: 0.027))
         .task {
+            model.willChangeInstrument = { PluginWindowController.shared.close() }
             if model.offersSafeMode { showSafeModePrompt = true }
             else { await model.launch(skipPluginInSafeMode: false) }
             volume = model.volume
@@ -56,7 +57,7 @@ struct MainView: View {
             Divider().frame(height: 18)
             Text(statusText).font(.system(size: 14, weight: .medium)).lineLimit(1)
             Spacer()
-            Button("Choose Instrument") { showPicker = true }
+            Button("Choose Instrument") { showPicker = true }.disabled(model.isLoading)
             Button("Open Plugin Window") {
                 if let unit = audio.loadedAudioUnit, case let .playing(name) = model.status {
                     PluginWindowController.shared.show(audioUnit: unit, title: name) { model.autosave() }

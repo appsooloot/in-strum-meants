@@ -44,7 +44,7 @@ struct InstrumentPicker: View {
                             if case .playing = model.status { isPresented = false }
                         }
                     }
-                    .disabled(loading != nil)
+                    .disabled(loading != nil || model.isLoading)
                 }
                 .padding(.vertical, 2)
             }

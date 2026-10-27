@@ -34,7 +34,7 @@ public struct InStrumMeantsApp: App {
     }
 
     public var body: some Scene {
-        WindowGroup("In Strum Meants") {
+        Window("In Strum Meants", id: "main") {
             MainView(model: container.model, audio: container.audio)
                 .frame(minWidth: 900, minHeight: 560)
                 .preferredColorScheme(.dark)

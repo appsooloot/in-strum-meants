@@ -59,7 +59,14 @@ struct OnScreenKeyboard: View {
     private func installMonitor() {
         guard monitor == nil else { return }
         monitor = NSEvent.addLocalMonitorForEvents(matching: [.keyDown, .keyUp]) { event in
-            if NSApp.keyWindow?.firstResponder is NSText { return event }   // typing in a text field
+            let route = MainActor.assumeIsolated {
+                KeyRouting.shouldPlay(
+                    inPluginWindow: PluginWindowController.shared.owns(event.window),
+                    inSheet: event.window?.isSheet ?? false,
+                    hasCommandControlOrOption: !event.modifierFlags.intersection([.command, .control, .option]).isEmpty,
+                    typingInTextField: event.window?.firstResponder is NSText)
+            }
+            if !route { return event }
             guard let ch = event.charactersIgnoringModifiers?.first else { return event }
             if event.type == .keyDown {
                 if event.isARepeat { return nil }
