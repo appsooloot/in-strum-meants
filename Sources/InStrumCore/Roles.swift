@@ -2,8 +2,8 @@
 public enum Role: String, CaseIterable, Codable, CodingKeyRepresentable {
     case energy, size, motion, direction, brightness, warmth, colorShift, linger, density, atmosphere, chaos
 
-    /// Direction is signed (-1...1); every other role is 0...1.
-    public var isSigned: Bool { self == .direction }
+    /// Direction, warmth and colour shift are signed (-1...1, 0 = neutral); the rest are 0...1.
+    public var isSigned: Bool { self == .direction || self == .warmth || self == .colorShift }
 
     public var displayName: String {
         switch self {
