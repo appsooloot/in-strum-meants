@@ -69,6 +69,7 @@ final class ThemeCanvas: NSObject, MTKViewDelegate {
         hub.set(.texture, sound.texture, at: now)
         hub.set(.loudness, sound.loudness, at: now)
         hub.set(.width, sound.width, at: now)
+        for (address, value) in model.drainDialChanges() { hub.set(.dial(address), value, at: now) }
         let level = autoQuality.record(frameTime: dt)
         let frame = director.step(dt: dt, t: now, quality: level)
 

@@ -162,7 +162,7 @@ struct MappingEditorView: View {
             Toggle("", isOn: Binding(get: { link.enabled }, set: { on in update(MappingEdits.edit(map, link: link.id) { $0.enabled = on }) }))
                 .labelsHidden()
             Picker("", selection: Binding(get: { link.input }, set: { i in update(MappingEdits.edit(map, link: link.id) { $0.input = i }) })) {
-                ForEach(MappingEdits.inputs(seen: [link.input]), id: \.self) { Text($0.displayName).tag($0) }
+                ForEach(model.mappingInputs(inUse: [link.input]), id: \.self) { Text(model.inputName($0)).tag($0) }
             }
             .labelsHidden().frame(width: 180)
             Image(systemName: "arrow.right").foregroundStyle(.secondary)

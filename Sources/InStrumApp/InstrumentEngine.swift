@@ -1,3 +1,4 @@
+import AVFoundation
 import Foundation
 import InStrumCore
 import InStrumAudio
@@ -13,10 +14,12 @@ public protocol InstrumentEngine: AnyObject {
     var masterVolume: Float { get set }
     var bufferFrames: UInt32 { get set }
     var soundReading: SoundReading { get }
+    var loadedAudioUnit: AUAudioUnit? { get }
 }
 
 public extension InstrumentEngine {
     var soundReading: SoundReading { SoundReading() }
+    var loadedAudioUnit: AUAudioUnit? { nil }
 }
 
 extension AudioEngine: InstrumentEngine {}

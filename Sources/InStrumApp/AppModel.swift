@@ -51,6 +51,14 @@ public final class AppModel: ObservableObject {
     }
     nonisolated private let live = OSAllocatedUnfairLock(uncheckedState: Live())
 
+    /// The loaded instrument's own dials (knobs/sliders in its window).
+    @Published public private(set) var dials: [DialInfo] = []
+    /// Dials moved since the instrument loaded (offered first in the mapping editor).
+    @Published public private(set) var movedDials: [UInt64] = []
+    private var dialReader: DialReader?
+    private struct DialLive { var pending: [UInt64: Double] = [:]; var moved: [UInt64] = [] }
+    nonisolated private let dialLive = OSAllocatedUnfairLock(uncheckedState: DialLive())
+
     private let store: SettingsStore
     private let launchGuard: LaunchGuard
     private var settings: AppSettings
@@ -121,6 +129,7 @@ public final class AppModel: ObservableObject {
             return
         }
         settings.instrument = choice
+        watchDials()
         status = .playing(instrumentName: choice.name)
         autosave()
         let launchGuard = self.launchGuard
@@ -173,6 +182,51 @@ public final class AppModel: ObservableObject {
 
     public nonisolated var audioLevel: Float { engine.audioLevel }
     public nonisolated var soundReading: SoundReading { engine.soundReading }
+
+    private func watchDials() {
+        dialReader = nil
+        let live = dialLive
+        live.withLockUnchecked { $0 = DialLive() }
+        movedDials = []
+        guard let unit = engine.loadedAudioUnit else { dials = []; return }
+        let reader = DialReader(audioUnit: unit)
+        let initial = reader.currentValues()
+        live.withLockUnchecked { $0.pending = initial }
+        reader.onChange = { info, value in
+            live.withLockUnchecked { l in
+                l.pending[info.address] = value
+                if !l.moved.contains(info.address) { l.moved.append(info.address) }
+            }
+        }
+        dialReader = reader
+        dials = reader.dials
+    }
+
+    /// Dial positions that changed since the last call (the renderer feeds them to the visuals).
+    public func drainDialChanges() -> [UInt64: Double] {
+        let (pending, moved) = dialLive.withLockUnchecked { l -> ([UInt64: Double], [UInt64]) in
+            let p = l.pending
+            l.pending.removeAll(keepingCapacity: true)
+            return (p, l.moved)
+        }
+        if moved.count != movedDials.count { movedDials = moved }
+        return pending
+    }
+
+    /// Friendly name for any input, including this instrument's dials.
+    public func inputName(_ id: InputID) -> String {
+        if id.rawValue.hasPrefix("dials."), let a = UInt64(id.rawValue.dropFirst("dials.".count)),
+           let d = dials.first(where: { $0.address == a }) {
+            return "Instrument: \(d.name)"
+        }
+        return id.displayName
+    }
+
+    /// Inputs offered in the mapping editor: built-ins, dials you've moved (or all, if there are few), and any in use.
+    public func mappingInputs(inUse: [InputID]) -> [InputID] {
+        let dialIDs = (dials.count <= 40 ? dials.map(\.address) : movedDials).map { InputID.dial($0) }
+        return MappingEdits.inputs(seen: inUse + dialIDs)
+    }
 
     // MARK: - Settings
 
