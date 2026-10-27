@@ -1,0 +1,204 @@
+import Metal
+import simd
+import CoreGraphics
+import InStrumCore
+
+/// Draws a GardenFrame into the render stack.
+@MainActor
+final class ButterflyRenderer: ThemeRenderer {
+    struct Sprite { var pos: SIMD4<Float>; var a: SIMD4<Float>; var b: SIMD4<Float> }
+    struct KeyInstance { var rect: SIMD4<Float>; var info: SIMD4<Float> }
+
+    static let screenSize: Float = 0.028
+    static let particleCounts: [QualityLevel: (pollen: Int, petals: Int, fireflies: Int)] = [
+        .lite: (300, 60, 40), .high: (900, 180, 90), .ultra: (2400, 400, 160),
+    ]
+    static let skies: [String: (top: SIMD3<Float>, horizon: SIMD3<Float>, night: Float)] = [
+        "Dawn": (SIMD3(0.42, 0.45, 0.70), SIMD3(1.0, 0.66, 0.55), 0),
+        "Morning": (SIMD3(0.35, 0.60, 0.92), SIMD3(0.85, 0.92, 0.98), 0),
+        "Golden Hour": (SIMD3(0.45, 0.55, 0.80), SIMD3(1.0, 0.72, 0.38), 0),
+        "Dusk": (SIMD3(0.20, 0.18, 0.42), SIMD3(0.98, 0.50, 0.42), 0),
+        "Moonlight": (SIMD3(0.02, 0.03, 0.09), SIMD3(0.08, 0.12, 0.25), 1),
+    ]
+    static let grades = ["Natural", "Warm Film", "Cool Film", "Dreamy", "Vivid"]
+    static let finishes = ["Lacquer", "Satin", "Ivory", "Brushed metal", "Gold", "Pearl"]
+
+    private let device: MTLDevice
+    private let sky, wings, blooms, trails, particles, keys: MTLRenderPipelineState
+    private var uniforms = [SIMD4<Float>](repeating: .zero, count: 9)
+    private var butterflySprites: [Sprite] = []
+    private var bloomSprites: [Sprite] = []
+    private var trailSprites: [Sprite] = []
+    private var keyInstances: [KeyInstance] = []
+    private var particleCount = 0
+    private var history: [Int: [SIMD3<Float>]] = [:]
+    private var limiter = FlashLimiter()
+    private(set) var post = PostSettings()
+
+    init?(device: MTLDevice) {
+        guard let lib = try? device.makeLibrary(source: ButterflyShaders.source, options: nil) else { return nil }
+        enum Blend { case none, alpha, add }
+        func make(_ v: String, _ f: String, _ blend: Blend, writeDepth: Bool) -> MTLRenderPipelineState? {
+            let d = MTLRenderPipelineDescriptor()
+            d.vertexFunction = lib.makeFunction(name: v)
+            d.fragmentFunction = lib.makeFunction(name: f)
+            d.colorAttachments[0].pixelFormat = RenderStack.sceneFormat
+            d.colorAttachments[1].pixelFormat = RenderStack.depthFormat
+            if !writeDepth { d.colorAttachments[1].writeMask = [] }
+            let c = d.colorAttachments[0]!
+            switch blend {
+            case .none: break
+            case .alpha:
+                c.isBlendingEnabled = true
+                c.sourceRGBBlendFactor = .sourceAlpha; c.destinationRGBBlendFactor = .oneMinusSourceAlpha
+                c.sourceAlphaBlendFactor = .one; c.destinationAlphaBlendFactor = .oneMinusSourceAlpha
+            case .add:
+                c.isBlendingEnabled = true
+                c.sourceRGBBlendFactor = .one; c.destinationRGBBlendFactor = .one
+                c.sourceAlphaBlendFactor = .zero; c.destinationAlphaBlendFactor = .one
+            }
+            return try? device.makeRenderPipelineState(descriptor: d)
+        }
+        guard let s = make("sky_vertex", "sky_fragment", .none, writeDepth: true),
+              let w = make("sprite_vertex", "butterfly_fragment", .alpha, writeDepth: true),
+              let b = make("sprite_vertex", "bloom_fragment", .alpha, writeDepth: true),
+              let t = make("sprite_vertex", "trail_fragment", .add, writeDepth: false),
+              let p = make("particle_vertex", "particle_fragment", .add, writeDepth: false),
+              let k = make("keys_vertex", "keys_fragment", .none, writeDepth: true) else { return nil }
+        self.device = device
+        sky = s; wings = w; blooms = b; trails = t; particles = p; keys = k
+    }
+
+    func update(_ f: GardenFrame, params p: ParameterSet, quality: QualityLevel, gentle: Bool, dt: Double, size: CGSize) {
+        limiter.gentle = gentle
+        let limited = limiter.limit(exposure: f.exposure, sparkle: f.pollen, dt: dt)
+        let keysShow = p.number("keys.show") > 0.5
+        let keyTop = keysShow ? Float(p.number("keys.height")) : 0
+        let sky = Self.skies[f.timeOfDay] ?? Self.skies["Golden Hour"]!
+        let sunX = Float(0.15 + 0.7 * p.number("sun.angle"))
+        let sunY = keyTop + (1 - keyTop) * (0.3 + f.sunHeight * 0.75)
+        let counts = Self.particleCounts[quality]!
+        let petals = f.petals > 0.01 ? counts.petals : 0
+        let fireflies = f.fireflies > 0.01 ? counts.fireflies : 0
+        particleCount = counts.pollen + petals + fireflies
+        let glowColor = p.color("keys.glowColor")
+        let finish = Float(Self.finishes.firstIndex(of: p.choice("keys.finish")) ?? 0)
+        uniforms = [
+            SIMD4(Float(size.width), Float(size.height), Float(f.time), keyTop),
+            SIMD4(sunX, sunY, f.rays, f.mist),
+            SIMD4(sky.top, sky.night),
+            SIMD4(sky.horizon, Float(p.number("foliage"))),
+            SIMD4(f.breeze.x, limited.sparkle, f.petals, f.fireflies),
+            SIMD4(f.cameraZoom, f.cameraOffset.x, f.cameraOffset.y, Float(p.number("parallax"))),
+            SIMD4(Float(p.number("wings.iridescence")), Float(p.number("wings.shimmer")), Float(p.number("trail.glow")), keysShow ? 1 : 0),
+            SIMD4(Float(counts.pollen), Float(petals), Float(fireflies), limited.exposure),
+            SIMD4(Float(glowColor.r), Float(glowColor.g), Float(glowColor.b), finish),
+        ]
+
+        // Butterflies, far to near; two wings each.
+        let sorted = f.butterflies.sorted { $0.position.z > $1.position.z }
+        butterflySprites.removeAll(keepingCapacity: true)
+        for b in sorted {
+            let s = Self.screenSize * b.size * (1.25 - 0.5 * b.position.z)
+            let pos = SIMD4(b.position, s)
+            let a = SIMD4(b.hue, b.flapPhase, Float(b.style), b.glow)
+            let seed = Float(b.id % 997) / 997
+            butterflySprites.append(Sprite(pos: pos, a: a, b: SIMD4(b.opacity, b.landed ? 1 : 0, -1, seed)))
+            butterflySprites.append(Sprite(pos: pos, a: a, b: SIMD4(b.opacity, b.landed ? 1 : 0, 1, seed)))
+        }
+
+        // Trails from recent positions.
+        let trailLength = Int((p.number("trail.length") * 14).rounded())
+        var alive = Set<Int>()
+        trailSprites.removeAll(keepingCapacity: true)
+        for b in f.butterflies {
+            alive.insert(b.id)
+            var h = history[b.id] ?? []
+            h.append(b.position)
+            if h.count > max(trailLength, 1) { h.removeFirst(h.count - max(trailLength, 1)) }
+            history[b.id] = h
+            guard trailLength > 0, !b.landed else { continue }
+            for (i, pos) in h.dropLast().enumerated() {
+                let age = Float(h.count - 1 - i) / Float(max(trailLength, 1))
+                let s = Self.screenSize * b.size * 0.22 * (1 - age * 0.6)
+                trailSprites.append(Sprite(pos: SIMD4(pos, s), a: SIMD4(b.hue, 0, 0, 0),
+                                           b: SIMD4((1 - age) * 0.5 * Float(p.number("trail.glow")) * b.opacity, 0, 0, 0)))
+            }
+        }
+        history = history.filter { alive.contains($0.key) }
+
+        // Blooms on the meadow.
+        bloomSprites = f.blooms.map { bl in
+            let seed = (bl.x * 97).truncatingRemainder(dividingBy: 1)
+            let z = 0.3 + 0.3 * seed
+            return Sprite(pos: SIMD4(bl.x, 0.04 + 0.08 * seed, z, 0.045 * (0.6 + 0.6 * bl.openness) * (1.2 - z)),
+                          a: SIMD4(bl.hue, bl.openness, Float(bl.kind), seed),
+                          b: SIMD4(min(1, bl.openness * 3), 0, 0, 0))
+        }
+
+        // Keys.
+        keyInstances.removeAll(keepingCapacity: true)
+        if keysShow {
+            let top = -1 + 2 * keyTop, bottom: Float = -0.995, gap: Float = 0.0015
+            for k in f.keys {
+                let x0 = -0.995 + k.key.x * 1.99 + gap, x1 = -0.995 + (k.key.x + k.key.width) * 1.99 - gap
+                let y0 = k.key.isBlack ? top - (top - bottom) * 0.62 : bottom
+                keyInstances.append(KeyInstance(rect: SIMD4(x0, y0, x1, top),
+                                                info: SIMD4(k.key.isBlack ? 1 : 0, k.glow, k.pressed ? 1 : 0, 0)))
+            }
+        }
+
+        post = PostSettings(
+            bloom: Float(p.number("glow")) * 1.1 + 0.15,
+            bloomThreshold: 0.85,
+            dof: Float(p.number("dof")),
+            focusDepth: 0.35,
+            grade: Self.grades.firstIndex(of: p.choice("grade")) ?? 0,
+            grain: Float(p.number("grain")),
+            vignette: 0.35,
+            exposure: limited.exposure,
+            warmth: f.warmth,
+            time: Float(f.time),
+            quality: quality)
+    }
+
+    private func buffer<T>(_ items: [T]) -> MTLBuffer? {
+        guard !items.isEmpty else { return nil }
+        return items.withUnsafeBytes { device.makeBuffer(bytes: $0.baseAddress!, length: $0.count, options: .storageModeShared) }
+    }
+
+    func render(stack: RenderStack, commandBuffer cb: MTLCommandBuffer) {
+        guard let pass = stack.scenePass(clear: MTLClearColor(red: 0, green: 0, blue: 0, alpha: 1)),
+              let e = cb.makeRenderCommandEncoder(descriptor: pass) else { return }
+        var u = uniforms
+        let uLen = u.count * MemoryLayout<SIMD4<Float>>.stride
+        e.setRenderPipelineState(sky)
+        e.setFragmentBytes(&u, length: uLen, index: 0)
+        e.drawPrimitives(type: .triangle, vertexStart: 0, vertexCount: 3)
+
+        func sprites(_ list: [Sprite], _ pipeline: MTLRenderPipelineState) {
+            guard let b = buffer(list) else { return }
+            e.setRenderPipelineState(pipeline)
+            e.setVertexBuffer(b, offset: 0, index: 0)
+            e.setVertexBytes(&u, length: uLen, index: 1)
+            e.setFragmentBytes(&u, length: uLen, index: 0)
+            e.drawPrimitives(type: .triangle, vertexStart: 0, vertexCount: 6, instanceCount: list.count)
+        }
+        sprites(bloomSprites, blooms)
+        sprites(trailSprites, trails)
+        sprites(butterflySprites, wings)
+
+        if particleCount > 0 {
+            e.setRenderPipelineState(particles)
+            e.setVertexBytes(&u, length: uLen, index: 0)
+            e.drawPrimitives(type: .triangle, vertexStart: 0, vertexCount: 6, instanceCount: particleCount)
+        }
+        if let kb = buffer(keyInstances) {
+            e.setRenderPipelineState(keys)
+            e.setVertexBuffer(kb, offset: 0, index: 0)
+            e.setFragmentBytes(&u, length: uLen, index: 0)
+            e.drawPrimitives(type: .triangle, vertexStart: 0, vertexCount: 6, instanceCount: keyInstances.count)
+        }
+        e.endEncoding()
+    }
+}
