@@ -42,7 +42,7 @@ enum MidnightSteinwayShaders {
             col += amber * bloom * 0.15 * exp(-h * 18.0);
         }
         col += float3(1.0, 0.78, 0.5) * ambience * 0.05 * (1.2 - abs(p.y));
-        col += float3(1.0, 0.8, 0.55) * u.style.w * 0.06 * (1.0 - abs(p.y - 0.2));
+        col += float3(1.0, 0.8, 0.55) * u.style.w * 0.025 * (1.0 - abs(p.y - 0.2));
         ColorDepth o; o.color = float4(col, 1.0); o.depth = float4(0.5, 0, 0, 1);
         return o;
     }
@@ -79,7 +79,7 @@ enum MidnightSteinwayShaders {
         }
         float edge = 1.0 - smoothstep(0.0, 0.16, min(min(uv.x, 1.0 - uv.x), min(uv.y, 1.0 - uv.y)));
         col = mix(col, amber, glow * (isBlack > 0.5 ? 0.35 : 0.22));
-        col += amber * glow * edge * 0.8;
+        col += amber * glow * edge * 1.6;
         ColorDepth o; o.color = float4(col, 1.0); o.depth = float4(0.3, 0, 0, 1);
         return o;
     }

@@ -54,8 +54,8 @@ final class SteinwayRenderer: ThemeRenderer {
             instances.append(SIMD4(k.key.isBlack ? 1 : 0, k.glow, k.pressed ? 1 : 0, Float(f.finish)))
         }
         keyCount = f.scene.keys.count
-        post = PostSettings(bloom: 0.4 + 0.6 * f.bloom, bloomThreshold: 0.7, dof: 0, focusDepth: 0.4, grade: 0,
-                            grain: 0.06, vignette: 0.45, exposure: limited.exposure * 1.15, warmth: f.warmth * 0.4,
+        post = PostSettings(bloom: 0.25 + 0.5 * f.bloom, bloomThreshold: 1.1, dof: 0, focusDepth: 0.4, grade: 0,
+                            grain: 0.05, vignette: 0.45, exposure: limited.exposure, warmth: f.warmth * 0.3,
                             time: Float(f.time), quality: quality)
     }
 
