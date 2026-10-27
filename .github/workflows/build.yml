@@ -33,6 +33,11 @@ jobs:
       - uses: actions/checkout@v5
       - name: Render preview frames
         run: PREVIEW_DIR="$PWD/previews" swift test --filter "PreviewRenderTests|ShaderPreviewArtTests" 2>&1 | tee preview.log; exit ${PIPESTATUS[0]}
+      - name: Render icon and installer art
+        run: |
+          brew install librsvg >/dev/null
+          rsvg-convert -w 512 -h 512 Packaging/AppIcon.svg -o previews/app-icon.png
+          rsvg-convert -w 1320 -h 800 Packaging/dmg-background.svg -o previews/dmg-background.png
       - name: Publish to previews branch
         env:
           GH_TOKEN: ${{ github.token }}
@@ -56,8 +61,14 @@ jobs:
       contents: write
     steps:
       - uses: actions/checkout@v5
+      - name: Packaging tools
+        run: |
+          brew install librsvg >/dev/null
+          pip3 install --break-system-packages --quiet dmgbuild || pip3 install --quiet dmgbuild
       - name: Build app
         run: Scripts/make-app.sh "$GITHUB_RUN_NUMBER" 2>&1 | tee package.log; exit ${PIPESTATUS[0]}
+      - name: Build installer
+        run: Scripts/make-dmg.sh "$GITHUB_RUN_NUMBER" 2>&1 | tee -a package.log; exit ${PIPESTATUS[0]}
       - name: Check it is an Intel app for macOS 13+
         run: |
           BIN="dist/In Strum Meants.app/Contents/MacOS/InStrumMeants"

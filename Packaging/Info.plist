@@ -13,5 +13,8 @@
     <key>LSApplicationCategoryType</key><string>public.app-category.music</string>
     <key>NSHighResolutionCapable</key><true/>
     <key>NSPrincipalClass</key><string>NSApplication</string>
+    <key>CFBundleIconFile</key><string>AppIcon</string>
+    <key>NSSupportsAutomaticGraphicsSwitching</key><true/>
+    <key>NSMicrophoneUsageDescription</key><string>In Strum Meants listens to the microphone only when you turn on Listen → Microphone, so the visuals can react to music in the room.</string>
 </dict>
 </plist>
