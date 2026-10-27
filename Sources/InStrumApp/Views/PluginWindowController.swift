@@ -1,5 +1,6 @@
 import AppKit
 import AVFoundation
+import CoreAudioKit
 
 /// Shows an instrument plugin's own window (e.g. Splice INSTRUMENT's preset browser).
 @MainActor
