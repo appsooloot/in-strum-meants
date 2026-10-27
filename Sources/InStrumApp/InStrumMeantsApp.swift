@@ -15,7 +15,8 @@ final class AppContainer: ObservableObject {
             .appendingPathComponent("In Strum Meants", isDirectory: true)
         audio = AudioEngine()
         model = AppModel(engine: audio, store: SettingsStore(directory: support),
-                         launchGuard: LaunchGuard(directory: support))
+                         launchGuard: LaunchGuard(directory: support),
+                         presets: PresetStore(directory: support.appendingPathComponent("Presets", isDirectory: true)))
         let model = self.model
         midi = try? MIDIInput(
             onBytes: { bytes, time in model.handleMIDI(bytes: bytes, time: time) },

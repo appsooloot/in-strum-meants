@@ -24,7 +24,7 @@ final class ThemeCanvas: NSObject, MTKViewDelegate {
         self.queue = queue
         self.stack = stack
         self.director = SceneDirector(themeID: model.themeID, state: model.themeState(for: model.themeID),
-                                      reaction: ReactionPresets.expressivePianist)
+                                      reaction: model.reaction)
         self.autoQuality = AutoQuality(setting: model.quality)
         super.init()
     }
@@ -47,6 +47,7 @@ final class ThemeCanvas: NSObject, MTKViewDelegate {
             director.parameters = ThemeRegistry.parameterSet(for: director.themeID, state: model.themeState(for: director.themeID))
         }
         autoQuality.setting = model.quality
+        director.reaction = model.reaction
     }
 
     @MainActor

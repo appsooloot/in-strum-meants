@@ -29,6 +29,10 @@ public final class AppModel: ObservableObject {
     @Published public private(set) var visualsVersion = 0
     @Published public private(set) var quality: QualitySetting
     @Published public private(set) var gentleVisuals: Bool
+    /// Name of the active reaction style ("Custom" after editing the mapping).
+    @Published public private(set) var reactionName: String
+    public private(set) var reaction: ReactionMap
+    public let presets: PresetStore
     /// Called just before the instrument changes (e.g. to close the old plugin's window).
     public var willChangeInstrument: (@MainActor () -> Void)?
     /// True when the previous run ended without settling (offer Safe Mode before launching).
@@ -54,7 +58,8 @@ public final class AppModel: ObservableObject {
     private var autosaveTimer: Timer?
     private var terminateObserver: NSObjectProtocol?
 
-    public init(engine: InstrumentEngine, store: SettingsStore, launchGuard: LaunchGuard) {
+    public init(engine: InstrumentEngine, store: SettingsStore, launchGuard: LaunchGuard, presets: PresetStore) {
+        self.presets = presets
         self.engine = engine
         self.store = store
         self.launchGuard = launchGuard
@@ -64,6 +69,10 @@ public final class AppModel: ObservableObject {
         self.themeID = ThemeRegistry.resolve(loaded.themeID)
         self.quality = loaded.quality
         self.gentleVisuals = loaded.gentleVisuals
+        self.reactionName = loaded.reactionName
+        self.reaction = loaded.reaction
+            ?? ReactionPresets.all.first { $0.name == loaded.reactionName }?.map
+            ?? ReactionPresets.expressivePianist
         self.offersSafeMode = launchGuard.beginLaunch()
         live.withLockUnchecked { $0.touch = loaded.touchCurve }
     }
@@ -214,6 +223,63 @@ public final class AppModel: ObservableObject {
 
     public func setGentleVisuals(_ on: Bool) {
         gentleVisuals = on; settings.gentleVisuals = on; visualsVersion += 1; autosave()
+    }
+
+    // MARK: - Presets
+
+    public func allReactions() -> [ReactionPreset] {
+        ReactionPresets.all + presets.reactions().filter { p in !ReactionPresets.all.contains { $0.name == p.name } }
+    }
+
+    public func setReaction(_ preset: ReactionPreset) {
+        reaction = preset.map
+        reactionName = preset.name
+        settings.reaction = preset.map
+        settings.reactionName = preset.name
+        visualsVersion += 1
+        autosave()
+    }
+
+    /// Used by the mapping editor; the style becomes "Custom" until saved.
+    public func setReactionMap(_ map: ReactionMap) {
+        reaction = map
+        reactionName = "Custom"
+        settings.reaction = map
+        settings.reactionName = "Custom"
+        visualsVersion += 1
+        scheduleSave()
+    }
+
+    public func saveReaction(named name: String) {
+        let preset = ReactionPreset(name: name, map: reaction)
+        try? presets.save(preset)
+        setReaction(preset)
+    }
+
+    public func lookPresets() -> [LookPreset] {
+        let builtIn = themeID == ButterflyGardenModel.id ? ButterflyGardenModel.builtInLooks : []
+        return builtIn + presets.looks(for: themeID).filter { p in !builtIn.contains { $0.name == p.name } }
+    }
+
+    public func applyLook(_ look: LookPreset) {
+        var state = look.state
+        state.lookPresetName = look.name
+        saveThemeState(state, for: look.themeID)
+    }
+
+    public func saveLook(named name: String) {
+        var state = themeState(for: themeID)
+        state.lookPresetName = name
+        try? presets.save(LookPreset(name: name, themeID: themeID, state: state))
+        saveThemeState(state, for: themeID)
+    }
+
+    /// A random, tasteful look for the current theme (macros kept).
+    public func surprise() {
+        let current = themeState(for: themeID)
+        var state = Surprise.look(specs: ThemeRegistry.parameters(for: themeID), seed: UInt64.random(in: 1...UInt64.max))
+        state.macros = current.macros
+        saveThemeState(state, for: themeID)
     }
 
     private var saveTask: Task<Void, Never>?

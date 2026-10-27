@@ -29,12 +29,15 @@ public struct AppSettings: Codable, Equatable {
     public var themeStates: [String: ThemeState] = [:]
     public var quality: QualitySetting = .auto
     public var gentleVisuals: Bool = false
+    /// The active reaction style; nil means the built-in named by `reactionName`.
+    public var reaction: ReactionMap?
+    public var reactionName: String = "Expressive Pianist"
 
     public static let `default` = AppSettings()
 
     public init() {}
 
-    enum CodingKeys: String, CodingKey { case instrument, themeID, masterVolume, touchCurve, bufferFrames, themeStates, quality, gentleVisuals }
+    enum CodingKeys: String, CodingKey { case instrument, themeID, masterVolume, touchCurve, bufferFrames, themeStates, quality, gentleVisuals, reaction, reactionName }
 
     public init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
@@ -47,6 +50,8 @@ public struct AppSettings: Codable, Equatable {
         themeStates = (try? c.decodeIfPresent([String: ThemeState].self, forKey: .themeStates)) ?? d.themeStates
         quality = (try? c.decodeIfPresent(QualitySetting.self, forKey: .quality)) ?? d.quality
         gentleVisuals = (try? c.decodeIfPresent(Bool.self, forKey: .gentleVisuals)) ?? d.gentleVisuals
+        reaction = try? c.decodeIfPresent(ReactionMap.self, forKey: .reaction)
+        reactionName = (try? c.decodeIfPresent(String.self, forKey: .reactionName)) ?? d.reactionName
     }
 }
 

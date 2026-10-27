@@ -17,6 +17,9 @@ struct SettingsPanel: View {
                     }
                     .labelsHidden()
                 }
+                section("Presets") {
+                    PresetBar(model: model)
+                }
                 section("Feel") {
                     ForEach(Macro.allCases, id: \.self) { m in
                         VStack(alignment: .leading, spacing: 2) {
