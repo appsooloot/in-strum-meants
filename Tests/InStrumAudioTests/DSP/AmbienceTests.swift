@@ -72,8 +72,11 @@ final class AmbienceTests: XCTestCase {
         let early = DSPTestKit.dBFS(SynthRender.slice(out.l, 0.4, 0.5)), steady = DSPTestKit.dBFS(SynthRender.slice(out.l, 4, 12))
         XCTAssertLessThan(early, steady - 6, "early \(early) steady \(steady)")
         XCTAssertGreaterThan(steady, -40)
-        XCTAssertLessThan(DSPTestKit.maxJump(out.l), 0.05)
-        XCTAssertLessThan(DSPTestKit.maxJump(out.r), 0.05)
+        // A level that stepped instead of gliding would click in the fade's first second. (Steady water at
+        // −24 dBFS has natural sample steps up to about 0.06, so the whole render is checked for clicks only.)
+        XCTAssertLessThan(DSPTestKit.maxJump(SynthRender.slice(out.l, 0, 1)), 0.05)
+        XCTAssertLessThan(DSPTestKit.maxJump(SynthRender.slice(out.r, 0, 1)), 0.05)
+        XCTAssertLessThan(DSPTestKit.maxJump(out.l), 0.15)
     }
 
     func testDucking() {

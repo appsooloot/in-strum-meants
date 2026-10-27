@@ -99,6 +99,7 @@ public final class AppModel: ObservableObject {
             status = .needsInstrument(message: "Sound output couldn't start. Check your speakers or headphones, then reopen the app.")
             return
         }
+        await engine.startAmbience()
         startAutosave()
         if offersSafeMode && skipPluginInSafeMode {
             status = .safeMode

@@ -15,6 +15,10 @@ public final class AudioEngine {
     private let engine = AVAudioEngine()
     /// The instrument plays into its own bus; the level and sound-character tap listen here, so ambience never counts.
     private let instrumentBus = AVAudioMixerNode()
+    /// Ambience plays on its own bus straight into the main mixer.
+    private let ambienceBus = AVAudioMixerNode()
+    private var ambienceUnit: AVAudioUnit?
+    private var ambienceScene = AmbienceScene.silent
     private let manualRendering: Bool
     private let manualSampleRate: Double
     private var instrument: AVAudioUnit?
@@ -23,6 +27,7 @@ public final class AudioEngine {
         var level: Float = 0
         var analyzer: SoundCharacterAnalyzer?
         var held = Set<UInt16>()   // channel << 8 | note
+        var ambience: AmbienceAU?
     }
     private let shared = OSAllocatedUnfairLock(uncheckedState: Shared())
     private var configObserver: NSObjectProtocol?
@@ -62,7 +67,7 @@ public final class AudioEngine {
             engine.attach(instrumentBus)
             engine.connect(instrumentBus, to: engine.mainMixerNode, format: renderFormat())
         }
-        if !manualRendering { installLevelTap() }
+        installLevelTap()
         engine.prepare()
         try engine.start()
     }
@@ -92,7 +97,8 @@ public final class AudioEngine {
            let state = try? PropertyListSerialization.propertyList(from: data, format: nil) as? [String: Any] {
             unit.auAudioUnit.fullState = state
         }
-        shared.withLockUnchecked { $0.midiBlock = nil; $0.held.removeAll() }
+        let ambience = shared.withLockUnchecked { s -> AmbienceAU? in s.midiBlock = nil; s.held.removeAll(); return s.ambience }
+        ambience?.setPlaying(false)
         if let old = instrument { engine.detach(old) }
         engine.attach(unit)
         engine.connect(unit, to: instrumentBus, format: renderFormat())
@@ -135,12 +141,13 @@ public final class AudioEngine {
         let isOn = status == 0x90 && bytes[2] > 0
         let isOff = status == 0x80 || (status == 0x90 && bytes[2] == 0)
         guard isOn || isOff else { return }
-        let (analyzer, released) = shared.withLockUnchecked { s -> (SoundCharacterAnalyzer?, Bool) in
+        let (analyzer, released, ambience) = shared.withLockUnchecked { s -> (SoundCharacterAnalyzer?, Bool, AmbienceAU?) in
             let had = !s.held.isEmpty
             if isOn { s.held.insert(key) } else { s.held.remove(key) }
-            return (s.analyzer, had && s.held.isEmpty)
+            return (s.analyzer, had && s.held.isEmpty, s.ambience)
         }
         if isOn { analyzer?.noteOn() } else if released { analyzer?.noteOff() }
+        if isOn || released { ambience?.setPlaying(isOn) }
     }
 
     /// Silences everything: pedal up, all notes off, all sound off.
@@ -166,14 +173,47 @@ public final class AudioEngine {
 
     // MARK: - Ambience
 
+    /// Attaches the ambience generator on its own bus. Safe to call more than once.
     @MainActor
-    public func startAmbience() async {}
+    public func startAmbience() async {
+        guard ambienceUnit == nil else { return }
+        BuiltInCatalog.registerAll()
+        guard let unit = try? await AVAudioUnit.instantiate(with: BuiltInCatalog.ambienceDescription, options: []),
+              let au = unit.auAudioUnit as? AmbienceAU else { return }
+        if ambienceBus.engine == nil {
+            engine.attach(ambienceBus)
+            engine.connect(ambienceBus, to: engine.mainMixerNode, format: renderFormat())
+        }
+        engine.attach(unit)
+        engine.connect(unit, to: ambienceBus, format: renderFormat())
+        ambienceUnit = unit
+        au.enabled = ambienceEnabled
+        au.setScene(ambienceScene)
+        let playing = shared.withLockUnchecked { s -> Bool in s.ambience = au; return !s.held.isEmpty }
+        au.setPlaying(playing)
+        updateAmbienceBus()
+        if !engine.isRunning { try? engine.start() }
+    }
 
-    public func setAmbience(_ scene: AmbienceScene) {}
+    /// What the world wants to hear; every change glides over at least 2 s.
+    public func setAmbience(_ scene: AmbienceScene) {
+        ambienceScene = scene
+        ambienceUnit.flatMap { $0.auAudioUnit as? AmbienceAU }?.setScene(scene)
+    }
 
-    public var ambienceVolume: Float = 0.25
+    /// 0…1 (default 25%).
+    public var ambienceVolume: Float = 0.25 { didSet { updateAmbienceBus() } }
 
-    public var ambienceEnabled = true
+    public var ambienceEnabled = true {
+        didSet {
+            ambienceUnit.flatMap { $0.auAudioUnit as? AmbienceAU }?.enabled = ambienceEnabled
+            updateAmbienceBus()
+        }
+    }
+
+    private func updateAmbienceBus() {
+        ambienceBus.outputVolume = ambienceEnabled ? max(0, min(1, ambienceVolume)) : 0
+    }
 
     /// Offline rendering, for tests only.
     public func renderOffline(frames: AVAudioFrameCount) throws -> AVAudioPCMBuffer {
@@ -224,6 +264,12 @@ public final class AudioEngine {
         if let unit = instrument {
             engine.disconnectNodeOutput(unit)
             engine.connect(unit, to: instrumentBus, format: renderFormat())
+        }
+        if let unit = ambienceUnit {
+            engine.disconnectNodeOutput(ambienceBus)
+            engine.connect(ambienceBus, to: engine.mainMixerNode, format: renderFormat())
+            engine.disconnectNodeOutput(unit)
+            engine.connect(unit, to: ambienceBus, format: renderFormat())
         }
         setOutputBufferSize()
         installLevelTap()
