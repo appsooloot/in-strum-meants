@@ -16,7 +16,12 @@ public final class AudioEngine {
     private let manualRendering: Bool
     private let manualSampleRate: Double
     private var instrument: AVAudioUnit?
-    private struct Shared { var midiBlock: AUScheduleMIDIEventBlock?; var level: Float = 0 }
+    private struct Shared {
+        var midiBlock: AUScheduleMIDIEventBlock?
+        var level: Float = 0
+        var analyzer: SoundCharacterAnalyzer?
+        var held = Set<UInt16>()   // channel << 8 | note
+    }
     private let shared = OSAllocatedUnfairLock(uncheckedState: Shared())
     private var configObserver: NSObjectProtocol?
 
@@ -94,6 +99,27 @@ public final class AudioEngine {
         bytes.withUnsafeBufferPointer { p in
             block(AUEventSampleTimeImmediate, 0, p.count, p.baseAddress!)
         }
+        trackNotes(bytes)
+    }
+
+    /// What the instrument currently sounds like (sharp/smooth, bright/dark, ...).
+    public var soundReading: SoundReading {
+        shared.withLockUnchecked { $0.analyzer }?.reading ?? SoundReading()
+    }
+
+    /// Tells the sound analyser when notes start and when everything is released.
+    private func trackNotes(_ bytes: [UInt8]) {
+        guard bytes.count >= 3 else { return }
+        let status = bytes[0] & 0xF0, key = UInt16(bytes[0] & 0x0F) << 8 | UInt16(bytes[1])
+        let isOn = status == 0x90 && bytes[2] > 0
+        let isOff = status == 0x80 || (status == 0x90 && bytes[2] == 0)
+        guard isOn || isOff else { return }
+        let (analyzer, released) = shared.withLockUnchecked { s -> (SoundCharacterAnalyzer?, Bool) in
+            let had = !s.held.isEmpty
+            if isOn { s.held.insert(key) } else { s.held.remove(key) }
+            return (s.analyzer, had && s.held.isEmpty)
+        }
+        if isOn { analyzer?.noteOn() } else if released { analyzer?.noteOff() }
     }
 
     /// Silences everything: pedal up, all notes off, all sound off.
@@ -144,6 +170,9 @@ public final class AudioEngine {
     private func installLevelTap() {
         let mixer = engine.mainMixerNode
         mixer.removeTap(onBus: 0)
+        let rate = mixer.outputFormat(forBus: 0).sampleRate
+        let analyzer = SoundCharacterAnalyzer(sampleRate: rate > 0 ? rate : 44_100)
+        shared.withLockUnchecked { $0.analyzer = analyzer }
         mixer.installTap(onBus: 0, bufferSize: 512, format: nil) { [weak self] buffer, _ in
             guard let self, let data = buffer.floatChannelData else { return }
             let n = Int(buffer.frameLength)
@@ -152,6 +181,8 @@ public final class AudioEngine {
             for i in 0..<n { sum += data[0][i] * data[0][i] }
             let rms = min(1, sqrtf(sum / Float(n)) * 2)
             self.shared.withLockUnchecked { $0.level = rms }
+            let right = buffer.format.channelCount > 1 ? data[1] : data[0]
+            analyzer.process(left: data[0], right: right, frames: n)
         }
     }
 

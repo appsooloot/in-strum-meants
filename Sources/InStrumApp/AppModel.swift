@@ -172,6 +172,7 @@ public final class AppModel: ObservableObject {
     }
 
     public nonisolated var audioLevel: Float { engine.audioLevel }
+    public nonisolated var soundReading: SoundReading { engine.soundReading }
 
     // MARK: - Settings
 

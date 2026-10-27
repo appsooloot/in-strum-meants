@@ -1,6 +1,7 @@
 import MetalKit
 import QuartzCore
 import InStrumCore
+import InStrumAudio
 
 /// Runs the active theme every frame: events → director → theme renderer → finishing → screen.
 final class ThemeCanvas: NSObject, MTKViewDelegate {
@@ -60,6 +61,14 @@ final class ThemeCanvas: NSObject, MTKViewDelegate {
         let dt = min(0.1, max(0, now - lastTime))
         lastTime = now
         director.handle(model.drainEvents(), at: now)
+        let sound = model.soundReading
+        let hub = director.hub
+        hub.set(.attack, sound.attack, at: now)
+        hub.set(.brightness, sound.brightness, at: now)
+        hub.set(.ring, sound.ring, at: now)
+        hub.set(.texture, sound.texture, at: now)
+        hub.set(.loudness, sound.loudness, at: now)
+        hub.set(.width, sound.width, at: now)
         let level = autoQuality.record(frameTime: dt)
         let frame = director.step(dt: dt, t: now, quality: level)
 
