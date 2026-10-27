@@ -62,17 +62,28 @@ enum ButterflyShaders {
         float x = uv.x * aspect;
         float keyTop = u.a.w;
         float horizon = keyTop + (1.0 - keyTop) * 0.2;
-        float crowns = fbm(float2(x * 5.0, 3.1)) * 0.55 + 0.45 * abs(sin(x * 9.0 + fbm(float2(x * 2.0, 1.0)) * 4.0));
-        float line = horizon + (0.04 + 0.12 * crowns) * (0.35 + d);
+        // tree crowns: rounded bumps of varied size, with leafy fuzz along the edge
+        float cell = floor(x * 7.0);
+        float fx = fract(x * 7.0) - 0.5;
+        float crown = 0.0;
+        for (int k = -1; k <= 1; k++) {
+            float c = cell + float(k);
+            float hgt = 0.35 + 0.65 * hash11(c * 3.7);
+            float wid = 0.45 + 0.4 * hash11(c * 9.1);
+            float dx = (fx - float(k)) / wid;
+            crown = max(crown, hgt * sqrt(max(0.0, 1.0 - dx * dx)));
+        }
+        float fuzz = (fbm(float2(x * 40.0, uv.y * 40.0)) - 0.5) * 0.025;
+        float line = horizon + (0.03 + 0.11 * crown) * (0.35 + d) + fuzz;
         float back = step(keyTop, uv.y) * smoothstep(line + 0.003, line - 0.003, uv.y);
         float sway = 0.012 * sin(t * 0.6) + 0.02 * u.air.x * sin(t * 0.9 + uv.y * 3.0);
-        float leafNoise = fbm(float2(x * 6.0 + sway * 8.0, uv.y * 6.0));
+        float leafNoise = fbm(float2(x * 6.0 + sway * 8.0, uv.y * 6.0)) + (fbm(float2(x * 34.0, uv.y * 34.0) + sway * 20.0) - 0.5) * 0.35;
         float reach = 0.22 + 0.33 * d;
         float rL = length((uv - float2(0.0, 1.06)) * float2(aspect * 0.55, 1.0));
         float rR = length((uv - float2(1.0, 1.06)) * float2(aspect * 0.55, 1.0));
         float canopy = max(smoothstep(reach + 0.015, reach - 0.015, rL + (leafNoise - 0.5) * 0.5),
                            smoothstep(reach + 0.015, reach - 0.015, rR + (fbm(float2(x * 6.0 + 9.0 - sway * 8.0, uv.y * 6.0)) - 0.5) * 0.5));
-        float holes = smoothstep(0.6, 0.68, fbm(float2(x * 16.0, uv.y * 16.0) + sway * 4.0));
+        float holes = smoothstep(0.62, 0.7, fbm(float2(x * 22.0, uv.y * 22.0) + sway * 4.0));
         canopy *= 1.0 - holes * 0.95;
         return float2(back, canopy);
     }
@@ -122,10 +133,13 @@ enum ButterflyShaders {
             col += sunCol * shafts * u.sun.z * 0.9 * (1.0 - fm.y * 0.7);
         }
         // tree line (hazy, aerial perspective) and canopy (deep green, backlit edges)
-        float3 treeCol = mix(float3(0.06, 0.12, 0.07), u.skyHorizon.rgb * 0.45, 0.45) * (1.0 - night * 0.5);
-        col = mix(col, treeCol, fm.x * 0.95);
+        float treeShade = 0.75 + 0.5 * fbm(float2(uv.x * aspect * 25.0, uv.y * 25.0));
+        float3 treeCol = mix(float3(0.035, 0.075, 0.05), u.skyHorizon.rgb * 0.3, 0.32) * treeShade * (1.0 - night * 0.5);
+        col = mix(col, treeCol, fm.x * 0.97);
         float backlight = exp(-r * 2.2) * (1.0 - night);
-        float3 leafCol = mix(float3(0.025, 0.06, 0.03), float3(0.35, 0.5, 0.12) * sunCol, backlight * 0.8 + 0.1 * fbm(uv * 30.0));
+        float leafVar = fbm(float2(uv.x * aspect * 45.0, uv.y * 45.0));
+        float3 leafCol = mix(float3(0.02, 0.05, 0.025), float3(0.1, 0.2, 0.06), leafVar);
+        leafCol = mix(leafCol, float3(0.45, 0.6, 0.15) * sunCol, backlight * (0.4 + 0.6 * leafVar));
         col = mix(col, leafCol * (1.0 - night * 0.55), fm.y);
         // meadow
         float meadowTop = keyTop + (1.0 - keyTop) * 0.16;
