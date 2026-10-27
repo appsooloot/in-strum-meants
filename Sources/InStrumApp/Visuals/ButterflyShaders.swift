@@ -17,6 +17,7 @@ enum ButterflyShaders {
         float4 look;       // iridescence, shimmer, trailGlow, keysShow
         float4 counts;     // pollenCount, petalCount, fireflyCount, exposureHint
         float4 keyGlow;    // rgb, finish index
+        float4 perf;       // shaftSteps, noiseOctaves (by quality)
     };
 
     struct ColorDepth { float4 color [[color(0)]]; float4 depth [[color(1)]]; };
@@ -33,6 +34,11 @@ enum ButterflyShaders {
         float v = 0.0, a = 0.5;
         for (int i = 0; i < 5; i++) { v += a * noise(p); p = p * 2.03 + 17.0; a *= 0.5; }
         return v;
+    }
+    float fbmN(int oct, float2 p) {
+        float v = 0.0, a = 0.5;
+        for (int i = 0; i < oct; i++) { v += a * noise(p); p = p * 2.03 + 17.0; a *= 0.5; }
+        return v + a * 0.5;   // keep the average brightness when octaves are dropped
     }
     float3 hsv(float h, float s, float v) {
         float3 k = clamp(abs(fract(h + float3(0.0, 2.0 / 3.0, 1.0 / 3.0)) * 6.0 - 3.0) - 1.0, 0.0, 1.0);
@@ -56,7 +62,7 @@ enum ButterflyShaders {
     }
 
     // x = distant tree line, y = overhanging canopy (0...1 each)
-    float2 foliageMask(float2 uv, constant SceneU& u, float t) {
+    float2 foliageMask(float2 uv, constant SceneU& u, float t, int oct) {
         float d = u.skyHorizon.w;
         float aspect = u.a.x / u.a.y;
         float x = uv.x * aspect;
@@ -73,17 +79,17 @@ enum ButterflyShaders {
             float dx = (fx - float(k)) / wid;
             crown = max(crown, hgt * sqrt(max(0.0, 1.0 - dx * dx)));
         }
-        float fuzz = (fbm(float2(x * 40.0, uv.y * 40.0)) - 0.5) * 0.025;
+        float fuzz = (fbmN(oct, float2(x * 40.0, uv.y * 40.0)) - 0.5) * 0.025;
         float line = horizon + (0.03 + 0.11 * crown) * (0.35 + d) + fuzz;
         float back = step(keyTop, uv.y) * smoothstep(line + 0.003, line - 0.003, uv.y);
         float sway = 0.012 * sin(t * 0.6) + 0.02 * u.air.x * sin(t * 0.9 + uv.y * 3.0);
-        float leafNoise = fbm(float2(x * 6.0 + sway * 8.0, uv.y * 6.0)) + (fbm(float2(x * 34.0, uv.y * 34.0) + sway * 20.0) - 0.5) * 0.35;
+        float leafNoise = fbmN(oct, float2(x * 6.0 + sway * 8.0, uv.y * 6.0)) + (fbmN(oct, float2(x * 34.0, uv.y * 34.0) + sway * 20.0) - 0.5) * 0.35;
         float reach = 0.22 + 0.33 * d;
         float rL = length((uv - float2(0.0, 1.06)) * float2(aspect * 0.55, 1.0));
         float rR = length((uv - float2(1.0, 1.06)) * float2(aspect * 0.55, 1.0));
         float canopy = max(smoothstep(reach + 0.015, reach - 0.015, rL + (leafNoise - 0.5) * 0.5),
-                           smoothstep(reach + 0.015, reach - 0.015, rR + (fbm(float2(x * 6.0 + 9.0 - sway * 8.0, uv.y * 6.0)) - 0.5) * 0.5));
-        float holes = smoothstep(0.62, 0.7, fbm(float2(x * 22.0, uv.y * 22.0) + sway * 4.0));
+                           smoothstep(reach + 0.015, reach - 0.015, rR + (fbmN(oct, float2(x * 6.0 + 9.0 - sway * 8.0, uv.y * 6.0)) - 0.5) * 0.5));
+        float holes = smoothstep(0.62, 0.7, fbmN(oct, float2(x * 22.0, uv.y * 22.0) + sway * 4.0));
         canopy *= 1.0 - holes * 0.95;
         return float2(back, canopy);
     }
@@ -94,11 +100,13 @@ enum ButterflyShaders {
         float aspect = u.a.x / u.a.y;
         float keyTop = u.a.w;
         float night = u.skyTop.w;
+        int oct = int(u.perf.y);
+        int steps = int(u.perf.x);
         float h = clamp((uv.y - keyTop) / (1.0 - keyTop), 0.0, 1.0);
         float3 col = h < 0.38 ? mix(u.skyHorizon.rgb, u.skyMid.rgb, smoothstep(0.0, 0.38, h))
                               : mix(u.skyMid.rgb, u.skyTop.rgb, smoothstep(0.38, 1.0, h));
         // wispy clouds, lit from below at golden hour
-        float clouds = fbm(float2(uv.x * aspect * 2.2 + t * 0.008, uv.y * 7.0 - t * 0.002));
+        float clouds = fbmN(oct, float2(uv.x * aspect * 2.2 + t * 0.008, uv.y * 7.0 - t * 0.002));
         float cloudMask = smoothstep(0.58, 0.82, clouds) * smoothstep(0.3, 0.6, h);
         col = mix(col, mix(u.skyMid.rgb, float3(1.0, 0.92, 0.85), 0.5) * (1.0 - night * 0.8) + 0.02, cloudMask * 0.55);
         // sun or moon
@@ -115,29 +123,38 @@ enum ButterflyShaders {
             col += float3(0.9, 0.95, 1.0) * star * 1.8 * smoothstep(0.25, 0.6, h);
         }
         // light beams through the leaves
-        float2 fm = foliageMask(uv, u, t);
+        float2 fm = foliageMask(uv, u, t, oct);
         if (u.sun.z > 0.01) {
-            float2 stepv = (sp - uv) / 28.0;
-            float2 p = uv;
-            float lit = 0.0, decay = 1.0;
-            for (int i = 0; i < 28; i++) {
-                p += stepv;
-                float2 m = foliageMask(p, u, t);
-                lit += (1.0 - max(m.x, m.y)) * decay;
-                decay *= 0.95;
+            float lit;
+            if (steps > 0) {
+                // March toward the sun through the leaves (cheap noise unless Ultra).
+                int marchOct = steps >= 28 ? oct : 2;
+                float2 stepv = (sp - uv) / float(steps);
+                float2 p = uv;
+                float decay = 1.0, total = 0.0;
+                lit = 0.0;
+                for (int i = 0; i < steps; i++) {
+                    p += stepv;
+                    float2 m = foliageMask(p, u, t, marchOct);
+                    lit += (1.0 - max(m.x, m.y)) * decay;
+                    total += decay;
+                    decay *= 0.95;
+                }
+                lit = lit / max(total, 1e-3) * 1.1;
+            } else {
+                lit = 0.9 * (1.0 - max(fm.x, fm.y));   // Smooth: no march
             }
-            lit /= 14.0;
             float ang = atan2(dv.y, dv.x);
-            float beams = pow(0.5 + 0.5 * sin(ang * 13.0 + fbm(float2(ang * 3.0, t * 0.03)) * 6.0), 5.0);
+            float beams = pow(0.5 + 0.5 * sin(ang * 13.0 + fbmN(oct, float2(ang * 3.0, t * 0.03)) * 6.0), 5.0);
             float shafts = lit * (0.25 + beams * 0.9) * exp(-r * 1.5);
             col += sunCol * shafts * u.sun.z * (night > 0.5 ? 0.55 : 0.9) * (1.0 - fm.y * 0.7);
         }
         // tree line (hazy, aerial perspective) and canopy (deep green, backlit edges)
-        float treeShade = 0.75 + 0.5 * fbm(float2(uv.x * aspect * 25.0, uv.y * 25.0));
+        float treeShade = 0.75 + 0.5 * fbmN(oct, float2(uv.x * aspect * 25.0, uv.y * 25.0));
         float3 treeCol = mix(float3(0.03, 0.07, 0.045), u.skyHorizon.rgb * 0.22, 0.25) * treeShade * (1.0 - night * 0.5);
         col = mix(col, treeCol, fm.x * 0.97);
         float backlight = exp(-r * 2.2) * (1.0 - night);
-        float leafVar = fbm(float2(uv.x * aspect * 45.0, uv.y * 45.0));
+        float leafVar = fbmN(oct, float2(uv.x * aspect * 45.0, uv.y * 45.0));
         float3 leafCol = mix(float3(0.02, 0.05, 0.025), float3(0.1, 0.2, 0.06), leafVar);
         leafCol = mix(leafCol, float3(0.45, 0.6, 0.15) * sunCol, backlight * (0.4 + 0.6 * leafVar));
         col = mix(col, leafCol * (1.0 - night * 0.55), fm.y);
@@ -145,7 +162,7 @@ enum ButterflyShaders {
         float meadowTop = keyTop + (1.0 - keyTop) * 0.16;
         if (uv.y < meadowTop + 0.02) {
             float mh = clamp((meadowTop - uv.y) / (meadowTop - keyTop + 1e-4), 0.0, 1.0);
-            float blades = fbm(float2(uv.x * aspect * 70.0 + sin(t * 0.7 + uv.x * 9.0) * 0.4 * u.air.x, uv.y * 9.0));
+            float blades = fbmN(oct, float2(uv.x * aspect * 70.0 + sin(t * 0.7 + uv.x * 9.0) * 0.4 * u.air.x, uv.y * 9.0));
             float3 grass = mix(float3(0.22, 0.36, 0.12), float3(0.05, 0.12, 0.04), mh) * (0.65 + 0.55 * blades);
             grass = mix(grass, grass * u.skyHorizon.rgb * 1.4, 0.3) * (1.0 - night * 0.7);
             float edge = smoothstep(0.0, 0.015, meadowTop - uv.y + (blades - 0.5) * 0.035);

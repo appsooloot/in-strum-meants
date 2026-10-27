@@ -20,6 +20,9 @@ struct MetalCanvas: NSViewRepresentable {
         view.enableSetNeedsDisplay = false
         view.isPaused = false
         view.framebufferOnly = true
+        // The canvas picks the drawable size per quality; the screen scales it up smoothly.
+        view.autoResizeDrawable = false
+        view.layer?.magnificationFilter = .linear
         let canvas = ThemeCanvas(view: view, model: model)
         view.delegate = canvas
         context.coordinator.canvas = canvas

@@ -46,12 +46,14 @@ struct SettingsPanel: View {
                 }
                 section("Display") {
                     Picker("Quality", selection: Binding(get: { model.quality }, set: { model.setQuality($0) })) {
+                        Text("Smooth").tag(QualitySetting.lite)
                         Text("Auto").tag(QualitySetting.auto)
-                        Text("Lite").tag(QualitySetting.lite)
                         Text("High").tag(QualitySetting.high)
                         Text("Ultra").tag(QualitySetting.ultra)
                     }
                     .pickerStyle(.segmented)
+                    Text("Smooth is fastest with the lowest latency. Auto starts smooth and steps up when your Mac keeps up. If frames ever stall, the visuals drop to Smooth on their own.")
+                        .font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
                     Toggle("Gentle visuals (softer flashes and sparkle)",
                            isOn: Binding(get: { model.gentleVisuals }, set: { model.setGentleVisuals($0) }))
                 }

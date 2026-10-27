@@ -13,8 +13,9 @@ final class ThemeCanvas: NSObject, MTKViewDelegate {
     private var butterfly: ButterflyRenderer?
     private var steinway: SteinwayRenderer?
     private var autoQuality: AutoQuality
-    private var lastTime = CACurrentMediaTime()
+    private var lastTime: CFTimeInterval = 0
     private var seenVersion = -1
+    private var level: QualityLevel = .lite
 
     @MainActor
     init?(view: MTKView, model: AppModel) {
@@ -55,11 +56,18 @@ final class ThemeCanvas: NSObject, MTKViewDelegate {
     private func drawFrame(_ view: MTKView) {
         syncSettings()
         guard let stack else { return }
+        let now = CACurrentMediaTime()
+        let frameTime = lastTime == 0 ? 0 : max(0, now - lastTime)
+        let dt = min(0.1, frameTime)
+        lastTime = now
+        level = autoQuality.record(frameTime: frameTime)
+        let backing = view.window?.backingScaleFactor ?? 2
+        let px = RenderScale.pixels(points: (Double(view.bounds.width), Double(view.bounds.height)),
+                                    backingScale: Double(backing), quality: level)
+        let wanted = CGSize(width: px.width, height: px.height)
+        if view.drawableSize != wanted { view.drawableSize = wanted }
         let size = view.drawableSize
         stack.resize(width: Int(size.width), height: Int(size.height))
-        let now = CACurrentMediaTime()
-        let dt = min(0.1, max(0, now - lastTime))
-        lastTime = now
         director.handle(model.drainEvents(), at: now)
         let sound = model.soundReading
         let hub = director.hub
@@ -70,7 +78,6 @@ final class ThemeCanvas: NSObject, MTKViewDelegate {
         hub.set(.loudness, sound.loudness, at: now)
         hub.set(.width, sound.width, at: now)
         for (address, value) in model.drainDialChanges() { hub.set(.dial(address), value, at: now) }
-        let level = autoQuality.record(frameTime: dt)
         let frame = director.step(dt: dt, t: now, quality: level)
 
         let renderer: ThemeRenderer?

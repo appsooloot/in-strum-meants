@@ -13,6 +13,9 @@ final class ButterflyRenderer: ThemeRenderer {
     static let particleCounts: [QualityLevel: (pollen: Int, petals: Int, fireflies: Int)] = [
         .lite: (300, 60, 40), .high: (900, 180, 90), .ultra: (2400, 400, 160),
     ]
+    /// Sun-shaft march steps and sky noise detail per quality (Smooth skips the march).
+    static let shaftSteps: [QualityLevel: Int] = [.lite: 0, .high: 10, .ultra: 28]
+    static let noiseOctaves: [QualityLevel: Int] = [.lite: 3, .high: 4, .ultra: 5]
     static let skies: [String: (top: SIMD3<Float>, mid: SIMD3<Float>, horizon: SIMD3<Float>, night: Float)] = [
         "Dawn": (SIMD3(0.35, 0.42, 0.72), SIMD3(0.9, 0.62, 0.7), SIMD3(1.3, 0.85, 0.7), 0),
         "Morning": (SIMD3(0.25, 0.5, 0.95), SIMD3(0.55, 0.75, 1.0), SIMD3(0.95, 0.98, 1.0), 0),
@@ -25,7 +28,7 @@ final class ButterflyRenderer: ThemeRenderer {
 
     private let device: MTLDevice
     private let sky, wings, blooms, trails, particles, keys: MTLRenderPipelineState
-    private var uniforms = [SIMD4<Float>](repeating: .zero, count: 10)
+    private var uniforms = [SIMD4<Float>](repeating: .zero, count: 11)
     private var butterflySprites: [Sprite] = []
     private var bloomSprites: [Sprite] = []
     private var trailSprites: [Sprite] = []
@@ -94,6 +97,7 @@ final class ButterflyRenderer: ThemeRenderer {
             SIMD4(Float(p.number("wings.iridescence")), Float(p.number("wings.shimmer")), Float(p.number("trail.glow")), keysShow ? 1 : 0),
             SIMD4(Float(counts.pollen), Float(petals), Float(fireflies), limited.exposure),
             SIMD4(Float(glowColor.r), Float(glowColor.g), Float(glowColor.b), finish),
+            SIMD4(Float(Self.shaftSteps[quality] ?? 0), Float(Self.noiseOctaves[quality] ?? 3), 0, 0),
         ]
 
         // Butterflies, far to near; two wings each.

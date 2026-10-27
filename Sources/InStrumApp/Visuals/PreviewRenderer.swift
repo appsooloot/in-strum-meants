@@ -28,7 +28,7 @@ final class PreviewRenderer {
 
     /// Simulates the demo performance at 60 fps through the app's SceneDirector and captures
     /// a frame of `themeID` at each time (seconds).
-    func render(themeID: String, at times: [Double], state: ThemeState = ThemeState()) -> [CGImage] {
+    func render(themeID: String, at times: [Double], state: ThemeState = ThemeState(), quality: QualityLevel = .high) -> [CGImage] {
         let director = SceneDirector(themeID: themeID, state: state, reaction: ReactionPresets.expressivePianist)
         var perf = PerformanceState()
         let script = ScriptedPerformance.demo
@@ -46,15 +46,15 @@ final class PreviewRenderer {
                     next += 1
                 }
                 director.handle(events, at: time)
-                let frame = director.step(dt: dt, t: time, quality: .high)
+                let frame = director.step(dt: dt, t: time, quality: quality)
                 let size = CGSize(width: width, height: height)
                 if let g = frame as? GardenFrame {
                     if garden == nil { garden = ButterflyRenderer(device: device) }
-                    garden?.update(g, params: director.parameters, quality: .high, gentle: false, dt: dt, size: size)
+                    garden?.update(g, params: director.parameters, quality: quality, gentle: false, dt: dt, size: size)
                     current = garden
                 } else if let f = frame as? SteinwayFrame {
                     if steinway == nil { steinway = SteinwayRenderer(device: device) }
-                    steinway?.update(f, quality: .high, gentle: false, dt: dt)
+                    steinway?.update(f, quality: quality, gentle: false, dt: dt)
                     current = steinway
                 }
                 if time + dt > t { break }
