@@ -46,34 +46,69 @@ final class FlashLimiterTests: XCTestCase {
 }
 
 final class AutoQualityTests: XCTestCase {
-    func testAutoStartsHigh() {
+    func testAutoStartsSmooth() {
         var q = AutoQuality(setting: .auto)
-        XCTAssertEqual(q.record(frameTime: 1.0 / 60), .high)
-    }
-    func testAutoStepsDownAfterTwoSlowSeconds() {
-        var q = AutoQuality(setting: .auto)
-        var level = QualityLevel.high
-        for _ in 0..<(2 * 40 + 2) { level = q.record(frameTime: 1.0 / 40) }
-        XCTAssertEqual(level, .lite)
-    }
-    func testOneSlowSecondIsTolerated() {
-        var q = AutoQuality(setting: .auto)
-        var level = QualityLevel.high
-        for _ in 0..<40 { level = q.record(frameTime: 1.0 / 40) }
-        for _ in 0..<60 { level = q.record(frameTime: 1.0 / 60) }
-        XCTAssertEqual(level, .high)
+        XCTAssertEqual(q.record(frameTime: 1.0 / 60), .lite)
     }
     func testAutoStepsUpAfterTenGoodSeconds() {
         var q = AutoQuality(setting: .auto)
-        for _ in 0..<(2 * 40 + 2) { _ = q.record(frameTime: 1.0 / 40) }
         var level = QualityLevel.lite
         for _ in 0..<(10 * 60 + 2) { level = q.record(frameTime: 1.0 / 60) }
         XCTAssertEqual(level, .high)
+        for _ in 0..<(30 * 60) { level = q.record(frameTime: 1.0 / 60) }
+        XCTAssertEqual(level, .high, "Auto never goes above High")
     }
-    func testFixedSettingNeverChanges() {
+    func testAutoStepsDownAfterOneSlowSecond() {
+        var q = AutoQuality(setting: .auto)
+        for _ in 0..<(10 * 60 + 2) { _ = q.record(frameTime: 1.0 / 60) }
+        var level = QualityLevel.high
+        for _ in 0..<(1 * 40 + 2) { level = q.record(frameTime: 1.0 / 40) }
+        XCTAssertEqual(level, .lite)
+    }
+    func testShortHiccupIsTolerated() {
+        var q = AutoQuality(setting: .auto)
+        for _ in 0..<(10 * 60 + 2) { _ = q.record(frameTime: 1.0 / 60) }
+        var level = QualityLevel.high
+        for _ in 0..<20 { level = q.record(frameTime: 1.0 / 40) }
+        for _ in 0..<60 { level = q.record(frameTime: 1.0 / 60) }
+        XCTAssertEqual(level, .high)
+    }
+    func testFixedSettingNeverChangesWhenMerelySlow() {
         var q = AutoQuality(setting: .ultra)
         var level = QualityLevel.lite
         for _ in 0..<300 { level = q.record(frameTime: 1.0 / 20) }
         XCTAssertEqual(level, .ultra)
+    }
+    func testSafetyNetDropsAnySettingWhenFramesStall() {
+        var q = AutoQuality(setting: .ultra)
+        _ = q.record(frameTime: 1.0 / 60)
+        _ = q.record(frameTime: 2.0)
+        XCTAssertEqual(q.record(frameTime: 30.0), .lite)
+        XCTAssertEqual(q.record(frameTime: 1.0 / 60), .lite, "stays safe for the session")
+        XCTAssertTrue(q.rescued)
+        q.setting = .high
+        XCTAssertEqual(q.record(frameTime: 1.0 / 60), .high, "choosing again clears the safety net")
+    }
+    func testOneSlowFrameIsNotAStall() {
+        var q = AutoQuality(setting: .high)
+        _ = q.record(frameTime: 0.5)
+        XCTAssertEqual(q.record(frameTime: 1.0 / 60), .high)
+    }
+}
+
+final class RenderScaleTests: XCTestCase {
+    func testSmoothDrawsFewerPixels() {
+        // 1440x900 pt window on a Retina screen.
+        let lite = RenderScale.pixels(points: (1440, 900), backingScale: 2, quality: .lite)
+        let high = RenderScale.pixels(points: (1440, 900), backingScale: 2, quality: .high)
+        let ultra = RenderScale.pixels(points: (1440, 900), backingScale: 2, quality: .ultra)
+        XCTAssertEqual(ultra.width, 2880); XCTAssertEqual(ultra.height, 1800)
+        XCTAssertLessThan(high.width * high.height, ultra.width * ultra.height)
+        XCTAssertLessThanOrEqual(lite.width * lite.height, 1_000_000)
+        XCTAssertEqual(Double(lite.width) / Double(lite.height), 1.6, accuracy: 0.01)
+    }
+    func testNeverZero() {
+        let p = RenderScale.pixels(points: (0, 0), backingScale: 2, quality: .lite)
+        XCTAssertGreaterThan(p.width, 0); XCTAssertGreaterThan(p.height, 0)
     }
 }

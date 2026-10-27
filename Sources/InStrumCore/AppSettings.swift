@@ -27,14 +27,20 @@ public struct AppSettings: Codable, Equatable {
     /// Audio output buffer in frames: 128 (fastest), 256 (balanced), 512 (safest).
     public var bufferFrames: UInt32 = 256
     public var themeStates: [String: ThemeState] = [:]
-    public var quality: QualitySetting = .auto
+    /// Smooth (lite) by default: fastest and lowest latency; raise it in Display → Quality.
+    public var quality: QualitySetting = .lite
+    /// 2 = saved after the performance fix (older files start on Smooth once).
+    public var qualityVersion: Int = 2
     public var gentleVisuals: Bool = false
+    /// The active reaction style; nil means the built-in named by `reactionName`.
+    public var reaction: ReactionMap?
+    public var reactionName: String = "Expressive Pianist"
 
     public static let `default` = AppSettings()
 
     public init() {}
 
-    enum CodingKeys: String, CodingKey { case instrument, themeID, masterVolume, touchCurve, bufferFrames, themeStates, quality, gentleVisuals }
+    enum CodingKeys: String, CodingKey { case instrument, themeID, masterVolume, touchCurve, bufferFrames, themeStates, quality, gentleVisuals, reaction, reactionName, qualityVersion }
 
     public init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
@@ -46,7 +52,11 @@ public struct AppSettings: Codable, Equatable {
         bufferFrames = try c.decodeIfPresent(UInt32.self, forKey: .bufferFrames) ?? d.bufferFrames
         themeStates = (try? c.decodeIfPresent([String: ThemeState].self, forKey: .themeStates)) ?? d.themeStates
         quality = (try? c.decodeIfPresent(QualitySetting.self, forKey: .quality)) ?? d.quality
+        qualityVersion = (try? c.decodeIfPresent(Int.self, forKey: .qualityVersion)) ?? 1
+        if qualityVersion < 2 { quality = .lite; qualityVersion = 2 }
         gentleVisuals = (try? c.decodeIfPresent(Bool.self, forKey: .gentleVisuals)) ?? d.gentleVisuals
+        reaction = try? c.decodeIfPresent(ReactionMap.self, forKey: .reaction)
+        reactionName = (try? c.decodeIfPresent(String.self, forKey: .reactionName)) ?? d.reactionName
     }
 }
 

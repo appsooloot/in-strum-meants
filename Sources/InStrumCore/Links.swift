@@ -65,3 +65,6 @@ public struct ReactionMap: Codable, Equatable {
         return (roles, offsets)
     }
 }
+
+/// Avoids clashing with SwiftUI.Link in views.
+public typealias ReactionLink = Link

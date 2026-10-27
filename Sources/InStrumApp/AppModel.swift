@@ -29,6 +29,10 @@ public final class AppModel: ObservableObject {
     @Published public private(set) var visualsVersion = 0
     @Published public private(set) var quality: QualitySetting
     @Published public private(set) var gentleVisuals: Bool
+    /// Name of the active reaction style ("Custom" after editing the mapping).
+    @Published public private(set) var reactionName: String
+    public private(set) var reaction: ReactionMap
+    public let presets: PresetStore
     /// Called just before the instrument changes (e.g. to close the old plugin's window).
     public var willChangeInstrument: (@MainActor () -> Void)?
     /// True when the previous run ended without settling (offer Safe Mode before launching).
@@ -47,6 +51,14 @@ public final class AppModel: ObservableObject {
     }
     nonisolated private let live = OSAllocatedUnfairLock(uncheckedState: Live())
 
+    /// The loaded instrument's own dials (knobs/sliders in its window).
+    @Published public private(set) var dials: [DialInfo] = []
+    /// Dials moved since the instrument loaded (offered first in the mapping editor).
+    @Published public private(set) var movedDials: [UInt64] = []
+    private var dialReader: DialReader?
+    private struct DialLive { var pending: [UInt64: Double] = [:]; var moved: [UInt64] = [] }
+    nonisolated private let dialLive = OSAllocatedUnfairLock(uncheckedState: DialLive())
+
     private let store: SettingsStore
     private let launchGuard: LaunchGuard
     private var settings: AppSettings
@@ -54,7 +66,8 @@ public final class AppModel: ObservableObject {
     private var autosaveTimer: Timer?
     private var terminateObserver: NSObjectProtocol?
 
-    public init(engine: InstrumentEngine, store: SettingsStore, launchGuard: LaunchGuard) {
+    public init(engine: InstrumentEngine, store: SettingsStore, launchGuard: LaunchGuard, presets: PresetStore) {
+        self.presets = presets
         self.engine = engine
         self.store = store
         self.launchGuard = launchGuard
@@ -64,6 +77,10 @@ public final class AppModel: ObservableObject {
         self.themeID = ThemeRegistry.resolve(loaded.themeID)
         self.quality = loaded.quality
         self.gentleVisuals = loaded.gentleVisuals
+        self.reactionName = loaded.reactionName
+        self.reaction = loaded.reaction
+            ?? ReactionPresets.all.first { $0.name == loaded.reactionName }?.map
+            ?? ReactionPresets.expressivePianist
         self.offersSafeMode = launchGuard.beginLaunch()
         live.withLockUnchecked { $0.touch = loaded.touchCurve }
     }
@@ -112,6 +129,7 @@ public final class AppModel: ObservableObject {
             return
         }
         settings.instrument = choice
+        watchDials()
         status = .playing(instrumentName: choice.name)
         autosave()
         let launchGuard = self.launchGuard
@@ -163,6 +181,52 @@ public final class AppModel: ObservableObject {
     }
 
     public nonisolated var audioLevel: Float { engine.audioLevel }
+    public nonisolated var soundReading: SoundReading { engine.soundReading }
+
+    private func watchDials() {
+        dialReader = nil
+        let live = dialLive
+        live.withLockUnchecked { $0 = DialLive() }
+        movedDials = []
+        guard let unit = engine.loadedAudioUnit else { dials = []; return }
+        let reader = DialReader(audioUnit: unit)
+        let initial = reader.currentValues()
+        live.withLockUnchecked { $0.pending = initial }
+        reader.onChange = { info, value in
+            live.withLockUnchecked { l in
+                l.pending[info.address] = value
+                if !l.moved.contains(info.address) { l.moved.append(info.address) }
+            }
+        }
+        dialReader = reader
+        dials = reader.dials
+    }
+
+    /// Dial positions that changed since the last call (the renderer feeds them to the visuals).
+    public func drainDialChanges() -> [UInt64: Double] {
+        let (pending, moved) = dialLive.withLockUnchecked { l -> ([UInt64: Double], [UInt64]) in
+            let p = l.pending
+            l.pending.removeAll(keepingCapacity: true)
+            return (p, l.moved)
+        }
+        if moved.count != movedDials.count { movedDials = moved }
+        return pending
+    }
+
+    /// Friendly name for any input, including this instrument's dials.
+    public func inputName(_ id: InputID) -> String {
+        if id.rawValue.hasPrefix("dials."), let a = UInt64(id.rawValue.dropFirst("dials.".count)),
+           let d = dials.first(where: { $0.address == a }) {
+            return "Instrument: \(d.name)"
+        }
+        return id.displayName
+    }
+
+    /// Inputs offered in the mapping editor: built-ins, dials you've moved (or all, if there are few), and any in use.
+    public func mappingInputs(inUse: [InputID]) -> [InputID] {
+        let dialIDs = (dials.count <= 40 ? dials.map(\.address) : movedDials).map { InputID.dial($0) }
+        return MappingEdits.inputs(seen: inUse + dialIDs)
+    }
 
     // MARK: - Settings
 
@@ -214,6 +278,63 @@ public final class AppModel: ObservableObject {
 
     public func setGentleVisuals(_ on: Bool) {
         gentleVisuals = on; settings.gentleVisuals = on; visualsVersion += 1; autosave()
+    }
+
+    // MARK: - Presets
+
+    public func allReactions() -> [ReactionPreset] {
+        ReactionPresets.all + presets.reactions().filter { p in !ReactionPresets.all.contains { $0.name == p.name } }
+    }
+
+    public func setReaction(_ preset: ReactionPreset) {
+        reaction = preset.map
+        reactionName = preset.name
+        settings.reaction = preset.map
+        settings.reactionName = preset.name
+        visualsVersion += 1
+        autosave()
+    }
+
+    /// Used by the mapping editor; the style becomes "Custom" until saved.
+    public func setReactionMap(_ map: ReactionMap) {
+        reaction = map
+        reactionName = "Custom"
+        settings.reaction = map
+        settings.reactionName = "Custom"
+        visualsVersion += 1
+        scheduleSave()
+    }
+
+    public func saveReaction(named name: String) {
+        let preset = ReactionPreset(name: name, map: reaction)
+        try? presets.save(preset)
+        setReaction(preset)
+    }
+
+    public func lookPresets() -> [LookPreset] {
+        let builtIn = themeID == ButterflyGardenModel.id ? ButterflyGardenModel.builtInLooks : []
+        return builtIn + presets.looks(for: themeID).filter { p in !builtIn.contains { $0.name == p.name } }
+    }
+
+    public func applyLook(_ look: LookPreset) {
+        var state = look.state
+        state.lookPresetName = look.name
+        saveThemeState(state, for: look.themeID)
+    }
+
+    public func saveLook(named name: String) {
+        var state = themeState(for: themeID)
+        state.lookPresetName = name
+        try? presets.save(LookPreset(name: name, themeID: themeID, state: state))
+        saveThemeState(state, for: themeID)
+    }
+
+    /// A random, tasteful look for the current theme (macros kept).
+    public func surprise() {
+        let current = themeState(for: themeID)
+        var state = Surprise.look(specs: ThemeRegistry.parameters(for: themeID), seed: UInt64.random(in: 1...UInt64.max))
+        state.macros = current.macros
+        saveThemeState(state, for: themeID)
     }
 
     private var saveTask: Task<Void, Never>?

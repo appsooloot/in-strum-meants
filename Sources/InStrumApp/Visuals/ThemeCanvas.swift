@@ -1,6 +1,7 @@
 import MetalKit
 import QuartzCore
 import InStrumCore
+import InStrumAudio
 
 /// Runs the active theme every frame: events → director → theme renderer → finishing → screen.
 final class ThemeCanvas: NSObject, MTKViewDelegate {
@@ -12,8 +13,9 @@ final class ThemeCanvas: NSObject, MTKViewDelegate {
     private var butterfly: ButterflyRenderer?
     private var steinway: SteinwayRenderer?
     private var autoQuality: AutoQuality
-    private var lastTime = CACurrentMediaTime()
+    private var lastTime: CFTimeInterval = 0
     private var seenVersion = -1
+    private var level: QualityLevel = .lite
 
     @MainActor
     init?(view: MTKView, model: AppModel) {
@@ -24,7 +26,7 @@ final class ThemeCanvas: NSObject, MTKViewDelegate {
         self.queue = queue
         self.stack = stack
         self.director = SceneDirector(themeID: model.themeID, state: model.themeState(for: model.themeID),
-                                      reaction: ReactionPresets.expressivePianist)
+                                      reaction: model.reaction)
         self.autoQuality = AutoQuality(setting: model.quality)
         super.init()
     }
@@ -47,19 +49,35 @@ final class ThemeCanvas: NSObject, MTKViewDelegate {
             director.parameters = ThemeRegistry.parameterSet(for: director.themeID, state: model.themeState(for: director.themeID))
         }
         autoQuality.setting = model.quality
+        director.reaction = model.reaction
     }
 
     @MainActor
     private func drawFrame(_ view: MTKView) {
         syncSettings()
         guard let stack else { return }
+        let now = CACurrentMediaTime()
+        let frameTime = lastTime == 0 ? 0 : max(0, now - lastTime)
+        let dt = min(0.1, frameTime)
+        lastTime = now
+        level = autoQuality.record(frameTime: frameTime)
+        let backing = view.window?.backingScaleFactor ?? 2
+        let px = RenderScale.pixels(points: (Double(view.bounds.width), Double(view.bounds.height)),
+                                    backingScale: Double(backing), quality: level)
+        let wanted = CGSize(width: px.width, height: px.height)
+        if view.drawableSize != wanted { view.drawableSize = wanted }
         let size = view.drawableSize
         stack.resize(width: Int(size.width), height: Int(size.height))
-        let now = CACurrentMediaTime()
-        let dt = min(0.1, max(0, now - lastTime))
-        lastTime = now
         director.handle(model.drainEvents(), at: now)
-        let level = autoQuality.record(frameTime: dt)
+        let sound = model.soundReading
+        let hub = director.hub
+        hub.set(.attack, sound.attack, at: now)
+        hub.set(.brightness, sound.brightness, at: now)
+        hub.set(.ring, sound.ring, at: now)
+        hub.set(.texture, sound.texture, at: now)
+        hub.set(.loudness, sound.loudness, at: now)
+        hub.set(.width, sound.width, at: now)
+        for (address, value) in model.drainDialChanges() { hub.set(.dial(address), value, at: now) }
         let frame = director.step(dt: dt, t: now, quality: level)
 
         let renderer: ThemeRenderer?

@@ -4,6 +4,7 @@ import InStrumCore
 /// The ✦ Visuals panel: theme, macros, the theme's hero settings, quality and comfort.
 struct SettingsPanel: View {
     @ObservedObject var model: AppModel
+    @State private var showAdvanced = false
 
     private var state: ThemeState { model.themeState(for: model.themeID) }
     private var params: ParameterSet { ThemeRegistry.parameterSet(for: model.themeID, state: state) }
@@ -16,6 +17,9 @@ struct SettingsPanel: View {
                         ForEach(ThemeRegistry.all, id: \.id) { Text($0.name).tag($0.id) }
                     }
                     .labelsHidden()
+                }
+                section("Presets") {
+                    PresetBar(model: model)
                 }
                 section("Feel") {
                     ForEach(Macro.allCases, id: \.self) { m in
@@ -42,23 +46,30 @@ struct SettingsPanel: View {
                 }
                 section("Display") {
                     Picker("Quality", selection: Binding(get: { model.quality }, set: { model.setQuality($0) })) {
+                        Text("Smooth").tag(QualitySetting.lite)
                         Text("Auto").tag(QualitySetting.auto)
-                        Text("Lite").tag(QualitySetting.lite)
                         Text("High").tag(QualitySetting.high)
                         Text("Ultra").tag(QualitySetting.ultra)
                     }
                     .pickerStyle(.segmented)
+                    Text("Smooth is fastest with the lowest latency. Auto starts smooth and steps up when your Mac keeps up. If frames ever stall, the visuals drop to Smooth on their own.")
+                        .font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
                     Toggle("Gentle visuals (softer flashes and sparkle)",
                            isOn: Binding(get: { model.gentleVisuals }, set: { model.setGentleVisuals($0) }))
                 }
-                Button(role: .destructive) {
-                    model.saveThemeState(VisualSettings.reset(state), for: model.themeID)
-                } label: { Label("Reset theme", systemImage: "arrow.counterclockwise") }
+                HStack {
+                    Button { showAdvanced = true } label: { Label("Advanced…", systemImage: "slider.horizontal.3") }
+                    Spacer()
+                    Button(role: .destructive) {
+                        model.saveThemeState(VisualSettings.reset(state), for: model.themeID)
+                    } label: { Label("Reset theme", systemImage: "arrow.counterclockwise") }
+                }
             }
             .padding(18)
         }
         .frame(width: 340)
         .background(.ultraThinMaterial)
+        .sheet(isPresented: $showAdvanced) { AdvancedView(model: model, isPresented: $showAdvanced) }
     }
 
     @ViewBuilder
