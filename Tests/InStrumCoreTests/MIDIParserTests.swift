@@ -61,3 +61,25 @@ final class MIDIParserTests: XCTestCase {
         XCTAssertEqual(p.parse([0xF6, 62, 80]), [])
     }
 }
+
+final class MIDIMessageBytesTests: XCTestCase {
+    func testEncodingRoundTripsThroughTheParser() {
+        let messages: [MIDIMessage] = [.noteOn(channel: 0, note: 60, velocity: 100), .noteOff(channel: 2, note: 61, velocity: 40),
+                                       .controlChange(channel: 0, controller: 64, value: 127), .pitchBend(channel: 1, value: 9000)]
+        var parser = MIDIParser()
+        XCTAssertEqual(parser.parse(messages.flatMap(\.bytes)), messages)
+    }
+
+    func testDemoPhrasesAreOriginalAndPlayable() {
+        for phrase in [DemoPhrases.feltGlass, DemoPhrases.orbitPad] {
+            XCTAssertGreaterThan(phrase.last?.time ?? 0, 18)
+            XCTAssertEqual(phrase.map(\.time), phrase.map(\.time).sorted())
+            var held = Set<UInt8>()
+            for (_, m) in phrase {
+                if case let .noteOn(_, n, _) = m { held.insert(n) }
+                if case let .noteOff(_, n, _) = m { held.remove(n) }
+            }
+            XCTAssertTrue(held.isEmpty, "every note is released")
+        }
+    }
+}

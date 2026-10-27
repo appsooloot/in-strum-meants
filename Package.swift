@@ -16,7 +16,7 @@ let package = Package(
         .executableTarget(name: "InStrumMeants", dependencies: ["InStrumApp"]),
         .testTarget(name: "InStrumCoreTests", dependencies: ["InStrumCore"]),
         .testTarget(name: "InStrumAudioTests", dependencies: ["InStrumAudio", "InStrumCore", "InStrumDSP"]),
-        .testTarget(name: "InStrumAppTests", dependencies: ["InStrumApp", "InStrumAudio", "InStrumCore"]),
+        .testTarget(name: "InStrumAppTests", dependencies: ["InStrumApp", "InStrumAudio", "InStrumCore", "InStrumDSP"]),
     ],
     cxxLanguageStandard: .cxx17
 )
