@@ -153,7 +153,7 @@ public final class BuiltInInstrumentAU: AUAudioUnit {
     private func makeTree() -> AUParameterTree {
         var params: [AUParameter] = []
         for i in 0..<isd_synth_param_count(isdEngine) {
-            guard let info = isd_synth_param_info(isdEngine, i)?.pointee else { continue }
+            guard let info = isd_synth_param_info(isdEngine, i)?.pointee, info.unit != 3 else { continue }   // 3: test hooks
             let unit: AudioUnitParameterUnit = info.unit == 1 ? .cents : (info.unit == 2 ? .relativeSemiTones : .generic)
             let p = AUParameterTree.createParameter(withIdentifier: String(cString: info.identifier), name: String(cString: info.name),
                                                     address: AUParameterAddress(info.address), min: info.minValue, max: info.maxValue,

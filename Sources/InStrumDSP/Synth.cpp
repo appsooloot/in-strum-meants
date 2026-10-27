@@ -2,6 +2,7 @@
 #include "include/InStrumDSP.h"
 #include "Engine.hpp"
 #include "FeltGlass.hpp"
+#include "OrbitPad.hpp"
 #include <algorithm>
 #include <atomic>
 #include <cmath>
@@ -25,11 +26,29 @@ const ISDParamInfo kFeltGlassParams[] = {
     {ISD_P_MOOD_MOTION, "moodMotion", "Mood motion", 0.f, 1.f, 0.5f, 0},
 };
 
+const ISDParamInfo kOrbitPadParams[] = {
+    {ISD_P_FINE_TUNE, "fineTune", "Fine tune", -50.f, 50.f, 0.f, 1},
+    {ISD_P_TRANSPOSE, "transpose", "Transpose", -12.f, 12.f, 0.f, 2},
+    {ISD_P_SPACE, "space", "Space", 0.f, 1.f, 0.55f, 0},
+    {ISD_P_BLOOM, "bloom", "Bloom", 0.f, 1.f, 0.55f, 0},
+    {ISD_P_DRIFT, "drift", "Drift", 0.f, 1.f, 0.40f, 0},
+    {ISD_P_MOTION, "motion", "Motion", 0.f, 1.f, 0.45f, 0},
+    {ISD_P_SHIMMER, "shimmer", "Shimmer", 0.f, 1.f, 0.25f, 0},
+    {ISD_P_BRIGHTNESS, "brightness", "Brightness", 0.f, 1.f, 0.50f, 0},
+    {ISD_P_MOOD_ENERGY, "moodEnergy", "Mood energy", 0.f, 1.f, 0.5f, 0},
+    {ISD_P_MOOD_WARMTH, "moodWarmth", "Mood warmth", 0.f, 1.f, 0.5f, 0},
+    {ISD_P_MOOD_BRIGHTNESS, "moodBrightness", "Mood brightness", 0.f, 1.f, 0.5f, 0},
+    {ISD_P_MOOD_SPACE, "moodSpace", "Mood space", 0.f, 1.f, 0.5f, 0},
+    {ISD_P_MOOD_MOTION, "moodMotion", "Mood motion", 0.f, 1.f, 0.5f, 0},
+    {ISD_P_DEBUG_LAYER_A_ONLY, "debugLayerAOnly", "Layer A only (test)", 0.f, 1.f, 0.f, 3},
+};
+
 struct ParamTable { const ISDParamInfo *items; int count; };
 
 ParamTable table(ISDEngine engine) {
     switch (engine) {
     case ISD_ENGINE_FELT_GLASS: return {kFeltGlassParams, (int)(sizeof kFeltGlassParams / sizeof kFeltGlassParams[0])};
+    case ISD_ENGINE_ORBIT_PAD: return {kOrbitPadParams, (int)(sizeof kOrbitPadParams / sizeof kOrbitPadParams[0])};
     default: return {nullptr, 0};
     }
 }
@@ -107,6 +126,7 @@ ISDSynth *isd_synth_create(ISDEngine engine, double sampleRate, int maxFrames) {
     for (int i = 0; i < t.count; ++i) s->values[t.items[i].address].store(t.items[i].defaultValue);
     switch (engine) {
     case ISD_ENGINE_FELT_GLASS: s->engine = std::make_unique<isd::FeltGlass>(sampleRate); break;
+    case ISD_ENGINE_ORBIT_PAD: s->engine = std::make_unique<isd::OrbitPad>(sampleRate); break;
     default: delete s; return nullptr;
     }
     return s;
