@@ -80,14 +80,17 @@ jobs:
       - name: Check the installer
         run: |
           DMG=$(ls dist/*.dmg | head -1)
-          hdiutil attach -nobrowse -readonly -mountpoint /tmp/dmgcheck "$DMG"
-          test -d "/tmp/dmgcheck/In Strum Meants.app"
-          test -L /tmp/dmgcheck/Applications
-          test "$(readlink /tmp/dmgcheck/Applications)" = "/Applications"
-          test -d /tmp/dmgcheck/.background
-          test -f "/tmp/dmgcheck/In Strum Meants.app/Contents/Resources/AppIcon.icns"
-          echo "dmg ok: $DMG" | tee -a package.log
-          hdiutil detach /tmp/dmgcheck
+          check() { if eval "$2"; then echo "CHECK ok: $1" | tee -a package.log; else echo "CHECK FAILED: $1" | tee -a package.log; FAIL=1; fi; }
+          FAIL=0
+          hdiutil attach -nobrowse -readonly -mountpoint /tmp/dmgcheck "$DMG" 2>&1 | tail -1 | sed 's/^/CHECK attach: /' | tee -a package.log
+          echo "CHECK contents: $(ls -A /tmp/dmgcheck | tr '\n' ' ')" | tee -a package.log
+          check "app present" 'test -d "/tmp/dmgcheck/In Strum Meants.app"'
+          check "Applications link" 'test -L /tmp/dmgcheck/Applications && test "$(readlink /tmp/dmgcheck/Applications)" = "/Applications"'
+          check "background" 'ls /tmp/dmgcheck/.background/* >/dev/null 2>&1'
+          check "app icon" 'test -f "/tmp/dmgcheck/In Strum Meants.app/Contents/Resources/AppIcon.icns"'
+          hdiutil detach /tmp/dmgcheck >/dev/null || true
+          test $FAIL = 0 && echo "dmg ok: $DMG" | tee -a package.log
+          exit $FAIL
       - name: Keep build
         uses: actions/upload-artifact@v4
         with:
@@ -111,5 +114,5 @@ jobs:
       - name: Report
         if: always()
         run: |
-          grep -E "error:|warning: |archs=|valid on disk|satisfies|Build complete|\.zip|dmg ok|\.dmg" package.log | tail -n 40 > report.txt || true
+          grep -E "error:|warning: |archs=|valid on disk|satisfies|Build complete|\.zip|dmg ok|\.dmg|CHECK" package.log | tail -n 40 > report.txt || true
           python3 -c "t=open('report.txt').read()[-60000:];print('::notice title=package-report::'+t.replace('%','%25').replace('\r','').replace('\n','%0A'))"
