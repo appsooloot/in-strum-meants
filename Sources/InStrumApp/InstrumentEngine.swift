@@ -15,11 +15,21 @@ public protocol InstrumentEngine: AnyObject {
     var bufferFrames: UInt32 { get set }
     var soundReading: SoundReading { get }
     var loadedAudioUnit: AUAudioUnit? { get }
+    func setMood(_ mood: Mood)
+    /// Built-in instruments only.
+    func applyPatch(_ patch: Patch)
+    var builtInPatchID: String? { get }
 }
 
 public extension InstrumentEngine {
     var soundReading: SoundReading { SoundReading() }
     var loadedAudioUnit: AUAudioUnit? { nil }
+    func setMood(_ mood: Mood) {}
+    func applyPatch(_ patch: Patch) {}
+    var builtInPatchID: String? { nil }
 }
 
-extension AudioEngine: InstrumentEngine {}
+extension AudioEngine: InstrumentEngine {
+    public func applyPatch(_ patch: Patch) { loadedBuiltIn?.apply(patch) }
+    public var builtInPatchID: String? { loadedBuiltIn?.patchID }
+}

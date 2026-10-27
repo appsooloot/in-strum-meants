@@ -21,6 +21,7 @@ jobs:
             echo "FAILURES:"
             grep -E "error:|: error|failed \(|Test Case .*failed|Fatal|crashed|signal" test.log | grep -v "^\s*$" | head -n 40
             grep -E "Test Suite '(All|Selected) tests'|Executed [0-9]+ tests" test.log | tail -n 2
+            if grep -q "unexpected signal" test.log; then echo "LAST LINES:"; grep -vE "^\[[0-9]+/[0-9]+\]" test.log | tail -n 30; fi
             swift --version 2>&1 | head -1
             grep -E "error:|warning: |Test Suite '(All|Selected) tests'|Test Case .*(failed|skipped)|Test Suite '[A-Za-z]+Tests' (passed|failed)|Executed [0-9]+ test|: error|failed \(|skipped|Compiling|Build complete" test.log | grep -v "^\s*$" | tail -n 160
           } > report.txt
@@ -28,14 +29,18 @@ jobs:
 
   previews:
     needs: test
-    if: github.event_name == 'push' && github.ref == 'refs/heads/m3a'
+    if: github.event_name == 'push' && (github.ref == 'refs/heads/m3a' || github.ref == 'refs/heads/sets')
     runs-on: macos-15
     permissions:
       contents: write
     steps:
       - uses: actions/checkout@v5
       - name: Render preview frames
-        run: PREVIEW_DIR="$PWD/previews" swift test --filter "PreviewRenderTests|ShaderPreviewArtTests" 2>&1 | tee preview.log; exit ${PIPESTATUS[0]}
+        run: PREVIEW_DIR="$PWD/previews" DEMO_DIR="$PWD/previews/audio" swift test --filter "PreviewRenderTests|ShaderPreviewArtTests|DemoRenderTests" 2>&1 | tee preview.log; exit ${PIPESTATUS[0]}
+      - name: Encode demo audio
+        run: |
+          for f in previews/audio/*.wav; do [ -f "$f" ] && afconvert -f m4af -d aac -b 256000 "$f" "${f%.wav}.m4a" && rm "$f"; done
+          ls -la previews/audio || true
       - name: Render icon and installer art
         run: |
           brew install librsvg >/dev/null
@@ -94,6 +99,12 @@ jobs:
           hdiutil detach /tmp/dmgcheck >/dev/null || true
           test $FAIL = 0 && echo "dmg ok: $DMG" | tee -a package.log
           exit $FAIL
+      - name: Render demo audio
+        if: github.ref == 'refs/heads/main'
+        run: |
+          DEMO_DIR="$PWD/dist/demo" swift test --filter DemoRenderTests 2>&1 | tail -n 5
+          for f in dist/demo/*.wav; do [ -f "$f" ] && afconvert -f m4af -d aac -b 256000 "$f" "${f%.wav}.m4a"; done
+          ls -la dist/demo
       - name: Keep build
         uses: actions/upload-artifact@v4
         with:
@@ -111,9 +122,13 @@ jobs:
 
           **Install:** download the **.dmg** below and open it, drag *In Strum Meants* onto *Applications* (choose **Replace** if asked), then right-click the app → **Open** → **Open** (first time only). The .zip is a fallback.
 
-          **Check each build:** instant key response · sounds identical to Splice · soft vs hard feels right · pedal (optional) lingers · visuals land with notes · unplugging stops all sound · reopening restores your piano.
+          **Hear the built-in instruments first:** the *-demo.m4a* files below are short original demos rendered on the build machine.
+
+          **Ear checklist (built-in instruments):** goosebumps test · soft vs hard (softer = darker and rounder) · pedal ring and sympathetic shimmer · glass bloom swelling in after each note · **play-along test**: play along with the inspiring song in Spotify (Fine tune in the instrument window if it sounds sour) · presets feel distinct.
+
+          **Check each build:** instant key response · soft vs hard feels right · pedal (optional) lingers · visuals land with notes · unplugging stops all sound · reopening restores your instrument.
           NOTES
-          gh release create "build-$GITHUB_RUN_NUMBER" dist/*.dmg dist/*.zip --title "In Strum Meants — build $GITHUB_RUN_NUMBER" --notes-file notes.md
+          gh release create "build-$GITHUB_RUN_NUMBER" dist/*.dmg dist/*.zip dist/demo/*.m4a --title "In Strum Meants — build $GITHUB_RUN_NUMBER" --notes-file notes.md
       - name: Report
         if: always()
         run: |

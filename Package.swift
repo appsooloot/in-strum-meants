@@ -9,11 +9,14 @@ let package = Package(
     ],
     targets: [
         .target(name: "InStrumCore"),
-        .target(name: "InStrumAudio", dependencies: ["InStrumCore"]),
+        // Real-time DSP (C++17 behind a C header). Optimised even in debug so tests measure real cost.
+        .target(name: "InStrumDSP", cxxSettings: [.unsafeFlags(["-O2", "-fno-math-errno"])]),
+        .target(name: "InStrumAudio", dependencies: ["InStrumCore", "InStrumDSP"]),
         .target(name: "InStrumApp", dependencies: ["InStrumCore", "InStrumAudio"]),
         .executableTarget(name: "InStrumMeants", dependencies: ["InStrumApp"]),
         .testTarget(name: "InStrumCoreTests", dependencies: ["InStrumCore"]),
-        .testTarget(name: "InStrumAudioTests", dependencies: ["InStrumAudio", "InStrumCore"]),
-        .testTarget(name: "InStrumAppTests", dependencies: ["InStrumApp", "InStrumAudio", "InStrumCore"]),
-    ]
+        .testTarget(name: "InStrumAudioTests", dependencies: ["InStrumAudio", "InStrumCore", "InStrumDSP"]),
+        .testTarget(name: "InStrumAppTests", dependencies: ["InStrumApp", "InStrumAudio", "InStrumCore", "InStrumDSP"]),
+    ],
+    cxxLanguageStandard: .cxx17
 )

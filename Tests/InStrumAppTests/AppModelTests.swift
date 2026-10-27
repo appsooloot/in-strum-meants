@@ -27,6 +27,10 @@ final class FakeEngine: InstrumentEngine {
     func currentInstrumentState() -> Data? { state }
     func send(_ bytes: [UInt8]) { sent.append(bytes) }
     func panic() { panicCount += 1 }
+    var applied: [Patch] = []
+    var moods: [Mood] = []
+    func applyPatch(_ patch: Patch) { applied.append(patch) }
+    func setMood(_ mood: Mood) { moods.append(mood) }
 }
 
 @MainActor
@@ -296,5 +300,43 @@ final class AppModelTests: XCTestCase {
         let before = m.themeState(for: ButterflyGardenModel.id)
         m.surprise()
         XCTAssertNotEqual(m.themeState(for: ButterflyGardenModel.id), before)
+    }
+
+    // MARK: - Built-in instruments
+
+    func testChoosingBuiltInPlays() async throws {
+        let m = makeModel()
+        await m.launch(skipPluginInSafeMode: false)
+        let felt = try XCTUnwrap(BuiltInCatalog.instruments.first { $0.name == "Felt Glass" })
+        await m.choose(felt)
+        XCTAssertEqual(engine.loaded.last, felt.choice())
+        XCTAssertEqual(m.status, .playing(instrumentName: "Felt Glass"))
+        XCTAssertTrue(m.isBuiltIn)
+        XCTAssertEqual(m.builtInPatch, PatchLibrary.defaultPatch(for: .feltGlass))
+        XCTAssertEqual(engine.applied, [PatchLibrary.defaultPatch(for: .feltGlass)])
+    }
+
+    func testApplyPatchIsNoOpForPlugins() async throws {
+        var s = AppSettings.default; s.instrument = splice; try store.save(s)
+        let m = makeModel()
+        await m.launch(skipPluginInSafeMode: false)
+        m.applyPatch(PatchLibrary.defaultPatch(for: .feltGlass))
+        XCTAssertFalse(m.isBuiltIn)
+        XCTAssertNil(m.builtInPatch)
+        XCTAssertTrue(engine.applied.isEmpty)
+    }
+
+    func testCreditsArePresent() {
+        let c = CreditLibrary.comeBackToEarth, i = CreditLibrary.innerbloom
+        XCTAssertFalse(c.line.isEmpty); XCTAssertFalse(i.line.isEmpty)
+        XCTAssertEqual(c.year, 2018); XCTAssertEqual(i.year, 2016)
+        XCTAssertGreaterThan(c.tempoBPM, 0); XCTAssertGreaterThan(i.tempoBPM, 0)
+        XCTAssertEqual(CreditLibrary.credit(id: "innerbloom"), i)
+        XCTAssertTrue(PatchLibrary.all.allSatisfy { $0.creditID.flatMap { CreditLibrary.credit(id: $0) } != nil })
+    }
+
+    func testPresetNamesCarryCredit() {
+        XCTAssertEqual(PatchLibrary.defaultPatch(for: .feltGlass).displayName, "Felt Glass · after \"Come Back to Earth\"")
+        XCTAssertEqual(Patch(id: "x", name: "Plain", engine: .feltGlass, values: [:]).displayName, "Plain")
     }
 }

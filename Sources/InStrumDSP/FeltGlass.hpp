@@ -1,0 +1,83 @@
+// Felt Glass: a modelled felt piano (modal strings with inharmonicity and unison beating,
+// felt hammer, damper, soundboard body, sympathetic ring) plus an inharmonic glass-bell
+// bloom layer, finished in the shared Space reverb. Everything is preallocated.
+#pragma once
+#include "DSPCommon.hpp"
+#include "Engine.hpp"
+#include "SpaceReverb.hpp"
+
+namespace isd {
+
+class FeltGlass final : public Engine {
+public:
+    explicit FeltGlass(double sampleRate);
+    void setParam(int address, float value, bool snap) override;
+    void noteOn(int note, int velocity) override;
+    void noteOff(int note) override;
+    void setSustain(bool down) override;
+    void allNotesOff() override;
+    void allSoundOff() override;
+    void render(float *left, float *right, int frames) override;
+    int activeVoices() const override;
+
+    static constexpr int kPolyphony = 32;   // sounding voices
+    static constexpr int kPool = 40;        // plus voices fading out after being stolen
+    static constexpr int kSub = 32;         // samples per inner block
+    static constexpr int kStrings = 64;     // string components per voice
+    static constexpr int kGlass = 16;       // glass components per voice
+    static constexpr int kSymp = 40;        // sympathetic resonators (36 used)
+
+private:
+    struct Voice {
+        bool active = false, keyDown = false, damped = false, fading = false;
+        int note = 0, pitch = 0;
+        float amp = 0;                 // A(v) × register gain
+        float panL = 0.7071f, panR = 0.7071f;
+        int attackPos = 0, attackLen = 1;
+        float fadeGain = 1, fadeStep = 0;
+        float level = 0, stringRef = 0, glassRef = 0;
+        int nStr = 0, nGlass = 0;      // components in use, rounded up to whole 8-lane chunks
+        bool strOn[kStrings / 8] = {}, glassOn[kGlass / 8] = {};
+        alignas(32) float sre[kStrings], sim[kStrings], scr[kStrings], sci[kStrings], shz[kStrings], sdr[kStrings];
+        alignas(32) float gre[kGlass], gim[kGlass], gcr[kGlass], gci[kGlass], ghz[kGlass], gdr[kGlass];
+        int noiseLeft = 0, noiseAge = 0, noiseAttack = 1;
+        float noiseAmp = 0, noiseDecay = 0, noiseHz = 300, noteRms = 0;
+        Biquad noiseFilter;
+        OnePole noiseLowpass;
+    };
+
+    void startVoice(Voice &v, int note, int pitch, int velocity);
+    Voice &allocate();
+    void damp(Voice &v);
+    void startNoise(Voice &v, float seconds, float hz, float rms);
+    void beginFade(Voice &v);
+    void retune();
+    void setSympDecay(float t60);
+    void processBlock(float *left, float *right, int n);
+    void renderVoice(Voice &v, float *sL, float *sR, float *gL, float *gR, float *mono, int n);
+    void renderSymp(const float *mono, float *sL, float *sR, int n);
+    void housekeeping();
+
+    double sr;
+    Voice voices[kPool];
+    bool sustain = false;
+    FastRandom rng;
+
+    // Dials (raw) and mood.
+    float pFine = 0, pTranspose = 0, pFelt = 0.55f, pRing = 0.55f, pWidth = 0.5f;
+    float mEnergy = 0.5f, mWarmth = 0.5f, mBright = 0.5f, mSpace = 0.5f, mMotion = 0.5f;
+    Smoothed fine, glassGain, warmth, space, wet, sympGain;
+    float fineRatio = 1, appliedCents = 0, appliedWarmth = -1, appliedSpace = -1;
+
+    Biquad body[4][2], lowShelf[2], highShelf[2];
+    alignas(32) float yre[kSymp], yim[kSymp], ycr[kSymp], yci[kSymp], yhz[kSymp], yL[kSymp], yR[kSymp];
+    float sympR = 0;
+    bool sympActive = false;
+
+    SpaceReverb reverb;
+    PeakLimiter limiter;
+    bool idle = true, reverbLive = false;
+    int idleSamples = 0, blockCount = 0;
+};
+
+} // namespace isd

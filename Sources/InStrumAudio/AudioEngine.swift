@@ -13,6 +13,8 @@ public enum AudioEngineError: Error, Equatable {
 public final class AudioEngine {
 
     private let engine = AVAudioEngine()
+    /// The instrument plays into its own bus; the level and sound-character tap listen here, so ambience never counts.
+    private let instrumentBus = AVAudioMixerNode()
     private let manualRendering: Bool
     private let manualSampleRate: Double
     private var instrument: AVAudioUnit?
@@ -37,7 +39,7 @@ public final class AudioEngine {
 
     deinit {
         if let o = configObserver { NotificationCenter.default.removeObserver(o) }
-        engine.mainMixerNode.removeTap(onBus: 0)
+        instrumentBus.removeTap(onBus: 0)
         engine.stop()
     }
 
@@ -51,12 +53,16 @@ public final class AudioEngine {
             }
         } else {
             setOutputBufferSize()
-            installLevelTap()
             if configObserver == nil { configObserver = NotificationCenter.default.addObserver(
                 forName: .AVAudioEngineConfigurationChange, object: engine, queue: .main
             ) { [weak self] _ in self?.restartAfterConfigurationChange() } }
         }
         _ = engine.mainMixerNode   // make sure the graph has an output path
+        if instrumentBus.engine == nil {
+            engine.attach(instrumentBus)
+            engine.connect(instrumentBus, to: engine.mainMixerNode, format: renderFormat())
+        }
+        if !manualRendering { installLevelTap() }
         engine.prepare()
         try engine.start()
     }
@@ -64,12 +70,21 @@ public final class AudioEngine {
     /// Graph changes and plugin state happen on the main thread.
     @MainActor
     public func loadInstrument(_ choice: InstrumentChoice) async throws {
-        guard let component = PluginCatalog.component(for: choice) else {
-            throw AudioEngineError.pluginNotFound(choice.name)
+        let description: AudioComponentDescription
+        if BuiltInCatalog.engine(for: choice) != nil {
+            BuiltInCatalog.registerAll()
+            description = AudioComponentDescription(componentType: choice.componentType, componentSubType: choice.componentSubType,
+                                                    componentManufacturer: choice.componentManufacturer,
+                                                    componentFlags: 0, componentFlagsMask: 0)
+        } else {
+            guard let component = PluginCatalog.component(for: choice) else {
+                throw AudioEngineError.pluginNotFound(choice.name)
+            }
+            description = component.audioComponentDescription
         }
         let unit: AVAudioUnit
         do {
-            unit = try await AVAudioUnit.instantiate(with: component.audioComponentDescription, options: [])
+            unit = try await AVAudioUnit.instantiate(with: description, options: [])
         } catch {
             throw AudioEngineError.loadFailed(choice.name)
         }
@@ -77,15 +92,21 @@ public final class AudioEngine {
            let state = try? PropertyListSerialization.propertyList(from: data, format: nil) as? [String: Any] {
             unit.auAudioUnit.fullState = state
         }
-        shared.withLockUnchecked { $0.midiBlock = nil }
+        shared.withLockUnchecked { $0.midiBlock = nil; $0.held.removeAll() }
         if let old = instrument { engine.detach(old) }
         engine.attach(unit)
-        engine.connect(unit, to: engine.mainMixerNode, format: renderFormat())
+        engine.connect(unit, to: instrumentBus, format: renderFormat())
         instrument = unit
         let block = unit.auAudioUnit.scheduleMIDIEventBlock
         shared.withLockUnchecked { $0.midiBlock = block }
         if !engine.isRunning { try engine.start() }
     }
+
+    /// The loaded instrument when it's one of the app's own.
+    public var loadedBuiltIn: BuiltInInstrumentAU? { instrument?.auAudioUnit as? BuiltInInstrumentAU }
+
+    /// Tells a built-in instrument the set's mood (plugins ignore it).
+    public func setMood(_ mood: Mood) { loadedBuiltIn?.setMood(mood) }
 
     @MainActor
     public func currentInstrumentState() -> Data? {
@@ -168,7 +189,7 @@ public final class AudioEngine {
     }
 
     private func installLevelTap() {
-        let mixer = engine.mainMixerNode
+        let mixer = instrumentBus
         mixer.removeTap(onBus: 0)
         let rate = mixer.outputFormat(forBus: 0).sampleRate
         let analyzer = SoundCharacterAnalyzer(sampleRate: rate > 0 ? rate : 44_100)
@@ -187,9 +208,11 @@ public final class AudioEngine {
     }
 
     private func restartAfterConfigurationChange() {
+        engine.disconnectNodeOutput(instrumentBus)
+        engine.connect(instrumentBus, to: engine.mainMixerNode, format: renderFormat())
         if let unit = instrument {
             engine.disconnectNodeOutput(unit)
-            engine.connect(unit, to: engine.mainMixerNode, format: renderFormat())
+            engine.connect(unit, to: instrumentBus, format: renderFormat())
         }
         setOutputBufferSize()
         installLevelTap()

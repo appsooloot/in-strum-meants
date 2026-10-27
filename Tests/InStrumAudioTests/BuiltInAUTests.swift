@@ -1,0 +1,150 @@
+import XCTest
+import AVFoundation
+@testable import InStrumAudio
+@testable import InStrumCore
+import InStrumDSP
+
+@MainActor
+final class BuiltInAUTests: XCTestCase {
+    private func choice(_ name: String = "Felt Glass") throws -> InstrumentChoice {
+        try XCTUnwrap(BuiltInCatalog.instruments.first { $0.name == name }).choice()
+    }
+
+    private func makeEngine(rate: Double = 48_000, _ name: String = "Felt Glass") async throws -> AudioEngine {
+        let e = AudioEngine(manualRendering: true, manualSampleRate: rate)
+        try e.start()
+        let c = try choice(name)
+        try await e.loadInstrument(c)
+        return e
+    }
+
+    private func setParam(_ e: AudioEngine, _ address: Int, _ value: Float) {
+        e.loadedBuiltIn?.parameterTree?.parameter(withAddress: AUParameterAddress(address))?.value = value
+    }
+
+    /// Reads a dial (synchronous helper: async tests assert on plain values, avoiding a Swift
+    /// runtime bug with closures nested in XCTAssert autoclosures inside async functions).
+    private func param(_ e: AudioEngine, _ address: Int) -> Float {
+        e.loadedBuiltIn?.parameterTree?.parameter(withAddress: AUParameterAddress(address))?.value ?? .nan
+    }
+
+    private func level(_ e: AudioEngine, seconds: Double, block: Int = 256) throws -> Double {
+        DSPTestKit.dBFS(try render(e, seconds: seconds, block: block))
+    }
+
+    /// Left channel of `seconds` of manual rendering in `block`-frame calls.
+    private func render(_ e: AudioEngine, seconds: Double, block: Int = 256, rate: Double = 48_000) throws -> [Float] {
+        var out: [Float] = []
+        let total = Int(seconds * rate)
+        out.reserveCapacity(total)
+        while out.count < total {
+            let n = min(block, total - out.count)
+            let b = try e.renderOffline(frames: AVAudioFrameCount(n))
+            out.append(contentsOf: UnsafeBufferPointer(start: b.floatChannelData![0], count: Int(b.frameLength)))
+        }
+        return out
+    }
+
+    func testLoadsAndPlaysFeltGlass() async throws {
+        let e = try await makeEngine()
+        let loaded = e.loadedBuiltIn != nil
+        XCTAssertTrue(loaded)
+        e.send([0x90, 60, 100])
+        let db = try level(e, seconds: 0.5)
+        XCTAssertGreaterThan(db, -40)
+    }
+
+    func testFullStateRoundTrip() async throws {
+        let e = try await makeEngine()
+        setParam(e, Int(ISD_P_GLASS), 0.8)
+        setParam(e, Int(ISD_P_FINE_TUNE), 12)
+        var saved = try choice()
+        let state = e.currentInstrumentState()
+        XCTAssertNotNil(state)
+        saved.stateData = state
+        let e2 = AudioEngine(manualRendering: true)
+        try e2.start()
+        try await e2.loadInstrument(saved)
+        let glass = param(e2, Int(ISD_P_GLASS)), fine = param(e2, Int(ISD_P_FINE_TUNE))
+        XCTAssertEqual(glass, 0.8, accuracy: 1e-5)
+        XCTAssertEqual(fine, 12, accuracy: 1e-5)
+    }
+
+    func testDialReaderSeesDialsButNotMood() async throws {
+        let e = try await makeEngine()
+        guard let unit = e.loadedBuiltIn else { return XCTFail("no built-in loaded") }
+        let names = DialReader(audioUnit: unit).dials.map(\.name)
+        let addresses = DialReader(audioUnit: unit).dials.map(\.address)
+        let hasGlass = names.contains("Glass")
+        let moodCount = addresses.filter { $0 >= AUParameterAddress(ISD_P_MOOD_ENERGY) }.count
+        XCTAssertTrue(hasGlass)
+        XCTAssertEqual(moodCount, 0)
+    }
+
+    func testCatalogListsAvailableInstruments() throws {
+        let all = BuiltInCatalog.instruments
+        XCTAssertTrue(all.contains { $0.name == "Felt Glass" })
+        XCTAssertTrue(all.allSatisfy { $0.manufacturer == "In Strum Meants" })
+        for info in all {
+            let engine = try XCTUnwrap(BuiltInCatalog.engine(for: info.choice()))
+            XCTAssertEqual(BuiltInCatalog.description(for: engine).componentSubType, info.description.componentSubType)
+        }
+        XCTAssertNil(BuiltInCatalog.engine(for: InstrumentChoice(name: "x", componentType: kAudioUnitType_MusicDevice,
+                                                                 componentSubType: kAudioUnitSubType_DLSSynth,
+                                                                 componentManufacturer: kAudioUnitManufacturer_Apple)))
+    }
+
+    func testTuningHoldsAt44_1And96k() async throws {
+        for rate in [44_100.0, 96_000.0] {
+            let e = try await makeEngine(rate: rate)
+            setParam(e, Int(ISD_P_SPACE), 0)
+            e.send([0x90, 69, 100])
+            let out = try render(e, seconds: 1.4, block: 512, rate: rate)
+            let slice = Array(out[Int(0.3 * rate)..<Int(1.3 * rate)])
+            let cents = DSPTestKit.cents(DSPTestKit.fundamental(slice, sampleRate: rate, near: 440), 440)
+            XCTAssertEqual(cents, 0, accuracy: 2, "at \(rate) Hz")
+        }
+    }
+
+    func testRendersAnyBufferSize() async throws {
+        var levels: [Double] = []
+        for block in [256, 4096, 1] {
+            let e = try await makeEngine()
+            e.send([0x90, 60, 100])
+            let db = try level(e, seconds: 0.5, block: block)
+            levels.append(db)
+        }
+        XCTAssertEqual(levels[1], levels[0], accuracy: 0.5)
+        XCTAssertEqual(levels[2], levels[0], accuracy: 0.5)
+    }
+
+    func testSwitchingWhileHeldIsSafe() async throws {
+        let e = try await makeEngine()
+        e.send([0x90, 60, 110])
+        _ = try render(e, seconds: 0.2)
+        let next = try choice()   // Orbit Pad once Task 6 lands
+        try await e.loadInstrument(next)
+        let after = try render(e, seconds: 0.25)
+        let finite = after.allSatisfy { $0.isFinite }
+        let tail = DSPTestKit.dBFS(after[Int(0.05 * 48_000)...])
+        XCTAssertTrue(finite)
+        XCTAssertLessThan(tail, -100)
+    }
+
+    func testMoodReachesTheInstrument() async throws {
+        let e = try await makeEngine()
+        e.setMood(.serene)
+        let space = param(e, Int(ISD_P_MOOD_SPACE))
+        XCTAssertEqual(space, Float(Mood.serene.space), accuracy: 1e-5)
+    }
+
+    func testPatchesApply() async throws {
+        let e = try await makeEngine()
+        guard let lullaby = PatchLibrary.all.first(where: { $0.id == "lullaby" }) else { return XCTFail("no Lullaby") }
+        e.loadedBuiltIn?.apply(lullaby)
+        let felt = Double(param(e, Int(ISD_P_FELT))), expected = lullaby.values["felt"] ?? -1
+        let id = e.loadedBuiltIn?.patchID
+        XCTAssertEqual(felt, expected, accuracy: 1e-5)
+        XCTAssertEqual(id, "lullaby")
+    }
+}

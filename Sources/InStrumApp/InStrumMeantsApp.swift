@@ -11,6 +11,7 @@ final class AppContainer: ObservableObject {
     private var midi: MIDIInput?
 
     init() {
+        BuiltInCatalog.registerAll()
         let support = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
             .appendingPathComponent("In Strum Meants", isDirectory: true)
         audio = AudioEngine()
