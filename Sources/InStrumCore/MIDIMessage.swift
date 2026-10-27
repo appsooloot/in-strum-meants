@@ -71,3 +71,18 @@ public struct MIDIParser {
         }
     }
 }
+
+public extension MIDIMessage {
+    /// The message as MIDI 1.0 bytes (empty for `.other`).
+    var bytes: [UInt8] {
+        switch self {
+        case let .noteOn(c, n, v): return [0x90 | (c & 0x0F), n & 0x7F, v & 0x7F]
+        case let .noteOff(c, n, v): return [0x80 | (c & 0x0F), n & 0x7F, v & 0x7F]
+        case let .controlChange(c, n, v): return [0xB0 | (c & 0x0F), n & 0x7F, v & 0x7F]
+        case let .pitchBend(c, v): return [0xE0 | (c & 0x0F), UInt8(v & 0x7F), UInt8((v >> 7) & 0x7F)]
+        case let .channelPressure(c, v): return [0xD0 | (c & 0x0F), v & 0x7F]
+        case let .polyPressure(c, n, v): return [0xA0 | (c & 0x0F), n & 0x7F, v & 0x7F]
+        case .other: return []
+        }
+    }
+}

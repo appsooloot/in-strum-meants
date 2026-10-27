@@ -52,7 +52,7 @@ final class DemoRenderTests: XCTestCase {
         ]
         var written = 0
         for (name, engine, phrase) in demos {
-            guard let audio = Self.render(engine, phrase) else { continue }   // engine not built yet
+            guard let audio = Self.render(engine, phrase, tail: 6) else { continue }   // engine not built yet
             let peak = max(audio.l.map(abs).max() ?? 0, audio.r.map(abs).max() ?? 0)
             XCTAssertLessThanOrEqual(peak, 1.0, name)
             let wav = url.appendingPathComponent("\(name)-demo.wav")
