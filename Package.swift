@@ -13,5 +13,6 @@ let package = Package(
         .target(name: "InStrumApp", dependencies: ["InStrumCore", "InStrumAudio"]),
         .executableTarget(name: "InStrumMeants", dependencies: ["InStrumApp"]),
         .testTarget(name: "InStrumCoreTests", dependencies: ["InStrumCore"]),
+        .testTarget(name: "InStrumAudioTests", dependencies: ["InStrumAudio", "InStrumCore"]),
     ]
 )
