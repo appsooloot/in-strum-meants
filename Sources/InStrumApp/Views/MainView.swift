@@ -8,11 +8,19 @@ struct MainView: View {
     @State private var showPicker = false
     @State private var volume: Float = 0.8
     @State private var showSettings = false
+    @State private var showVisuals = false
 
     var body: some View {
         VStack(spacing: 0) {
             topBar
-            MetalCanvas(model: model)
+            HStack(spacing: 0) {
+                MetalCanvas(model: model)
+                if showVisuals {
+                    SettingsPanel(model: model)
+                        .transition(.move(edge: .trailing))
+                }
+            }
+            .animation(.easeInOut(duration: 0.2), value: showVisuals)
             if model.showsOnScreenKeyboard {
                 OnScreenKeyboard(model: model)
                     .frame(height: 120)
@@ -67,7 +75,9 @@ struct MainView: View {
             .disabled(!isPlaying)
             Button(role: .destructive) { model.panic() } label: { Label("Panic", systemImage: "speaker.slash.fill") }
                 .help("Silence everything")
-            Button { showSettings.toggle() } label: { Label("Settings", systemImage: "gearshape") }
+            Button { showVisuals.toggle() } label: { Label("Visuals", systemImage: "sparkles") }
+                .help("Theme, look and display settings")
+            Button { showSettings.toggle() } label: { Label("Sound", systemImage: "gearshape") }
                 .popover(isPresented: $showSettings, arrowEdge: .bottom) { SettingsPopover(model: model) }
             Image(systemName: "speaker.wave.2.fill").foregroundStyle(.secondary)
             Slider(value: Binding(get: { Double(volume) },

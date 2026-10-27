@@ -1,0 +1,71 @@
+import SwiftUI
+import InStrumCore
+
+/// The ✦ Visuals panel: theme, macros, the theme's hero settings, quality and comfort.
+struct SettingsPanel: View {
+    @ObservedObject var model: AppModel
+
+    private var state: ThemeState { model.themeState(for: model.themeID) }
+    private var params: ParameterSet { ThemeRegistry.parameterSet(for: model.themeID, state: state) }
+
+    var body: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 18) {
+                section("Theme") {
+                    Picker("", selection: Binding(get: { model.themeID }, set: { model.setTheme($0) })) {
+                        ForEach(ThemeRegistry.all, id: \.id) { Text($0.name).tag($0.id) }
+                    }
+                    .labelsHidden()
+                }
+                section("Feel") {
+                    ForEach(Macro.allCases, id: \.self) { m in
+                        VStack(alignment: .leading, spacing: 2) {
+                            HStack {
+                                Text(VisualSettings.macroName(m)).font(.callout)
+                                Spacer()
+                                let v = state.macros[m] ?? 0
+                                Text(v == 0 ? "–" : String(format: "%+.2f", v)).font(.caption.monospacedDigit()).foregroundStyle(.secondary)
+                            }
+                            Slider(value: Binding(get: { state.macros[m] ?? 0 }, set: { v in
+                                model.saveThemeState(VisualSettings.updatedMacro(state, m, to: v), for: model.themeID)
+                            }), in: -1...1)
+                        }
+                    }
+                }
+                section(ThemeRegistry.all.first { $0.id == model.themeID }?.name ?? "Theme settings") {
+                    ForEach(VisualSettings.heroSpecs(for: model.themeID)) { spec in
+                        ParamControl(spec: spec, value: params.baseValue(spec.id) ?? spec.defaultValue) { v in
+                            model.saveThemeState(VisualSettings.updated(state, themeID: model.themeID, id: spec.id, to: v),
+                                                 for: model.themeID)
+                        }
+                    }
+                }
+                section("Display") {
+                    Picker("Quality", selection: Binding(get: { model.quality }, set: { model.setQuality($0) })) {
+                        Text("Auto").tag(QualitySetting.auto)
+                        Text("Lite").tag(QualitySetting.lite)
+                        Text("High").tag(QualitySetting.high)
+                        Text("Ultra").tag(QualitySetting.ultra)
+                    }
+                    .pickerStyle(.segmented)
+                    Toggle("Gentle visuals (softer flashes and sparkle)",
+                           isOn: Binding(get: { model.gentleVisuals }, set: { model.setGentleVisuals($0) }))
+                }
+                Button(role: .destructive) {
+                    model.saveThemeState(VisualSettings.reset(state), for: model.themeID)
+                } label: { Label("Reset theme", systemImage: "arrow.counterclockwise") }
+            }
+            .padding(18)
+        }
+        .frame(width: 340)
+        .background(.ultraThinMaterial)
+    }
+
+    @ViewBuilder
+    private func section<Content: View>(_ title: String, @ViewBuilder _ content: () -> Content) -> some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text(title.uppercased()).font(.caption.weight(.semibold)).tracking(1.2).foregroundStyle(.secondary)
+            content()
+        }
+    }
+}
