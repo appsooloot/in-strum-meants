@@ -11,7 +11,6 @@ public enum AudioEngineError: Error, Equatable {
 /// Hosts one instrument plugin and plays it to the speakers.
 /// `send` is safe to call from the CoreMIDI thread.
 public final class AudioEngine {
-    public static let outputBufferFrames: UInt32 = 128
 
     private let engine = AVAudioEngine()
     private let manualRendering: Bool
@@ -20,6 +19,11 @@ public final class AudioEngine {
     private struct Shared { var midiBlock: AUScheduleMIDIEventBlock?; var level: Float = 0 }
     private let shared = OSAllocatedUnfairLock(uncheckedState: Shared())
     private var configObserver: NSObjectProtocol?
+
+    /// Output buffer size in frames (smaller = lower latency, larger = fewer glitches).
+    public var bufferFrames: UInt32 = 256 {
+        didSet { if !manualRendering && engine.isRunning { setOutputBufferSize() } }
+    }
 
     public init(manualRendering: Bool = false, manualSampleRate: Double = 44_100) {
         self.manualRendering = manualRendering
@@ -132,7 +136,7 @@ public final class AudioEngine {
 
     private func setOutputBufferSize() {
         guard let unit = engine.outputNode.audioUnit else { return }
-        var frames = Self.outputBufferFrames
+        var frames = bufferFrames
         AudioUnitSetProperty(unit, kAudioDevicePropertyBufferFrameSize, kAudioUnitScope_Global, 0,
                              &frames, UInt32(MemoryLayout<UInt32>.size))
     }

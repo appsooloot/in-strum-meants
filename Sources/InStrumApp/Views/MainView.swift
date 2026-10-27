@@ -7,6 +7,7 @@ struct MainView: View {
     @State private var showSafeModePrompt = false
     @State private var showPicker = false
     @State private var volume: Float = 0.8
+    @State private var showSettings = false
 
     var body: some View {
         VStack(spacing: 0) {
@@ -66,6 +67,8 @@ struct MainView: View {
             .disabled(!isPlaying)
             Button(role: .destructive) { model.panic() } label: { Label("Panic", systemImage: "speaker.slash.fill") }
                 .help("Silence everything")
+            Button { showSettings.toggle() } label: { Label("Settings", systemImage: "gearshape") }
+                .popover(isPresented: $showSettings, arrowEdge: .bottom) { SettingsPopover(model: model) }
             Image(systemName: "speaker.wave.2.fill").foregroundStyle(.secondary)
             Slider(value: Binding(get: { Double(volume) },
                                   set: { volume = Float($0); model.setVolume(volume) }), in: 0...1)

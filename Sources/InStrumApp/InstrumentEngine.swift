@@ -11,6 +11,7 @@ public protocol InstrumentEngine: AnyObject {
     func panic()
     var audioLevel: Float { get }
     var masterVolume: Float { get set }
+    var bufferFrames: UInt32 { get set }
 }
 
 extension AudioEngine: InstrumentEngine {}

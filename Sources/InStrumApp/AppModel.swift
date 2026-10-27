@@ -22,6 +22,7 @@ public final class AppModel: ObservableObject {
     @Published public private(set) var midiSourceNames: [String] = []
     /// True while a plugin is being loaded; new choices are ignored until it finishes.
     @Published public private(set) var isLoading = false
+    @Published public private(set) var touchCurve: TouchCurve
     /// Called just before the instrument changes (e.g. to close the old plugin's window).
     public var willChangeInstrument: (@MainActor () -> Void)?
     /// True when the previous run ended without settling (offer Safe Mode before launching).
@@ -36,6 +37,7 @@ public final class AppModel: ObservableObject {
         var parser = MIDIParser()
         var state = PerformanceState()
         var events: [PerformanceEvent] = []
+        var touch: TouchCurve = .normal
     }
     nonisolated private let live = OSAllocatedUnfairLock(uncheckedState: Live())
 
@@ -50,8 +52,11 @@ public final class AppModel: ObservableObject {
         self.engine = engine
         self.store = store
         self.launchGuard = launchGuard
-        self.settings = store.load()
+        let loaded = store.load()
+        self.settings = loaded
+        self.touchCurve = loaded.touchCurve
         self.offersSafeMode = launchGuard.beginLaunch()
+        live.withLockUnchecked { $0.touch = loaded.touchCurve }
     }
 
     // MARK: - Launch and instruments
@@ -61,6 +66,7 @@ public final class AppModel: ObservableObject {
         guard !launched else { return }
         launched = true
         engine.masterVolume = settings.masterVolume
+        engine.bufferFrames = settings.bufferFrames
         do { try engine.start() } catch {
             status = .needsInstrument(message: "Sound output couldn't start. Check your speakers or headphones, then reopen the app.")
             return
@@ -106,7 +112,8 @@ public final class AppModel: ObservableObject {
     // MARK: - Playing (any thread)
 
     /// Called on the CoreMIDI thread. Sound first, visuals second.
-    public nonisolated func handleMIDI(bytes: [UInt8], time: Double) {
+    public nonisolated func handleMIDI(bytes raw: [UInt8], time: Double) {
+        let bytes = live.withLockUnchecked { $0.touch }.transform(raw)
         engine.send(bytes)
         live.withLockUnchecked { l in
             for message in l.parser.parse(bytes) {
@@ -153,6 +160,21 @@ public final class AppModel: ObservableObject {
     public func setVolume(_ v: Float) {
         engine.masterVolume = v
         settings.masterVolume = engine.masterVolume
+        autosave()
+    }
+
+    public var bufferFrames: UInt32 { engine.bufferFrames }
+
+    public func setTouchCurve(_ curve: TouchCurve) {
+        touchCurve = curve
+        live.withLockUnchecked { $0.touch = curve }
+        settings.touchCurve = curve
+        autosave()
+    }
+
+    public func setBufferFrames(_ frames: UInt32) {
+        engine.bufferFrames = frames
+        settings.bufferFrames = frames
         autosave()
     }
 
