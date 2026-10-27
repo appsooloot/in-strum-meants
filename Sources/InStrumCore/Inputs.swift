@@ -103,6 +103,9 @@ public final class InputHub {
         return InputFrame(values: out)
     }
 
+    /// The unsmoothed value last set (for tests and inspection).
+    public func rawTarget(_ id: InputID) -> Double { target[id] ?? current[id] ?? 0 }
+
     /// All inputs seen so far (for the mapping editor).
     public var knownInputs: [InputID] { Array(Set(target.keys).union(current.keys)) }
 
