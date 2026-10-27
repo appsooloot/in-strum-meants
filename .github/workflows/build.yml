@@ -28,7 +28,7 @@ jobs:
 
   previews:
     needs: test
-    if: github.event_name == 'push' && github.ref == 'refs/heads/m3a'
+    if: github.event_name == 'push' && (github.ref == 'refs/heads/m3a' || github.ref == 'refs/heads/sets')
     runs-on: macos-15
     permissions:
       contents: write
