@@ -19,6 +19,6 @@ jobs:
         run: |
           {
             swift --version 2>&1 | head -1
-            grep -E "error:|warning: |Test Suite '(All|Selected) tests'|Test Case .*(started|passed|failed)|Executed [0-9]+ test|: error|failed \(|skipped|Compiling|Build complete" test.log | grep -v "^\s*$" | tail -n 160
+            grep -E "error:|warning: |Test Suite '(All|Selected) tests'|Test Case .*(failed|skipped)|Test Suite '[A-Za-z]+Tests' (passed|failed)|Executed [0-9]+ test|: error|failed \(|skipped|Compiling|Build complete" test.log | grep -v "^\s*$" | tail -n 160
           } > report.txt
           python3 -c "import sys,urllib.parse;t=open('report.txt').read()[-60000:];print('::notice title=test-report::'+t.replace('%','%25').replace('\r','').replace('\n','%0A'))"
