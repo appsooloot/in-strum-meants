@@ -26,7 +26,8 @@ public final class DialReader {
     public init(audioUnit: AUAudioUnit) {
         let all = audioUnit.parameterTree?.allParameters ?? []
         var params: [UInt64: AUParameter] = [:], infos: [UInt64: DialInfo] = [:], list: [DialInfo] = []
-        for p in all where params[p.address] == nil {
+        // The set's mood is not a dial (it reaches built-in instruments as hidden `mood.*` parameters).
+        for p in all where params[p.address] == nil && !p.identifier.hasPrefix("mood.") {
             let name = p.displayName.isEmpty ? p.identifier : p.displayName
             let info = DialInfo(address: p.address, name: name.isEmpty ? "Dial \(p.address)" : name)
             params[p.address] = p; infos[p.address] = info; list.append(info)

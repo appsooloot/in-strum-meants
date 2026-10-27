@@ -15,11 +15,13 @@ public protocol InstrumentEngine: AnyObject {
     var bufferFrames: UInt32 { get set }
     var soundReading: SoundReading { get }
     var loadedAudioUnit: AUAudioUnit? { get }
+    func setMood(_ mood: Mood)
 }
 
 public extension InstrumentEngine {
     var soundReading: SoundReading { SoundReading() }
     var loadedAudioUnit: AUAudioUnit? { nil }
+    func setMood(_ mood: Mood) {}
 }
 
 extension AudioEngine: InstrumentEngine {}
