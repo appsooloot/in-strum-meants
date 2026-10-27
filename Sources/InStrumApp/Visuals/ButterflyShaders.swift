@@ -130,11 +130,11 @@ enum ButterflyShaders {
             float ang = atan2(dv.y, dv.x);
             float beams = pow(0.5 + 0.5 * sin(ang * 13.0 + fbm(float2(ang * 3.0, t * 0.03)) * 6.0), 5.0);
             float shafts = lit * (0.25 + beams * 0.9) * exp(-r * 1.5);
-            col += sunCol * shafts * u.sun.z * 0.9 * (1.0 - fm.y * 0.7);
+            col += sunCol * shafts * u.sun.z * (night > 0.5 ? 0.55 : 0.9) * (1.0 - fm.y * 0.7);
         }
         // tree line (hazy, aerial perspective) and canopy (deep green, backlit edges)
         float treeShade = 0.75 + 0.5 * fbm(float2(uv.x * aspect * 25.0, uv.y * 25.0));
-        float3 treeCol = mix(float3(0.035, 0.075, 0.05), u.skyHorizon.rgb * 0.3, 0.32) * treeShade * (1.0 - night * 0.5);
+        float3 treeCol = mix(float3(0.03, 0.07, 0.045), u.skyHorizon.rgb * 0.22, 0.25) * treeShade * (1.0 - night * 0.5);
         col = mix(col, treeCol, fm.x * 0.97);
         float backlight = exp(-r * 2.2) * (1.0 - night);
         float leafVar = fbm(float2(uv.x * aspect * 45.0, uv.y * 45.0));
@@ -153,7 +153,7 @@ enum ButterflyShaders {
         }
         // mist along the horizon
         float horizonY = keyTop + (1.0 - keyTop) * 0.24;
-        col = mix(col, u.skyHorizon.rgb * 0.95 + 0.04, u.sun.w * exp(-abs(uv.y - horizonY) * 6.0) * 0.65);
+        col = mix(col, u.skyHorizon.rgb * 1.1 + 0.08, u.sun.w * exp(-abs(uv.y - horizonY) * 7.0) * 0.4);
         ColorDepth o;
         o.color = float4(col, 1.0);
         o.depth = float4(0.8, 0, 0, 1);
