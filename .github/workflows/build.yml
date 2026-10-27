@@ -22,3 +22,44 @@ jobs:
             grep -E "error:|warning: |Test Suite '(All|Selected) tests'|Test Case .*(failed|skipped)|Test Suite '[A-Za-z]+Tests' (passed|failed)|Executed [0-9]+ test|: error|failed \(|skipped|Compiling|Build complete" test.log | grep -v "^\s*$" | tail -n 160
           } > report.txt
           python3 -c "import sys,urllib.parse;t=open('report.txt').read()[-60000:];print('::notice title=test-report::'+t.replace('%','%25').replace('\r','').replace('\n','%0A'))"
+
+  package:
+    needs: test
+    runs-on: macos-15
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v5
+      - name: Build app
+        run: Scripts/make-app.sh "$GITHUB_RUN_NUMBER" 2>&1 | tee package.log; exit ${PIPESTATUS[0]}
+      - name: Check it is an Intel app for macOS 13+
+        run: |
+          BIN="dist/In Strum Meants.app/Contents/MacOS/InStrumMeants"
+          ARCHS=$(lipo -archs "$BIN"); MINOS=$(vtool -show-build "$BIN" | awk '/minos/ {print $2}')
+          echo "archs=$ARCHS minos=$MINOS" | tee -a package.log
+          test "$ARCHS" = "x86_64"
+          test "$MINOS" = "13.0"
+          codesign --verify --verbose "dist/In Strum Meants.app" 2>&1 | tee -a package.log
+      - name: Keep build
+        uses: actions/upload-artifact@v4
+        with:
+          name: In-Strum-Meants-build-${{ github.run_number }}
+          path: dist/*.zip
+      - name: Publish release
+        if: github.ref == 'refs/heads/main'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          cat > notes.md <<NOTES
+          **$(git log -1 --pretty=%s)**
+
+          **Install:** download the zip below, unzip it, drag *In Strum Meants* into Applications, then right-click it → **Open** → **Open** (first time only).
+
+          **Check each build:** instant key response · sounds identical to Splice · soft vs hard feels right · pedal (optional) lingers · visuals land with notes · unplugging stops all sound · reopening restores your piano.
+          NOTES
+          gh release create "build-$GITHUB_RUN_NUMBER" dist/*.zip --title "In Strum Meants — build $GITHUB_RUN_NUMBER" --notes-file notes.md
+      - name: Report
+        if: always()
+        run: |
+          grep -E "error:|warning: |archs=|valid on disk|satisfies|Build complete|\.zip" package.log | tail -n 40 > report.txt || true
+          python3 -c "t=open('report.txt').read()[-60000:];print('::notice title=package-report::'+t.replace('%','%25').replace('\r','').replace('\n','%0A'))"
