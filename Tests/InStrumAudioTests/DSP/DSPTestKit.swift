@@ -81,6 +81,19 @@ enum DSPTestKit {
         return saa > 0 && sbb > 0 ? sab / (saa * sbb).squareRoot() : 0
     }
 
+    /// Hann-windowed power spectrum of `x` zero-padded to `size` (a power of two).
+    static func powerSpectrum(_ x: [Float], size: Int) -> [Double] {
+        var log2n = 0
+        while (1 << log2n) < size { log2n += 1 }
+        let n = 1 << log2n
+        var buf = [Float](repeating: 0, count: n)
+        let m = min(x.count, n)
+        var w = [Float](repeating: 0, count: m)
+        vDSP_hann_window(&w, vDSP_Length(m), Int32(vDSP_HANN_NORM))
+        for i in 0..<m { buf[i] = x[i] * w[i] }
+        return magnitudes(buf, log2n: log2n).map { Double($0) * Double($0) }
+    }
+
     static func cents(_ f: Double, _ ref: Double) -> Double { 1200 * log2(f / ref) }
 
     /// Seconds → sample index at the kit's sample rate.
