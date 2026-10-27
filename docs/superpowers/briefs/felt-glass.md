@@ -36,8 +36,30 @@
 | Glass Choir | 0.40 | 0.75 | 0.50 | 0.70 | 0.60 | 0.70 |
 | Lullaby | 0.85 | 0.20 | 0.80 | 0.45 | 0.30 | 0.35 |
 
+## Measured against the targets (Task 2, offline renders at 48 kHz, default preset unless noted)
+| Target | Measured |
+|---|---|
+| Centroid, vel 70, MIDI 72, 0–0.3 s: 900–1400 Hz | **1408 Hz** (vel 127: 2305 Hz) |
+| Centroid, vel 30, MIDI 72: < 800 Hz | **760 Hz** |
+| Softer is darker (MIDI 60, vel 30 vs 110) | **0.29×** |
+| MIDI 72 held to −40 dB: 3–4 s | **3.65–3.85 s** (vel 70–127) |
+| MIDI 48 held to −40 dB: 7–9 s | **7.7 s** (vel 127); vel 70 just beyond 8 s |
+| Thump −24…−18 dB under the note | set to (−18 + 10·felt) dB under the note's initial level (−12.5 dB peak at default, about −20 to −25 dB averaged over the burst) |
+| Glass swells over 0.4–0.9 s, about −12 dB under the body | peak at **0.4–0.6 s**, **−11.7 dB** under the body's initial level |
+| Space wet 25–35%, RT60 1.8–2.6 s | wet **27%**, RT60 about **2.6 s** |
+| Sympathetic ring with the pedal | **−23 to −26 dB** under the notes after the first second |
+| Levels | vel 100 C4 peaks −10.8 dBFS, ff C4 −5 dBFS, ff C2 −3 dBFS; a peak limiter (0.9 ceiling) keeps dense ff chords clean |
+| CPU (32-note pedalled run + 16-note chord) | **2.2–2.4%** of real time (x86 clang -O2 locally); under the 5% budget in CI |
+
+Preset contrasts (MIDI 72, vel 70): Felt Glass centroid 1457 Hz / −40 dB at 3.85 s · Bare Felt 1344 Hz / 3.25 s (no halo) · Glass Choir 1542 Hz / 4.1 s (long halo) · Lullaby 1164 Hz / 3.6 s (darkest, closest).
+
 ## Spectrogram check log
-_(Filled in during Task 5: comparison of rendered demo spectrograms against the targets above.)_
+- Task 2: the demo phrase and the four presets were rendered and inspected as spectrograms. Clean partials, a visible glass halo above each note, and natural decays.
+- Fixes made from the images:
+  - A hard spectral edge on ff bass notes, where the partial cap cut off strong partials: the top quarter of the partials now tapers off.
+  - High glass partials ringing as long as low ones: each glass partial's decay now shortens with frequency.
+- Low-frequency smear under the chords: checked numerically and found to be window leakage, 44 dB under the notes.
+- Task 5 adds the CI-rendered demo and spectrogram for each build.
 
 [w1]: https://en.wikipedia.org/wiki/Come_Back_to_Earth
 [w2]: https://ipfs.ssi.eecc.de/ipns/en.wikipedia-on-ipfs.org/wiki/Swimming_(Mac_Miller_album)
