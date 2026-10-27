@@ -5,7 +5,7 @@ import MetalKit
 struct MetalCanvas: NSViewRepresentable {
     let model: AppModel
 
-    final class Coordinator { var renderer: SceneRenderer? }
+    final class Coordinator { var canvas: ThemeCanvas? }
 
     func makeCoordinator() -> Coordinator { Coordinator() }
 
@@ -19,9 +19,10 @@ struct MetalCanvas: NSViewRepresentable {
         view.preferredFramesPerSecond = 60
         view.enableSetNeedsDisplay = false
         view.isPaused = false
-        let renderer = SceneRenderer(view: view, model: model)
-        view.delegate = renderer
-        context.coordinator.renderer = renderer
+        view.framebufferOnly = true
+        let canvas = ThemeCanvas(view: view, model: model)
+        view.delegate = canvas
+        context.coordinator.canvas = canvas
         return view
     }
 

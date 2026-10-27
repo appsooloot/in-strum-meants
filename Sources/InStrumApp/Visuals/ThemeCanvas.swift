@@ -1,0 +1,84 @@
+import MetalKit
+import QuartzCore
+import InStrumCore
+
+/// Runs the active theme every frame: events → director → theme renderer → finishing → screen.
+final class ThemeCanvas: NSObject, MTKViewDelegate {
+    private let model: AppModel
+    private let queue: MTLCommandQueue
+    private let device: MTLDevice
+    private let director: SceneDirector
+    private var stack: RenderStack?
+    private var butterfly: ButterflyRenderer?
+    private var steinway: SteinwayRenderer?
+    private var autoQuality: AutoQuality
+    private var lastTime = CACurrentMediaTime()
+    private var seenVersion = -1
+
+    @MainActor
+    init?(view: MTKView, model: AppModel) {
+        guard let device = view.device, let queue = device.makeCommandQueue(),
+              let stack = RenderStack(device: device, pixelFormat: view.colorPixelFormat) else { return nil }
+        self.model = model
+        self.device = device
+        self.queue = queue
+        self.stack = stack
+        self.director = SceneDirector(themeID: model.themeID, state: model.themeState(for: model.themeID),
+                                      reaction: ReactionPresets.expressivePianist)
+        self.autoQuality = AutoQuality(setting: model.quality)
+        super.init()
+    }
+
+    func mtkView(_ view: MTKView, drawableSizeWillChange size: CGSize) {
+        MainActor.assumeIsolated { stack?.resize(width: Int(size.width), height: Int(size.height)) }
+    }
+
+    func draw(in view: MTKView) {
+        MainActor.assumeIsolated { drawFrame(view) }
+    }
+
+    @MainActor
+    private func syncSettings() {
+        guard model.visualsVersion != seenVersion else { return }
+        seenVersion = model.visualsVersion
+        if model.themeID != director.themeID {
+            director.switchTheme(to: model.themeID, state: model.themeState(for: model.themeID))
+        } else {
+            director.parameters = ThemeRegistry.parameterSet(for: director.themeID, state: model.themeState(for: director.themeID))
+        }
+        autoQuality.setting = model.quality
+    }
+
+    @MainActor
+    private func drawFrame(_ view: MTKView) {
+        syncSettings()
+        guard let stack else { return }
+        let size = view.drawableSize
+        stack.resize(width: Int(size.width), height: Int(size.height))
+        let now = CACurrentMediaTime()
+        let dt = min(0.1, max(0, now - lastTime))
+        lastTime = now
+        director.handle(model.drainEvents(), at: now)
+        let level = autoQuality.record(frameTime: dt)
+        let frame = director.step(dt: dt, t: now, quality: level)
+
+        let renderer: ThemeRenderer?
+        if let g = frame as? GardenFrame {
+            if butterfly == nil { butterfly = ButterflyRenderer(device: device) }
+            butterfly?.update(g, params: director.parameters, quality: level, gentle: model.gentleVisuals, dt: dt, size: size)
+            renderer = butterfly
+        } else if let s = frame as? SteinwayFrame {
+            if steinway == nil { steinway = SteinwayRenderer(device: device) }
+            steinway?.update(s, quality: level, gentle: model.gentleVisuals, dt: dt)
+            renderer = steinway
+        } else {
+            renderer = nil
+        }
+        guard let renderer, let pass = view.currentRenderPassDescriptor, let drawable = view.currentDrawable,
+              let cb = queue.makeCommandBuffer() else { return }
+        renderer.render(stack: stack, commandBuffer: cb)
+        stack.post(into: pass, commandBuffer: cb, settings: renderer.post)
+        cb.present(drawable)
+        cb.commit()
+    }
+}

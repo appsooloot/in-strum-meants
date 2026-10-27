@@ -23,6 +23,12 @@ public final class AppModel: ObservableObject {
     /// True while a plugin is being loaded; new choices are ignored until it finishes.
     @Published public private(set) var isLoading = false
     @Published public private(set) var touchCurve: TouchCurve
+    /// The active visual theme.
+    @Published public private(set) var themeID: String
+    /// Bumped whenever any visual setting changes (the canvas re-reads them).
+    @Published public private(set) var visualsVersion = 0
+    @Published public private(set) var quality: QualitySetting
+    @Published public private(set) var gentleVisuals: Bool
     /// Called just before the instrument changes (e.g. to close the old plugin's window).
     public var willChangeInstrument: (@MainActor () -> Void)?
     /// True when the previous run ended without settling (offer Safe Mode before launching).
@@ -55,6 +61,9 @@ public final class AppModel: ObservableObject {
         let loaded = store.load()
         self.settings = loaded
         self.touchCurve = loaded.touchCurve
+        self.themeID = ThemeRegistry.resolve(loaded.themeID)
+        self.quality = loaded.quality
+        self.gentleVisuals = loaded.gentleVisuals
         self.offersSafeMode = launchGuard.beginLaunch()
         live.withLockUnchecked { $0.touch = loaded.touchCurve }
     }
@@ -176,6 +185,46 @@ public final class AppModel: ObservableObject {
         engine.bufferFrames = frames
         settings.bufferFrames = frames
         autosave()
+    }
+
+    // MARK: - Visuals
+
+    public func setTheme(_ id: String) {
+        let resolved = ThemeRegistry.resolve(id)
+        guard resolved != themeID else { return }
+        themeID = resolved
+        settings.themeID = resolved
+        visualsVersion += 1
+        autosave()
+    }
+
+    public func themeState(for id: String) -> ThemeState {
+        settings.themeStates[ThemeRegistry.resolve(id)] ?? ThemeState()
+    }
+
+    public func saveThemeState(_ state: ThemeState, for id: String) {
+        settings.themeStates[ThemeRegistry.resolve(id)] = state
+        visualsVersion += 1
+        scheduleSave()
+    }
+
+    public func setQuality(_ q: QualitySetting) {
+        quality = q; settings.quality = q; visualsVersion += 1; autosave()
+    }
+
+    public func setGentleVisuals(_ on: Bool) {
+        gentleVisuals = on; settings.gentleVisuals = on; visualsVersion += 1; autosave()
+    }
+
+    private var saveTask: Task<Void, Never>?
+    /// Saves after edits settle (0.5 s), so dragging a slider doesn't write on every tick.
+    private func scheduleSave() {
+        saveTask?.cancel()
+        saveTask = Task { [weak self] in
+            try? await Task.sleep(nanoseconds: 500_000_000)
+            guard !Task.isCancelled else { return }
+            self?.autosave()
+        }
     }
 
     public func autosave() {

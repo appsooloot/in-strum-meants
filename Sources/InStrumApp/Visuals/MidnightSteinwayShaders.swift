@@ -6,7 +6,9 @@ enum MidnightSteinwayShaders {
     using namespace metal;
 
     // params: x = keyTop (NDC y), y = bloom, z = ambience, w = spotlight count
-    struct StageUniforms { float4 params; float4 spots[64]; };
+    // style: x = spotlight width, y = warmth (-1...1), z = lacquer sheen, w = haze
+    struct StageUniforms { float4 params; float4 style; float4 spots[64]; };
+    struct ColorDepth { float4 color [[color(0)]]; float4 depth [[color(1)]]; };
     struct StageOut { float4 pos [[position]]; float2 p; };
 
     vertex StageOut stage_vertex(uint vid [[vertex_id]]) {
@@ -17,20 +19,20 @@ enum MidnightSteinwayShaders {
         return o;
     }
 
-    fragment float4 stage_fragment(StageOut in [[stage_in]], constant StageUniforms& u [[buffer(0)]]) {
+    fragment ColorDepth stage_fragment(StageOut in [[stage_in]], constant StageUniforms& u [[buffer(0)]]) {
         float2 p = in.p;
         float keyTop = u.params.x, bloom = u.params.y, ambience = u.params.z;
         int count = int(u.params.w);
         float3 col = float3(0.043, 0.035, 0.027);                       // #0B0907
         float sheen = smoothstep(1.3, 0.0, length((p - float2(0.0, 0.95)) * float2(0.6, 1.4)));
-        col += sheen * float3(0.05, 0.04, 0.03);                          // glossy lacquer
-        float3 spot = float3(1.0, 0.851, 0.627);                          // #FFD9A0
+        col += sheen * float3(0.05, 0.04, 0.03) * (0.4 + 1.2 * u.style.z); // glossy lacquer
+        float3 spot = mix(float3(0.85, 0.9, 1.0), float3(1.0, 0.851, 0.627), 0.5 + 0.5 * u.style.y); // #FFD9A0 when warm
         float3 amber = float3(1.0, 0.706, 0.353);                         // #FFB45A
         float h = p.y - keyTop;
         if (h > 0.0) {
             for (int i = 0; i < count; i++) {
                 float sx = -0.98 + u.spots[i].x * 1.96;
-                float width = 0.02 + h * 0.16;
+                float width = (0.02 + h * 0.16) * u.style.x;
                 float d = (p.x - sx) / width;
                 float cone = exp(-d * d) * exp(-h * 1.2);
                 col += spot * cone * u.spots[i].y * 0.5;
@@ -40,7 +42,9 @@ enum MidnightSteinwayShaders {
             col += amber * bloom * 0.15 * exp(-h * 18.0);
         }
         col += float3(1.0, 0.78, 0.5) * ambience * 0.05 * (1.2 - abs(p.y));
-        return float4(col, 1.0);
+        col += float3(1.0, 0.8, 0.55) * u.style.w * 0.06 * (1.0 - abs(p.y - 0.2));
+        ColorDepth o; o.color = float4(col, 1.0); o.depth = float4(0.5, 0, 0, 1);
+        return o;
     }
 
     // rect: x0, y0 (bottom), x1, y1 (top) in NDC; info: isBlack, glow, pressed
@@ -58,12 +62,12 @@ enum MidnightSteinwayShaders {
         return o;
     }
 
-    fragment float4 key_fragment(KeyOut in [[stage_in]]) {
+    fragment ColorDepth key_fragment(KeyOut in [[stage_in]], constant float4& glowColor [[buffer(0)]]) {
         float isBlack = in.info.x, glow = in.info.y, pressed = in.info.z;
         float2 uv = in.uv;
         float3 ivory = float3(0.949, 0.922, 0.867);                       // #F2EBDD
         float3 ebony = float3(0.078, 0.071, 0.063);                       // #141210
-        float3 amber = float3(1.0, 0.706, 0.353);
+        float3 amber = glowColor.rgb;
         float3 col;
         if (isBlack > 0.5) {
             col = ebony + float3(0.10) * smoothstep(0.8, 1.0, uv.y)        // glossy top bevel
@@ -76,7 +80,8 @@ enum MidnightSteinwayShaders {
         float edge = 1.0 - smoothstep(0.0, 0.16, min(min(uv.x, 1.0 - uv.x), min(uv.y, 1.0 - uv.y)));
         col = mix(col, amber, glow * (isBlack > 0.5 ? 0.35 : 0.22));
         col += amber * glow * edge * 0.8;
-        return float4(col, 1.0);
+        ColorDepth o; o.color = float4(col, 1.0); o.depth = float4(0.3, 0, 0, 1);
+        return o;
     }
     """
 }

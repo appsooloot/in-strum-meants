@@ -222,4 +222,27 @@ final class AppModelTests: XCTestCase {
         XCTAssertEqual(engine.bufferFrames, 128)
         XCTAssertEqual(store.load().bufferFrames, 128)
     }
+
+    func testThemeDefaultsToSteinwayAndPersistsChoice() {
+        let m = makeModel()
+        XCTAssertEqual(m.themeID, MidnightSteinwayModel.id)
+        m.setTheme(ButterflyGardenModel.id)
+        XCTAssertEqual(store.load().themeID, ButterflyGardenModel.id)
+        XCTAssertEqual(makeModel().themeID, ButterflyGardenModel.id)
+    }
+
+    func testUnknownSavedThemeFallsBack() throws {
+        var s = AppSettings.default; s.themeID = "from-the-future"; try store.save(s)
+        XCTAssertEqual(makeModel().themeID, MidnightSteinwayModel.id)
+    }
+
+    func testThemeStateSavedAndVersionBumps() {
+        let m = makeModel()
+        let before = m.visualsVersion
+        m.saveThemeState(ThemeState(values: ["rays": .number(0.9)]), for: ButterflyGardenModel.id)
+        XCTAssertGreaterThan(m.visualsVersion, before)
+        XCTAssertEqual(m.themeState(for: ButterflyGardenModel.id).values["rays"], .number(0.9))
+        m.autosave()
+        XCTAssertEqual(store.load().themeStates[ButterflyGardenModel.id]?.values["rays"], .number(0.9))
+    }
 }
