@@ -82,6 +82,9 @@ public struct ButterflyGardenModel: ThemeModel {
     private var time: Double = 0
     private var serial = 0
     private var melodyX: Float = 0.5
+    /// note → index of the butterfly hovering over it.
+    private var hovering: [UInt8: Int] = [:]
+    private var lastCap = 600
 
     public init() {}
 
@@ -106,6 +109,8 @@ public struct ButterflyGardenModel: ThemeModel {
         let lifespan = Float(p.number("lifespan"))
 
         // Butterflies
+        lastCap = min(Int(p.number("butterflies.max")), Self.qualityCap[quality] ?? 600)
+        trim(to: lastCap)
         spiral *= Float(pow(0.5, dt / 0.8))
         let flapScale = (1 - 0.6 * linger) * (0.85 + 0.3 * motion)
         for i in flyers.indices {
@@ -157,15 +162,9 @@ public struct ButterflyGardenModel: ThemeModel {
             f.b.glow = max(f.b.glow * Float(pow(0.5, dt / 1.2)), 0.25)
             flyers[i] = f
         }
+        let before = flyers.count
         flyers.removeAll { $0.age >= $0.lifespan && $0.b.homeNote == nil }
-        let cap = min(Int(p.number("butterflies.max")), Self.qualityCap[quality] ?? 600)
-        if flyers.count > cap {
-            let keep = flyers.enumerated().sorted { a, b in
-                let ah = a.element.b.homeNote != nil, bh = b.element.b.homeNote != nil
-                return ah != bh ? ah : a.element.serial > b.element.serial
-            }.prefix(cap).map(\.element)
-            flyers = keep.sorted { $0.serial < $1.serial }
-        }
+        if flyers.count != before { rebuildIndex() }
         _ = lifespan
 
         // Blooms
@@ -226,7 +225,7 @@ public struct ButterflyGardenModel: ThemeModel {
             sinceNote = 0
             guard let x = Self.keyCentre(note) else { return }
             melodyX = x
-            for i in flyers.indices where flyers[i].b.homeNote == note { flyers[i].b.homeNote = nil }
+            if let i = hovering.removeValue(forKey: note) { flyers[i].b.homeNote = nil }
             addBloom(at: x, note: note, params: p)
             guard Double(velocity) >= p.number("spawn.minVelocity") else { return }
             spawnBudget += p.number("spawn.rate")
@@ -235,12 +234,12 @@ public struct ButterflyGardenModel: ThemeModel {
             spawn(note: note, x: x, velocity: velocity, params: p, roles: roles)
         case let .noteOff(note):
             held[note] = nil
-            for i in flyers.indices where flyers[i].b.homeNote == note {
+            if let i = hovering.removeValue(forKey: note) {
                 flyers[i].b.homeNote = nil
                 flyers[i].velocity = SIMD3<Float>(rng.range(-0.15, 0.15), 0.3, 0)
             }
         case let .release(note, speed):
-            for i in flyers.indices where flyers[i].b.homeNote == nil && flyers[i].age < 60 {
+            for i in flyers.indices.suffix(64) where flyers[i].b.homeNote == nil {
                 guard let x = Self.keyCentre(note), abs(flyers[i].b.position.x - x) < 0.01 else { continue }
                 flyers[i].velocity.y = 0.2 + 0.6 * speed
                 flyers[i].velocity.x *= 1 + 2 * speed
@@ -253,10 +252,11 @@ public struct ButterflyGardenModel: ThemeModel {
         case .allNotesOff:
             held.removeAll()
             for i in flyers.indices { flyers[i].b.homeNote = nil }
+            hovering.removeAll()
             spiral = 0
             keyGlow = .init(repeating: 0, count: 88)
         case let .pressure(v):
-            for i in flyers.indices where flyers[i].b.homeNote != nil { flyers[i].b.glow = max(flyers[i].b.glow, 0.5 + 0.5 * v) }
+            for i in hovering.values { flyers[i].b.glow = max(flyers[i].b.glow, 0.5 + 0.5 * v) }
         case .pedal, .control, .pitchBend:
             break
         }
@@ -289,6 +289,23 @@ public struct ButterflyGardenModel: ThemeModel {
                             baseFlap: Float(p.number("flutter.speed")) * (4 + 6 * pitch),
                             lifespan: Float(p.number("lifespan")) * rng.range(0.8, 1.2),
                             hoverHeight: 0.15 + 0.15 * v, seed: rng.unit(), serial: serial))
+        if b.homeNote != nil { hovering[note] = flyers.count - 1 }
+        if flyers.count > lastCap * 2 { trim(to: lastCap) }
+    }
+
+    /// Keeps hovering butterflies first, then the newest, up to `cap`.
+    private mutating func trim(to cap: Int) {
+        guard flyers.count > cap else { return }
+        var hover: [Flyer] = [], free: [Flyer] = []
+        for f in flyers { if f.b.homeNote != nil { hover.append(f) } else { free.append(f) } }
+        let room = max(0, cap - hover.count)
+        flyers = (Array(hover.suffix(cap)) + Array(free.suffix(room))).sorted { $0.serial < $1.serial }
+        rebuildIndex()
+    }
+
+    private mutating func rebuildIndex() {
+        hovering.removeAll(keepingCapacity: true)
+        for (i, f) in flyers.enumerated() { if let n = f.b.homeNote { hovering[n] = i } }
     }
 
     private mutating func addBloom(at x: Float, note: UInt8, params p: ParameterSet) {
