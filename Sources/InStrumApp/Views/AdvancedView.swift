@@ -99,33 +99,47 @@ struct MappingEditorView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
-            HStack {
-                Text("Reacts like: \(model.reactionName)").font(.headline)
-                Spacer()
-                Button { update(MappingEdits.addLink(map)) } label: { Label("Add link", systemImage: "plus") }
-                Button("Save as Reaction preset…") { newName = ""; naming = true }
-            }
-            .padding(.horizontal, 14).padding(.top, 10)
-            HStack(spacing: 14) {
-                ForEach(InputFamily.allCases, id: \.self) { f in strengthSlider(f) }
-            }
-            .padding(.horizontal, 14)
-            List {
-                ForEach(MappingEdits.groups(map), id: \.family) { group in
-                    Section(group.family.displayName) {
-                        ForEach(group.links) { link in row(link) }
-                    }
-                }
-            }
+            header
+            strengths
+            linkList
         }
         .alert("Name these reactions", isPresented: $naming) {
             TextField("Name", text: $newName)
-            Button("Save") {
-                let n = newName.trimmingCharacters(in: .whitespaces)
-                if !n.isEmpty { model.saveReaction(named: n) }
-            }
+            Button("Save") { saveNamed() }
             Button("Cancel", role: .cancel) {}
         }
+    }
+
+    private var header: some View {
+        HStack {
+            Text("Reacts like: \(model.reactionName)").font(.headline)
+            Spacer()
+            Button { update(MappingEdits.addLink(map)) } label: { Label("Add link", systemImage: "plus") }
+            Button("Save as Reaction preset…") { newName = ""; naming = true }
+        }
+        .padding(.horizontal, 14).padding(.top, 10)
+    }
+
+    private var strengths: some View {
+        HStack(spacing: 14) {
+            ForEach(InputFamily.allCases, id: \.self) { f in strengthSlider(f) }
+        }
+        .padding(.horizontal, 14)
+    }
+
+    private var linkList: some View {
+        List {
+            ForEach(MappingEdits.groups(map), id: \.family) { group in
+                Section(group.family.displayName) {
+                    ForEach(group.links) { link in row(link) }
+                }
+            }
+        }
+    }
+
+    private func saveNamed() {
+        let n = newName.trimmingCharacters(in: .whitespaces)
+        if !n.isEmpty { model.saveReaction(named: n) }
     }
 
     private func strengthBinding(_ f: InputFamily) -> Binding<Double> {
@@ -143,7 +157,7 @@ struct MappingEditorView: View {
         }
     }
 
-    private func row(_ link: InStrumCore.Link) -> some View {
+    private func row(_ link: ReactionLink) -> some View {
         HStack(spacing: 8) {
             Toggle("", isOn: Binding(get: { link.enabled }, set: { on in update(MappingEdits.edit(map, link: link.id) { $0.enabled = on }) }))
                 .labelsHidden()
