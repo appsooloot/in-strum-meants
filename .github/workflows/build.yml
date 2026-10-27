@@ -23,6 +23,32 @@ jobs:
           } > report.txt
           python3 -c "import sys,urllib.parse;t=open('report.txt').read()[-60000:];print('::notice title=test-report::'+t.replace('%','%25').replace('\r','').replace('\n','%0A'))"
 
+  previews:
+    needs: test
+    if: github.event_name == 'push' && github.ref == 'refs/heads/m3a'
+    runs-on: macos-15
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v5
+      - name: Render preview frames
+        run: PREVIEW_DIR="$PWD/previews" swift test --filter "PreviewRenderTests|ShaderPreviewArtTests" 2>&1 | tee preview.log; exit ${PIPESTATUS[0]}
+      - name: Publish to previews branch
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          ls -la previews
+          cd previews
+          git init -q && git checkout -q -b previews
+          git -c user.name=ci -c user.email=ci@localhost add -A
+          git -c user.name=ci -c user.email=ci@localhost commit -qm "previews for $GITHUB_SHA"
+          git push -f -q "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" previews
+      - name: Report
+        if: always()
+        run: |
+          grep -E "error:|warning: |passed|failed|skipped" preview.log | tail -n 40 > report.txt || true
+          python3 -c "t=open('report.txt').read()[-60000:];print('::notice title=preview-report::'+t.replace('%','%25').replace('\r','').replace('\n','%0A'))"
+
   package:
     needs: test
     runs-on: macos-15

@@ -2,6 +2,8 @@ import Foundation
 import simd
 
 public struct Butterfly: Equatable {
+    /// Stable identity for the butterfly's lifetime (used for trails).
+    public var id: Int
     /// x 0...1 across, y 0...1 up, z depth 0 near ... 1 far.
     public var position: SIMD3<Float>
     public var size: Float
@@ -303,7 +305,7 @@ public struct ButterflyGardenModel: ThemeModel {
             style = Self.wingStyles.firstIndex(of: c.wingStyle) ?? 1
         }
         serial += 1
-        let b = Butterfly(position: SIMD3<Float>(x, 0.08, rng.range(0.2, 0.8)), size: size, hue: hue,
+        let b = Butterfly(id: serial, position: SIMD3<Float>(x, 0.08, rng.range(0.2, 0.8)), size: size, hue: hue,
                           flapPhase: rng.unit(), flapRate: 0, style: style, glow: v, landed: false,
                           homeNote: c.landOnHeld ? note : nil, opacity: 0)
         flyers.append(Flyer(b: b, velocity: SIMD3<Float>(rng.range(-0.1, 0.1), 0.3 + 0.4 * v, 0),
