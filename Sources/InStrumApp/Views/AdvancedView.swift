@@ -107,14 +107,7 @@ struct MappingEditorView: View {
             }
             .padding(.horizontal, 14).padding(.top, 10)
             HStack(spacing: 14) {
-                ForEach(InputFamily.allCases, id: \.self) { f in
-                    VStack(spacing: 2) {
-                        Text(f.displayName).font(.caption2).foregroundStyle(.secondary)
-                        Slider(value: Binding(get: { map.groupStrength[f] ?? 1 }, set: { v in
-                            var m = map; m.groupStrength[f] = v; update(m)
-                        }), in: 0...2).frame(width: 110)
-                    }
-                }
+                ForEach(InputFamily.allCases, id: \.self) { f in strengthSlider(f) }
             }
             .padding(.horizontal, 14)
             List {
@@ -135,7 +128,22 @@ struct MappingEditorView: View {
         }
     }
 
-    private func row(_ link: Link) -> some View {
+    private func strengthBinding(_ f: InputFamily) -> Binding<Double> {
+        Binding(get: { map.groupStrength[f] ?? 1 }, set: { v in
+            var m = map
+            m.groupStrength[f] = v
+            update(m)
+        })
+    }
+
+    private func strengthSlider(_ f: InputFamily) -> some View {
+        VStack(spacing: 2) {
+            Text(f.displayName).font(.caption2).foregroundStyle(.secondary)
+            Slider(value: strengthBinding(f), in: 0...2).frame(width: 110)
+        }
+    }
+
+    private func row(_ link: InStrumCore.Link) -> some View {
         HStack(spacing: 8) {
             Toggle("", isOn: Binding(get: { link.enabled }, set: { on in update(MappingEdits.edit(map, link: link.id) { $0.enabled = on }) }))
                 .labelsHidden()
