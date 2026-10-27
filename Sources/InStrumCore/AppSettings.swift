@@ -26,12 +26,15 @@ public struct AppSettings: Codable, Equatable {
     public var touchCurve: TouchCurve = .normal
     /// Audio output buffer in frames: 128 (fastest), 256 (balanced), 512 (safest).
     public var bufferFrames: UInt32 = 256
+    public var themeStates: [String: ThemeState] = [:]
+    public var quality: QualitySetting = .auto
+    public var gentleVisuals: Bool = false
 
     public static let `default` = AppSettings()
 
     public init() {}
 
-    enum CodingKeys: String, CodingKey { case instrument, themeID, masterVolume, touchCurve, bufferFrames }
+    enum CodingKeys: String, CodingKey { case instrument, themeID, masterVolume, touchCurve, bufferFrames, themeStates, quality, gentleVisuals }
 
     public init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
@@ -41,6 +44,9 @@ public struct AppSettings: Codable, Equatable {
         masterVolume = try c.decodeIfPresent(Float.self, forKey: .masterVolume) ?? d.masterVolume
         touchCurve = (try? c.decodeIfPresent(TouchCurve.self, forKey: .touchCurve)) ?? d.touchCurve
         bufferFrames = try c.decodeIfPresent(UInt32.self, forKey: .bufferFrames) ?? d.bufferFrames
+        themeStates = (try? c.decodeIfPresent([String: ThemeState].self, forKey: .themeStates)) ?? d.themeStates
+        quality = (try? c.decodeIfPresent(QualitySetting.self, forKey: .quality)) ?? d.quality
+        gentleVisuals = (try? c.decodeIfPresent(Bool.self, forKey: .gentleVisuals)) ?? d.gentleVisuals
     }
 }
 
