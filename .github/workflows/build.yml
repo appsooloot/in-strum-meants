@@ -66,11 +66,24 @@ jobs:
           test "$ARCHS" = "x86_64"
           test "$MINOS" = "13.0"
           codesign --verify --verbose "dist/In Strum Meants.app" 2>&1 | tee -a package.log
+      - name: Check the installer
+        run: |
+          DMG=$(ls dist/*.dmg | head -1)
+          hdiutil attach -nobrowse -readonly -mountpoint /tmp/dmgcheck "$DMG"
+          test -d "/tmp/dmgcheck/In Strum Meants.app"
+          test -L /tmp/dmgcheck/Applications
+          test "$(readlink /tmp/dmgcheck/Applications)" = "/Applications"
+          test -d /tmp/dmgcheck/.background
+          test -f "/tmp/dmgcheck/In Strum Meants.app/Contents/Resources/AppIcon.icns"
+          echo "dmg ok: $DMG" | tee -a package.log
+          hdiutil detach /tmp/dmgcheck
       - name: Keep build
         uses: actions/upload-artifact@v4
         with:
           name: In-Strum-Meants-build-${{ github.run_number }}
-          path: dist/*.zip
+          path: |
+            dist/*.zip
+            dist/*.dmg
       - name: Publish release
         if: github.ref == 'refs/heads/main'
         env:
@@ -79,13 +92,13 @@ jobs:
           cat > notes.md <<NOTES
           **$(git log -1 --pretty=%s)**
 
-          **Install:** download the zip below, unzip it, drag *In Strum Meants* into Applications, then right-click it → **Open** → **Open** (first time only).
+          **Install:** download the **.dmg** below and open it, drag *In Strum Meants* onto *Applications* (choose **Replace** if asked), then right-click the app → **Open** → **Open** (first time only). The .zip is a fallback.
 
           **Check each build:** instant key response · sounds identical to Splice · soft vs hard feels right · pedal (optional) lingers · visuals land with notes · unplugging stops all sound · reopening restores your piano.
           NOTES
-          gh release create "build-$GITHUB_RUN_NUMBER" dist/*.zip --title "In Strum Meants — build $GITHUB_RUN_NUMBER" --notes-file notes.md
+          gh release create "build-$GITHUB_RUN_NUMBER" dist/*.dmg dist/*.zip --title "In Strum Meants — build $GITHUB_RUN_NUMBER" --notes-file notes.md
       - name: Report
         if: always()
         run: |
-          grep -E "error:|warning: |archs=|valid on disk|satisfies|Build complete|\.zip" package.log | tail -n 40 > report.txt || true
+          grep -E "error:|warning: |archs=|valid on disk|satisfies|Build complete|\.zip|dmg ok|\.dmg" package.log | tail -n 40 > report.txt || true
           python3 -c "t=open('report.txt').read()[-60000:];print('::notice title=package-report::'+t.replace('%','%25').replace('\r','').replace('\n','%0A'))"
