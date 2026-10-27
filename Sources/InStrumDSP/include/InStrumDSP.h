@@ -18,6 +18,43 @@ void isd_reverb_configure(ISDReverb *reverb, float size, float damping, float pr
 /// Real-time safe; in-place allowed.
 void isd_reverb_process(ISDReverb *reverb, const float *inL, const float *inR, float *outL, float *outR, int frames);
 
+// ---------- Built-in instruments ----------
+typedef enum { ISD_ENGINE_FELT_GLASS = 0, ISD_ENGINE_ORBIT_PAD = 1 } ISDEngine;
+
+/// Parameter addresses (stable: saved in presets and instrument state).
+enum {
+    ISD_P_FINE_TUNE = 0, ISD_P_TRANSPOSE = 1, ISD_P_SPACE = 2,
+    ISD_P_FELT = 10, ISD_P_GLASS = 11, ISD_P_WARMTH = 12, ISD_P_RING = 13, ISD_P_WIDTH = 14,
+    ISD_P_BLOOM = 20, ISD_P_DRIFT = 21, ISD_P_MOTION = 22, ISD_P_SHIMMER = 23, ISD_P_BRIGHTNESS = 24,
+    ISD_P_MOOD_ENERGY = 100, ISD_P_MOOD_WARMTH = 101, ISD_P_MOOD_BRIGHTNESS = 102, ISD_P_MOOD_SPACE = 103, ISD_P_MOOD_MOTION = 104
+};
+
+/// unit: 0 generic 0…1, 1 cents, 2 semitones.
+typedef struct {
+    int address;
+    const char *identifier;
+    const char *name;
+    float minValue, maxValue, defaultValue;
+    int unit;
+} ISDParamInfo;
+
+typedef struct ISDSynth ISDSynth;
+/// Returns NULL for an engine that isn't available.
+ISDSynth *isd_synth_create(ISDEngine engine, double sampleRate, int maxFrames);
+void isd_synth_destroy(ISDSynth *synth);
+int isd_synth_param_count(ISDEngine engine);
+const ISDParamInfo *isd_synth_param_info(ISDEngine engine, int index);
+/// Any thread. Values are clamped to the parameter's range and smoothed while playing.
+void isd_synth_set_param(ISDSynth *synth, int address, float value);
+float isd_synth_get_param(const ISDSynth *synth, int address);
+/// Render thread, before the render call it belongs to. `sampleOffset` is within that render.
+void isd_synth_midi(ISDSynth *synth, const uint8_t *bytes, int length, int sampleOffset);
+/// Render thread. Overwrites `left`/`right`.
+void isd_synth_render(ISDSynth *synth, float *left, float *right, int frames);
+/// Any thread: every note fades out over 20 ms at the next render.
+void isd_synth_all_notes_off(ISDSynth *synth);
+int isd_synth_active_voices(const ISDSynth *synth);
+
 #ifdef __cplusplus
 }
 #endif

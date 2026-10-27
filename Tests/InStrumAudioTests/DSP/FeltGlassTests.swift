@@ -39,9 +39,12 @@ final class FeltGlassTests: XCTestCase {
         XCTAssertLessThan(DSPTestKit.dBFS(R.slice(out.l, 3.5, 3.6)), -90)
     }
 
+    /// With the pedal down a released note keeps ringing: 1 s after key-up it is still within 30 dB of its attack
+    /// (a damped note is below −90 dBFS by then).
     func testPedalKeepsRinging() {
         let out = R.render(seconds: 2.2, params: dry, events: [R.pedal(0, 127), R.noteOn(0, 60, 100), R.noteOff(1, 60)])
-        XCTAssertGreaterThan(DSPTestKit.dBFS(R.slice(out.l, 2.0, 2.1)), -40)
+        let attack = DSPTestKit.dBFS(R.slice(out.l, 0, 0.3)), ringing = DSPTestKit.dBFS(R.slice(out.l, 2.0, 2.1))
+        XCTAssertGreaterThan(ringing, attack - 30, "attack \(attack) dBFS, ringing \(ringing) dBFS")
     }
 
     func testGlassDialAddsBloom() {
@@ -94,7 +97,7 @@ final class FeltGlassTests: XCTestCase {
         let up = R.render(seconds: 2.2, params: dry, events: [R.pedal(0, 63), R.noteOn(0, 60, 100), R.noteOff(1, 60)])
         let down = R.render(seconds: 2.2, params: dry, events: [R.pedal(0, 64), R.noteOn(0, 60, 100), R.noteOff(1, 60)])
         XCTAssertLessThan(DSPTestKit.dBFS(R.slice(up.l, 2.0, 2.1)), -90)
-        XCTAssertGreaterThan(DSPTestKit.dBFS(R.slice(down.l, 2.0, 2.1)), -40)
+        XCTAssertGreaterThan(DSPTestKit.dBFS(R.slice(down.l, 2.0, 2.1)), DSPTestKit.dBFS(R.slice(down.l, 0, 0.3)) - 30)
         // Pitch bend and clock are ignored.
         let plain = R.render(seconds: 1, params: dry, events: [R.noteOn(0, 60, 100)])
         let noisy = R.render(seconds: 1, params: dry, events: [R.noteOn(0, 60, 100), .init(time: 0.2, bytes: [0xE0, 0x00, 0x60]),
