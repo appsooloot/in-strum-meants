@@ -83,9 +83,13 @@ final class PreviewRenderer {
         let ctx = CGContext(data: &pixels, width: w, height: h, bitsPerComponent: 8, bytesPerRow: w * 4,
                             space: CGColorSpaceCreateDeviceRGB(), bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)
         ctx?.draw(image, in: CGRect(x: 0, y: 0, width: w, height: h))
-        return stride(from: 0, to: pixels.count, by: 4).map {
-            (0.2126 * Double(pixels[$0]) + 0.7152 * Double(pixels[$0 + 1]) + 0.0722 * Double(pixels[$0 + 2])) / 255
+        var out = [Double](repeating: 0, count: w * h)
+        for i in 0..<(w * h) {
+            let r = Double(pixels[i * 4]), g = Double(pixels[i * 4 + 1]), b = Double(pixels[i * 4 + 2])
+            let y: Double = 0.2126 * r + 0.7152 * g + 0.0722 * b
+            out[i] = y / 255
         }
+        return out
     }
 
     static func stats(_ image: CGImage) -> (meanLuminance: Double, variance: Double) {
