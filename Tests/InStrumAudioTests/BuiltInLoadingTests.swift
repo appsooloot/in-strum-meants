@@ -4,7 +4,7 @@ import AVFoundation
 @testable import InStrumCore
 
 /// Synchronous loading paths for the built-in Audio Unit.
-final class BuiltInLoadingTests: XCTestCase {
+final class BuiltInAALoadingTests: XCTestCase {
     func testA_RegisterIsIdempotent() {
         BuiltInCatalog.registerAll()
         BuiltInCatalog.registerAll()
