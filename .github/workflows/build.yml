@@ -1,0 +1,15 @@
+name: Build
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  test:
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+      - name: Toolchain
+        run: swift --version && sw_vers && uname -m
+      - name: Test
+        run: swift test 2>&1 | tee test.log; exit ${PIPESTATUS[0]}
