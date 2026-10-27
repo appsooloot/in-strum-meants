@@ -121,3 +121,34 @@ public final class InputHub {
         }
     }
 }
+
+extension InputID {
+    /// Every built-in input, in display order (CCs and instrument dials are added as they appear).
+    public static let standard: [InputID] = [
+        .velocity, .held, .releaseSpeed, .pedal, .softPedal, .sostenuto, .modWheel, .pitchBend, .pressure, .expression,
+        .chordMajor, .chordMinor, .chordTense, .direction, .leap, .busyness, .crescendo, .spread, .repetition, .silence,
+        .attack, .brightness, .ring, .texture, .loudness, .width,
+        .level, .bass, .mid, .treble, .beat,
+    ]
+
+    private static let names: [String: String] = [
+        "keys.velocity": "How hard (velocity)", "keys.held": "Notes held", "keys.releaseSpeed": "Release speed",
+        "keys.pedal": "Sustain pedal", "keys.softPedal": "Soft pedal", "keys.sostenuto": "Sostenuto pedal",
+        "keys.modWheel": "Mod wheel", "keys.pitchBend": "Pitch bend", "keys.pressure": "Aftertouch", "keys.expression": "Expression pedal",
+        "playing.chordMajor": "Major chord", "playing.chordMinor": "Minor chord", "playing.chordTense": "Tense chord",
+        "playing.direction": "Melody up / down", "playing.leap": "Big leaps", "playing.busyness": "Fast, busy playing",
+        "playing.crescendo": "Building up / fading", "playing.spread": "Hands spread wide", "playing.repetition": "Repeated patterns",
+        "playing.silence": "Silence",
+        "sound.attack": "Sharp vs smooth sound", "sound.brightness": "Bright vs dark sound", "sound.ring": "Long ringing sound",
+        "sound.texture": "Textured / noisy sound", "sound.loudness": "Actual loudness", "sound.width": "Stereo width",
+        "listening.level": "Listen: level", "listening.bass": "Listen: bass", "listening.mid": "Listen: mids",
+        "listening.treble": "Listen: treble", "listening.beat": "Listen: beat",
+    ]
+
+    public var displayName: String {
+        if let n = Self.names[rawValue] { return n }
+        if rawValue.hasPrefix("keys.cc") { return "Knob / fader CC \(rawValue.dropFirst("keys.cc".count))" }
+        if rawValue.hasPrefix("dials.") { return "Instrument dial \(rawValue.dropFirst("dials.".count))" }
+        return rawValue
+    }
+}

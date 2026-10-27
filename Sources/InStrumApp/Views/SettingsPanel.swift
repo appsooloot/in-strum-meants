@@ -4,6 +4,7 @@ import InStrumCore
 /// The ✦ Visuals panel: theme, macros, the theme's hero settings, quality and comfort.
 struct SettingsPanel: View {
     @ObservedObject var model: AppModel
+    @State private var showAdvanced = false
 
     private var state: ThemeState { model.themeState(for: model.themeID) }
     private var params: ParameterSet { ThemeRegistry.parameterSet(for: model.themeID, state: state) }
@@ -54,14 +55,19 @@ struct SettingsPanel: View {
                     Toggle("Gentle visuals (softer flashes and sparkle)",
                            isOn: Binding(get: { model.gentleVisuals }, set: { model.setGentleVisuals($0) }))
                 }
-                Button(role: .destructive) {
-                    model.saveThemeState(VisualSettings.reset(state), for: model.themeID)
-                } label: { Label("Reset theme", systemImage: "arrow.counterclockwise") }
+                HStack {
+                    Button { showAdvanced = true } label: { Label("Advanced…", systemImage: "slider.horizontal.3") }
+                    Spacer()
+                    Button(role: .destructive) {
+                        model.saveThemeState(VisualSettings.reset(state), for: model.themeID)
+                    } label: { Label("Reset theme", systemImage: "arrow.counterclockwise") }
+                }
             }
             .padding(18)
         }
         .frame(width: 340)
         .background(.ultraThinMaterial)
+        .sheet(isPresented: $showAdvanced) { AdvancedView(model: model, isPresented: $showAdvanced) }
     }
 
     @ViewBuilder
