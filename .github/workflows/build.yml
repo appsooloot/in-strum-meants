@@ -86,7 +86,7 @@ jobs:
           echo "CHECK contents: $(ls -A /tmp/dmgcheck | tr '\n' ' ')" | tee -a package.log
           check "app present" 'test -d "/tmp/dmgcheck/In Strum Meants.app"'
           check "Applications link" 'test -L /tmp/dmgcheck/Applications && test "$(readlink /tmp/dmgcheck/Applications)" = "/Applications"'
-          check "background" 'ls /tmp/dmgcheck/.background/* >/dev/null 2>&1'
+          check "background" 'ls /tmp/dmgcheck/.background* >/dev/null 2>&1'
           check "app icon" 'test -f "/tmp/dmgcheck/In Strum Meants.app/Contents/Resources/AppIcon.icns"'
           hdiutil detach /tmp/dmgcheck >/dev/null || true
           test $FAIL = 0 && echo "dmg ok: $DMG" | tee -a package.log
