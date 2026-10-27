@@ -13,6 +13,7 @@ final class FakeEngine: InstrumentEngine {
     var state: Data? = Data([1, 2, 3])
     var audioLevel: Float = 0
     var masterVolume: Float = 0.8
+    var bufferFrames: UInt32 = 128
     var loadDelay: UInt64 = 0
     var log: [String] = []
 
@@ -195,5 +196,30 @@ final class AppModelTests: XCTestCase {
         m.willChangeInstrument = { [engine] in engine!.log.append("close-window") }
         await m.choose(info("One", 1))
         XCTAssertEqual(engine.log, ["close-window", "load"])
+    }
+
+    func testHeavyTouchLowersVelocityForSoundAndVisuals() {
+        let m = makeModel()
+        m.setTouchCurve(.heavy)
+        m.handleMIDI(bytes: [0x90, 60, 40], time: 0)
+        let v = TouchCurve.heavy.apply(40)
+        XCTAssertEqual(engine.sent, [[0x90, 60, v]])
+        XCTAssertEqual(m.drainEvents(), [.noteOn(note: 60, velocity: Float(v) / 127)])
+        XCTAssertEqual(store.load().touchCurve, .heavy)
+    }
+
+    func testLaunchAppliesSavedBufferAndTouch() async throws {
+        var s = AppSettings.default; s.bufferFrames = 512; s.touchCurve = .light; try store.save(s)
+        let m = makeModel()
+        await m.launch(skipPluginInSafeMode: false)
+        XCTAssertEqual(engine.bufferFrames, 512)
+        XCTAssertEqual(m.touchCurve, .light)
+    }
+
+    func testSetBufferFramesAppliesAndSaves() {
+        let m = makeModel()
+        m.setBufferFrames(128)
+        XCTAssertEqual(engine.bufferFrames, 128)
+        XCTAssertEqual(store.load().bufferFrames, 128)
     }
 }
