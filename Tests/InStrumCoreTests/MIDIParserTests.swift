@@ -44,6 +44,15 @@ final class MIDIParserTests: XCTestCase {
         var fresh = MIDIParser()
         XCTAssertEqual(fresh.parse([60, 100]), [])
     }
+    func testChannelPressure() {
+        XCTAssertEqual(p.parse([0xD0, 90]), [.channelPressure(channel: 0, value: 90)])
+    }
+    func testPolyPressure() {
+        XCTAssertEqual(p.parse([0xA0, 60, 70]), [.polyPressure(channel: 0, note: 60, value: 70)])
+    }
+    func testNoteOffKeepsReleaseVelocity() {
+        XCTAssertEqual(p.parse([0x80, 60, 127]), [.noteOff(channel: 0, note: 60, velocity: 127)])
+    }
     func testProgramChangeIsOther() {
         XCTAssertEqual(p.parse([0xC0, 5]), [.other])
     }

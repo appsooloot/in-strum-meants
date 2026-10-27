@@ -14,7 +14,7 @@ final class PerformanceStateTests: XCTestCase {
     }
     func testNoteOffReleases() {
         _ = s.apply(.noteOn(channel: 0, note: 60, velocity: 64), at: 0)
-        XCTAssertEqual(s.apply(.noteOff(channel: 0, note: 60), at: 0.1), [.noteOff(note: 60)])
+        XCTAssertEqual(s.apply(.noteOff(channel: 0, note: 60), at: 0.1).first, .noteOff(note: 60))
         XCTAssertNil(s.heldNotes[60])
     }
     func testPedalThreshold() {
@@ -73,7 +73,24 @@ final class PerformanceStateTests: XCTestCase {
         XCTAssertEqual(s.apply(.noteOn(channel: 0, note: 10, velocity: 100), at: 0), [.noteOn(note: 10, velocity: Float(100) / 127)])
     }
     func testOtherMessagesProduceNoEvents() {
-        XCTAssertEqual(s.apply(.pitchBend(channel: 0, value: 9000), at: 0), [])
         XCTAssertEqual(s.apply(.other, at: 0), [])
+    }
+    func testControllersBecomeControlEvents() {
+        XCTAssertEqual(s.apply(.controlChange(channel: 0, controller: 1, value: 127), at: 0), [.control(controller: 1, value: 1)])
+    }
+    func testPitchBendIsSigned() {
+        XCTAssertEqual(s.apply(.pitchBend(channel: 0, value: 8192), at: 0), [.pitchBend(0)])
+        guard case let .pitchBend(v)? = s.apply(.pitchBend(channel: 0, value: 16383), at: 0).first else { return XCTFail() }
+        XCTAssertEqual(v, 1, accuracy: 0.001)
+        guard case let .pitchBend(lo)? = s.apply(.pitchBend(channel: 0, value: 0), at: 0).first else { return XCTFail() }
+        XCTAssertEqual(lo, -1, accuracy: 0.001)
+    }
+    func testPressureEvents() {
+        XCTAssertEqual(s.apply(.channelPressure(channel: 0, value: 127), at: 0), [.pressure(1)])
+        XCTAssertEqual(s.apply(.polyPressure(channel: 0, note: 60, value: 0), at: 0), [.pressure(0)])
+    }
+    func testReleaseSpeedFromNoteOffVelocity() {
+        _ = s.apply(.noteOn(channel: 0, note: 60, velocity: 80), at: 0)
+        XCTAssertEqual(s.apply(.noteOff(channel: 0, note: 60, velocity: 127), at: 0.1), [.noteOff(note: 60), .release(note: 60, speed: 1)])
     }
 }
