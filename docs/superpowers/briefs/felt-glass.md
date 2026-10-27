@@ -59,7 +59,7 @@ Preset contrasts (MIDI 72, vel 70): Felt Glass centroid 1457 Hz / −40 dB at 3.
   - A hard spectral edge on ff bass notes, where the partial cap cut off strong partials: the top quarter of the partials now tapers off.
   - High glass partials ringing as long as low ones: each glass partial's decay now shortens with frequency.
 - Low-frequency smear under the chords: checked numerically and found to be window leakage, 44 dB under the notes.
-- Task 5 adds the CI-rendered demo and spectrogram for each build.
+- Task 5: the CI-rendered demo (Apple silicon, Apple clang) matches the local renders: the same partial structure, glass halos over the soft opening notes, pedalled chords, a deep ff A1 and natural decays. The demo audio is attached to every release as *felt-glass-demo.m4a*.
 
 [w1]: https://en.wikipedia.org/wiki/Come_Back_to_Earth
 [w2]: https://ipfs.ssi.eecc.de/ipns/en.wikipedia-on-ipfs.org/wiki/Swimming_(Mac_Miller_album)
