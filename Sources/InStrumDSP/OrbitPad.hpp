@@ -34,6 +34,7 @@ private:
         int note = 0;
         unsigned age = 0;
         float pitch = 0, vel = 0, gain = 0, keyTrack = 1;
+        float layerB = 1, subKey = 1, subMix = 0, subTarget = 0;   // octave-down layer and sub, scaled by key
         double phase[kOsc] = {};
         float walk[kOsc] = {}, walkLP[kOsc] = {};
         float pwPhase[kPulses] = {}, pwRate[kPulses] = {};
@@ -59,6 +60,7 @@ private:
     void renderVoice(Voice &v, float *outL, float *outR, int n);
     void chorus(float *l, float *r, int n);
     void housekeeping();
+    void chooseSubVoice();
 
     double sr;
     Voice voices[kPool];

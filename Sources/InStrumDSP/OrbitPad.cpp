@@ -137,6 +137,9 @@ void OrbitPad::startVoice(Voice &v, int note, int velocity) {
     v.vel = (float)velocity / 127.f;
     v.gain = std::pow(0.35f + 0.65f * v.vel, 1.3f);
     v.keyTrack = std::pow(midiHz(v.pitch) / 261.63f, kKeyTrack);
+    // Octave-down pulses thin out in the bass; the sub never goes below 20 Hz.
+    v.layerB = 0.4f + 0.6f * smoothstep((v.pitch - 36.f) / 18.f);
+    v.subKey = smoothstep((v.pitch - 40.f) / 12.f);
     for (int k = 0; k < kOsc; ++k) {
         v.phase[k] = rng.uniform();
         v.walk[k] = 0.5f * (rng.bipolar() + rng.bipolar() + rng.bipolar());
@@ -250,11 +253,16 @@ void OrbitPad::renderVoice(Voice &v, float *outL, float *outR, int n) {
     const float pan = std::clamp(std::clamp(0.15f * (v.pitch - 64.f) / 24.f, -0.15f, 0.15f) + 0.4f * motionAmt * lfo[1], -1.f, 1.f);
     const float th = (pan + 1.f) * kPi / 4.f, gl = std::cos(th) * v.gain, gr = std::sin(th) * v.gain;
     const float k = resonance, comp = 1.f + k;
+    // The sub crossfades (80 ms) onto whichever held note is lowest, so chords keep one clear low end.
+    const float subStart = v.subMix;
+    v.subMix += (v.subTarget - v.subMix) * (1.f - std::exp(-(float)n / (0.08f * fsr)));
+    const float subGain0 = kSubGain * v.subKey * subStart, dSub = kSubGain * v.subKey * (v.subMix - subStart) / (float)n;
+    const float pulseGain = kPulseGain * v.layerB;
 
     double ph[kOsc];
     for (int i = 0; i < kOsc; ++i) ph[i] = v.phase[i];
     float s0 = v.s[0], s1 = v.s[1], s2 = v.s[2], s3 = v.s[3], g = v.g, env = v.env, fade = v.fadeGain;
-    float subC = v.subC, subS = v.subS;
+    float subC = v.subC, subS = v.subS, subGain = subGain0;
     for (int t = 0; t < n; ++t) {
         float x;
         if (full) {
@@ -273,7 +281,8 @@ void OrbitPad::renderVoice(Voice &v, float *outL, float *outR, int n) {
             }
             float nc = subC * subCr - subS * subCi, ns = subC * subCi + subS * subCr;
             subC = nc; subS = ns;
-            x = kSawGain * a + kPulseGain * b + kSubGain * ns;
+            subGain += dSub;
+            x = kSawGain * a + pulseGain * b + subGain * ns;
         } else {
             x = kSawGain * saw((float)ph[2], inc[2]);
             ph[2] += inc[2]; if (ph[2] >= 1.0) ph[2] -= 1.0;
@@ -335,6 +344,16 @@ void OrbitPad::chorus(float *l, float *r, int n) {
     }
 }
 
+void OrbitPad::chooseSubVoice() {
+    Voice *lowest = nullptr;
+    for (auto &v : voices) {
+        if (!v.active || v.fading || v.releasing) continue;
+        if (!lowest || v.pitch < lowest->pitch || (v.pitch == lowest->pitch && v.age > lowest->age)) lowest = &v;
+    }
+    if (!lowest) return;   // only releasing notes: each keeps the sub it had
+    for (auto &v : voices) if (v.active) v.subTarget = &v == lowest ? 1.f : 0.f;
+}
+
 void OrbitPad::housekeeping() {
     for (auto &v : voices)
         if (v.active && v.releasing && !v.fading && v.env < 1e-5f) v.active = false;
@@ -374,6 +393,7 @@ void OrbitPad::processBlock(float *left, float *right, int n) {
 
     float dryL[kSub] = {}, dryR[kSub] = {};
     if (!idle) {
+        chooseSubVoice();
         bool anyVoice = false;
         for (auto &v : voices) {
             if (!v.active) continue;
