@@ -87,7 +87,22 @@ final class ThemeStateSettingsTests: XCTestCase {
         XCTAssertEqual(s.instrument?.name, "Splice INSTRUMENT")
         XCTAssertEqual(s.touchCurve, .heavy); XCTAssertEqual(s.bufferFrames, 512)
         XCTAssertTrue(s.themeStates.isEmpty)
-        XCTAssertEqual(s.quality, .auto); XCTAssertFalse(s.gentleVisuals)
+        XCTAssertEqual(s.quality, .lite); XCTAssertFalse(s.gentleVisuals)
+    }
+    func testOlderSettingsMoveToSmoothQualityOnce() throws {
+        // Saved before the performance fix with Auto/High: start on the fast setting once.
+        let json = #"{"themeID":"butterfly-garden","quality":"high"}"#
+        try Data(json.utf8).write(to: dir.appendingPathComponent("settings.json"))
+        let store = SettingsStore(directory: dir)
+        var s = store.load()
+        XCTAssertEqual(s.quality, .lite)
+        // A choice made after the fix is kept.
+        s.quality = .high
+        try store.save(s)
+        XCTAssertEqual(store.load().quality, .high)
+    }
+    func testDefaultQualityIsSmooth() {
+        XCTAssertEqual(AppSettings().quality, .lite)
     }
     func testThemeStateRoundTrips() throws {
         var s = AppSettings.default

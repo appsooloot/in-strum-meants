@@ -30,6 +30,22 @@ final class ButterflyRendererTests: XCTestCase {
         let busy = try XCTUnwrap(preview.renderButterflyGarden(at: [5]).first)
         XCTAssertGreaterThan(PreviewRenderer.difference(quiet, busy), 0.01)
     }
+
+    func testSmoothQualityStillLooksLikeTheGarden() throws {
+        guard MTLCreateSystemDefaultDevice() != nil else { throw XCTSkip("No Metal device") }
+        let preview = try XCTUnwrap(PreviewRenderer(width: 640, height: 360))
+        let lite = try XCTUnwrap(preview.render(themeID: ButterflyGardenModel.id, at: [5], quality: .lite).first)
+        let s = PreviewRenderer.stats(lite)
+        XCTAssertGreaterThan(s.meanLuminance, 0.05)
+        XCTAssertGreaterThan(s.variance, 0.002)
+    }
+
+    func testSmoothSkipsTheExpensiveLightShafts() {
+        // The sun-shaft march was the cost that froze an Intel Mac: none on Smooth, cheap on High.
+        XCTAssertEqual(ButterflyRenderer.shaftSteps[.lite], 0)
+        XCTAssertLessThanOrEqual(ButterflyRenderer.shaftSteps[.high] ?? 99, 12)
+        XCTAssertLessThanOrEqual(ButterflyRenderer.noiseOctaves[.lite] ?? 99, 3)
+    }
 }
 
 @MainActor
@@ -46,6 +62,9 @@ final class PreviewRenderTests: XCTestCase {
         XCTAssertEqual(images.count, times.count)
         for (t, image) in zip(times, images) {
             try PreviewRenderer.writePNG(image, to: url.appendingPathComponent("butterfly-t\(Int(t)).png"))
+        }
+        if let image = preview.render(themeID: ButterflyGardenModel.id, at: [5], quality: .lite).first {
+            try PreviewRenderer.writePNG(image, to: url.appendingPathComponent("butterfly-smooth-t5.png"))
         }
         if let image = preview.render(themeID: MidnightSteinwayModel.id, at: [5]).first {
             try PreviewRenderer.writePNG(image, to: url.appendingPathComponent("steinway-t5.png"))
