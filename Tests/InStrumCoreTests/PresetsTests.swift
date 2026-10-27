@@ -85,8 +85,11 @@ final class PresetsTests: XCTestCase {
         XCTAssertEqual(ButterflyGardenModel.builtInLooks.map(\.name),
                        ["Monarch Morning", "Morpho Dream", "Golden Hour Meadow", "Moonlit Moths", "Crystal Garden", "Neon Night"])
         for look in ButterflyGardenModel.builtInLooks {
-            let set = ParameterSet(specs: specs, saved: look.state.values)
-            XCTAssertEqual(set.saved.count, look.state.values.filter { specs.first(where: { s in s.id == $0.key })?.defaultValue != $0.value }.count, look.name)
+            for (id, value) in look.state.values {
+                let spec = specs.first { $0.id == id }
+                XCTAssertNotNil(spec, "\(look.name): unknown setting \(id)")
+                XCTAssertEqual(spec?.validated(value), value, "\(look.name): invalid \(id)")
+            }
             XCTAssertEqual(look.themeID, ButterflyGardenModel.id)
         }
     }
