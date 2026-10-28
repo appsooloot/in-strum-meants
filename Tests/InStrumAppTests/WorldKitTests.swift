@@ -1,5 +1,6 @@
 import XCTest
 import Metal
+import simd
 @testable import InStrumApp
 @testable import InStrumCore
 
@@ -47,6 +48,118 @@ final class WorldKitTests: XCTestCase {
         let full = PreviewRenderer.brightestPatch(try render(moonState(0.5)), radius: 12)
         let crescent = PreviewRenderer.brightestPatch(try render(moonState(0.1)), radius: 12)
         XCTAssertGreaterThan(full, crescent * 1.5, "full \(full) crescent \(crescent)")
+    }
+
+    // MARK: - Halos, the Belt of Venus, pastel dawns, blizzards
+
+    /// The NDC point where an east-north-up direction lands on a 640×360 sky frame.
+    private func screenPoint(_ dir: SkyDirection, sky: SkyLayer, latitude: Double) -> (x: Double, y: Double) {
+        let cam = sky.camera(latitude: latitude, aspect: 640.0 / 360)
+        let d = SkyLayer.enu(dir)
+        let f = simd_dot(d, cam.forward)
+        return (Double(simd_dot(d, cam.right) / f / cam.tanH), Double(simd_dot(d, cam.up) / f / cam.tanV))
+    }
+
+    /// Mean RGB (0…1) of a small square around an NDC point.
+    private func rgb(_ image: CGImage, at p: (x: Double, y: Double), radius: Int = 3) -> SIMD3<Double> {
+        let w = image.width, h = image.height
+        var px = [UInt8](repeating: 0, count: w * h * 4)
+        let ctx = CGContext(data: &px, width: w, height: h, bitsPerComponent: 8, bytesPerRow: w * 4,
+                            space: CGColorSpaceCreateDeviceRGB(), bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)
+        ctx?.draw(image, in: CGRect(x: 0, y: 0, width: w, height: h))
+        let cx = Int((p.x + 1) / 2 * Double(w)), cy = Int((1 - p.y) / 2 * Double(h))
+        var sum = SIMD3<Double>(repeating: 0), n = 0.0
+        for row in max(0, cy - radius)...min(h - 1, cy + radius) {
+            for col in max(0, cx - radius)...min(w - 1, cx + radius) {
+                let i = (row * w + col) * 4
+                sum += SIMD3(Double(px[i]), Double(px[i + 1]), Double(px[i + 2])) / 255; n += 1
+            }
+        }
+        return sum / max(1, n)
+    }
+
+    private func luma(_ c: SIMD3<Double>) -> Double { 0.2126 * c.x + 0.7152 * c.y + 0.0722 * c.z }
+
+    private func renderSky(_ state: SkyState, viewAzimuth: Double?) throws -> (image: CGImage, sky: SkyLayer) {
+        guard let device = MTLCreateSystemDefaultDevice() else { throw XCTSkip("No Metal device") }
+        let preview = try XCTUnwrap(PreviewRenderer(width: 640, height: 360))
+        let r = try XCTUnwrap(SkyOnlyRenderer(device: device))
+        r.sky.viewAzimuth = viewAzimuth
+        r.update(state, quality: .high, size: CGSize(width: 640, height: 360), dt: 1.0 / 30, time: 0, surface: .none)
+        return (try XCTUnwrap(preview.capture(r)), r.sky)
+    }
+
+    /// A clear morning with the sun 10° up straight ahead: halos forced on brighten the sundog's spot (22°/cos 10° to
+    /// the right) well above a point 15° from the sun; with halo 0 the two match.
+    func testHalosAppearAroundTheSun() throws {
+        var s = frozen(13)
+        let view = SkyLayer.defaultViewAzimuth(latitude: s.latitude)
+        s.sun = SkyDirection(azimuth: view, altitude: 10)
+        func ratio(halo: Float) throws -> Double {
+            var st = s; st.halo = halo
+            let (image, sky) = try renderSky(st, viewAzimuth: view)
+            let dog = screenPoint(SkyDirection(azimuth: view + HaloOptics.sundogOffset(sunAltitude: 10), altitude: 10), sky: sky, latitude: s.latitude)
+            let near = screenPoint(SkyDirection(azimuth: view + 15, altitude: 10), sky: sky, latitude: s.latitude)
+            return luma(rgb(image, at: dog)) / max(1e-6, luma(rgb(image, at: near)))
+        }
+        let on = try ratio(halo: 1), off = try ratio(halo: 0)
+        XCTAssertGreaterThanOrEqual(on, 1.15, "sundog against 15°: \(on)")
+        XCTAssertEqual(off, 1, accuracy: 0.05, "without halos: \(off)")
+    }
+
+    /// Dusk, the sun 3° down: looking away from it, a pink band sits about 10° up; looking 90° from the sun it doesn't.
+    func testBeltOfVenusIsPink() throws {
+        var s = frozen(13)
+        s.sun = SkyDirection(azimuth: 90, altitude: -3)
+        let c = SkyPalette.colours(sunAltitude: -3, cloud: 0, mist: s.mist, moonlight: 0)
+        s.zenith = c.zenith; s.horizon = c.horizon; s.starVisibility = 0
+        // Red over green (a difference: ratios flatten under the tone curve).
+        func pinkness(view: Double) throws -> Double {
+            let (image, sky) = try renderSky(s, viewAzimuth: view)
+            let p = rgb(image, at: screenPoint(SkyDirection(azimuth: view, altitude: 10), sky: sky, latitude: s.latitude))
+            return p.x - p.y
+        }
+        let away = try pinkness(view: 270), side = try pinkness(view: 0)
+        XCTAssertGreaterThan(away, 1.1 * side, "away \(away) side \(side)")
+    }
+
+    /// The same dawn frame, pastel against plain: a pinker, less orange horizon and a lavender zenith.
+    func testPastelDawnTintsTheSky() throws {
+        var s = frozen(13)
+        s.sun = SkyDirection(azimuth: 90, altitude: -2)
+        s.cloudCover = 0; s.starVisibility = 0
+        func frame(pastel: Float) throws -> (horizon: SIMD3<Double>, zenith: SIMD3<Double>) {
+            var st = s
+            let c = SkyPalette.colours(sunAltitude: -2, cloud: 0, mist: s.mist, moonlight: 0, pastel: pastel)
+            st.zenith = c.zenith; st.horizon = c.horizon; st.dawnPastel = pastel
+            let (image, sky) = try renderSky(st, viewAzimuth: 0)
+            return (rgb(image, at: screenPoint(SkyDirection(azimuth: 0, altitude: 2), sky: sky, latitude: s.latitude), radius: 5),
+                    rgb(image, at: (0, 0.9), radius: 5))
+        }
+        let plain = try frame(pastel: 0), pastel = try frame(pastel: 1)
+        let hPlain = plain.horizon.z / plain.horizon.x, hPastel = pastel.horizon.z / pastel.horizon.x
+        XCTAssertGreaterThanOrEqual(hPastel, 1.15 * hPlain, "horizon b/r \(hPlain) → \(hPastel)")
+        let zPlain = plain.zenith.x / plain.zenith.y, zPastel = pastel.zenith.x / pastel.zenith.y
+        XCTAssertGreaterThanOrEqual(zPastel, 1.2 * zPlain, "zenith r/g \(zPlain) → \(zPastel)")
+    }
+
+    func testBlizzardDrivesTheSnowSideways() throws {
+        guard let device = MTLCreateSystemDefaultDevice() else { throw XCTSkip("No Metal device") }
+        let w = try XCTUnwrap(WeatherLayer(device: device))
+        var s = frozen(13, weather: .blizzard)
+        s.snow = 1; s.wind = 1; s.rain = 0
+        s.gust = 1
+        w.update(s, quality: .high, size: CGSize(width: 640, height: 360), dt: 1.0 / 30, surface: .ground(horizonY: -0.33))
+        XCTAssertGreaterThan(w.tilt, 1.2)
+        XCTAssertGreaterThan(w.streamerCount, 0)
+        XCTAssertLessThanOrEqual(w.streamerCount, 150)
+        s.gust = 0
+        w.update(s, quality: .high, size: CGSize(width: 640, height: 360), dt: 1.0 / 30, surface: .ground(horizonY: -0.33))
+        XCTAssertEqual(w.tilt, 0.25, accuracy: 0.01)
+        XCTAssertEqual(w.streamerCount, 0)
+        s.gust = 1
+        w.update(s, quality: .lite, size: CGSize(width: 640, height: 360), dt: 1.0 / 30, surface: .ground(horizonY: -0.33))
+        XCTAssertLessThanOrEqual(w.streamerCount, 60, "Smooth keeps streamers light")
     }
 
     func testWeatherLayerScalesWithQualityAndAmount() throws {
@@ -576,8 +689,9 @@ final class CoastRoadRendererTests: XCTestCase {
         // pow() of a negative base is undefined under fast math (NaN on some GPUs): squares are written x * x.
         let pattern = try NSRegularExpression(pattern: #"pow\([^;]*?,\s*2\.0\)"#)
         let shared = SkyShaders.common.count + OceanShaders.common.count
-        for (name, full) in [("road", CoastRoadShaders.source), ("beach", GoldenHourBeachShaders.source), ("ocean", OceanShaders.common)] {
-            let source = name == "ocean" ? full : String(full.dropFirst(shared))
+        for (name, full) in [("road", CoastRoadShaders.source), ("beach", GoldenHourBeachShaders.source), ("ocean", OceanShaders.common),
+                             ("sky", SkyShaders.source)] {
+            let source = name == "ocean" || name == "sky" ? full : String(full.dropFirst(shared))
             let hits = pattern.numberOfMatches(in: source, range: NSRange(source.startIndex..., in: source))
             XCTAssertEqual(hits, 0, name)
         }
@@ -727,6 +841,8 @@ final class SkyPreviewTests: XCTestCase {
             ("sky-rain-night-water", 22.0, 0.5, .rain, .water(horizonY: -0.33)),
             ("sky-snow-dusk", 19.6, 0.4, .snow, .ground(horizonY: -0.33)),
             ("sky-storm-glass", 15.0, 0.5, .storm, .glass),
+            ("sky-blizzard-ground", 13.0, 0.5, .blizzard, .ground(horizonY: -0.33)),
+            ("sky-after-rain-ground", 9.5, 0.5, .afterRain, .ground(horizonY: -0.33)),
         ]
         for (name, hour, phase, weather, surface) in cases {
             var s = SkySettings(); s.timeMode = .frozen; s.frozenHour = hour; s.frozenPhase = phase; s.cityID = "melbourne"
@@ -738,6 +854,40 @@ final class SkyPreviewTests: XCTestCase {
                 state = sky.step(now: Date(timeIntervalSince1970: 1_793_000_000 + Double(i) / 30), dt: 1.0 / 30)
                 r.update(state, quality: .high, size: CGSize(width: 1280, height: 720), dt: 1.0 / 30, time: Float(i) / 30, surface: surface)
             }
+            let image = try XCTUnwrap(preview.capture(r))
+            try PreviewRenderer.writePNG(image, to: url.appendingPathComponent("\(name).png"))
+        }
+        // Optics: halos, sundogs, a moon halo, a pastel dawn and the Belt of Venus (held or placed to show them).
+        let zone = TimeZone(identifier: "Australia/Melbourne")!
+        func state(hour: Double, phase: Double, weather: WeatherKind, hold: SkyHold = .follow) -> SkyState {
+            var s = SkySettings(); s.timeMode = .frozen; s.frozenHour = hour; s.frozenPhase = phase; s.cityID = "melbourne"
+            s.weatherMode = .pick; s.weather = weather
+            let sky = LivingSky(settings: s, homeZone: zone)
+            var st = sky.step(now: Date(timeIntervalSince1970: 1_793_000_000), dt: 0, hold: hold)
+            for i in 1...120 { st = sky.step(now: Date(timeIntervalSince1970: 1_793_000_000 + Double(i)), dt: 1, hold: hold) }
+            return st
+        }
+        var haloDay = state(hour: 13, phase: 0.5, weather: .lightCloud); haloDay.halo = 1
+        var lowSun = state(hour: 13, phase: 0.5, weather: .clear); lowSun.halo = 1
+        let ahead = SkyLayer.defaultViewAzimuth(latitude: lowSun.latitude)
+        lowSun.sun = SkyDirection(azimuth: ahead, altitude: 8)
+        let lowColours = SkyPalette.colours(sunAltitude: 8, cloud: 0, mist: lowSun.mist, moonlight: 0)
+        lowSun.zenith = lowColours.zenith; lowSun.horizon = lowColours.horizon
+        var moonHalo = state(hour: 23.5, phase: 0.5, weather: .lightCloud); moonHalo.halo = 1
+        moonHalo.moon = SkyDirection(azimuth: ahead, altitude: 30); moonHalo.moonLit = 1
+        let pastel = state(hour: 13, phase: 0.5, weather: .lightCloud, hold: .pastelDawn)
+        var belt = state(hour: 13, phase: 0.5, weather: .clear)
+        belt.sun = SkyDirection(azimuth: ahead + 180, altitude: -3)
+        let beltColours = SkyPalette.colours(sunAltitude: -3, cloud: 0, mist: belt.mist, moonlight: 0)
+        belt.zenith = beltColours.zenith; belt.horizon = beltColours.horizon; belt.starVisibility = 0.1
+        let optics: [(String, SkyState, Double?)] = [
+            ("sky-halo-day", haloDay, nil), ("sky-sundogs-low", lowSun, ahead), ("sky-moon-halo", moonHalo, ahead),
+            ("sky-pastel-dawn", pastel, pastel.sun.azimuth), ("sky-belt-of-venus", belt, ahead),
+        ]
+        for (name, st, view) in optics {
+            let r = try XCTUnwrap(SkyOnlyRenderer(device: device))
+            r.sky.viewAzimuth = view
+            for i in 0..<10 { r.update(st, quality: .high, size: CGSize(width: 1280, height: 720), dt: 1.0 / 30, time: Float(i) / 30, surface: .none) }
             let image = try XCTUnwrap(preview.capture(r))
             try PreviewRenderer.writePNG(image, to: url.appendingPathComponent("\(name).png"))
         }
