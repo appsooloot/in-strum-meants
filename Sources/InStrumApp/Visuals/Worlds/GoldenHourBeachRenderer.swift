@@ -11,6 +11,8 @@ final class GoldenHourBeachRenderer: ThemeRenderer {
     static func lineBudget(_ q: QualityLevel) -> Int { q == .lite ? 24 : TideLines.cap }
     /// Shore geometry in metres (matches the shader's constants).
     static let waterline: Float = 11, wetBand: Float = 5, breakLine: Float = 22, waveSpeed: Float = 5
+    /// White water rushing in from the break line to the shore (m/s; matches the shader's kBoreSpeed).
+    static let boreSpeed: Float = 4.4
     static let cameraHeight: Float = 2.0
 
     private let sky: SkyLayer
@@ -28,6 +30,8 @@ final class GoldenHourBeachRenderer: ThemeRenderer {
     private(set) var lineCount = 0
     /// The glitter after the flash limiter (gentle visuals halve it).
     private(set) var glitterOut: Float = 0
+    /// How strongly spray glints on the foam (gentle visuals should calm it).
+    private(set) var sprayOut: Float = 1
     /// The shader's uniforms (tests read them).
     var oceanUniforms: [SIMD4<Float>] { oceanU }
     /// The keys' rectangles in NDC (x0, y0, x1, y1) (tests check they stay inside the frame).

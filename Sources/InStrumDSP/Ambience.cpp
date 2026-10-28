@@ -812,6 +812,14 @@ public:
     }
 };
 
+
+// ---------------------------------------------------------------- Tone oscillators (engine purr, passing cars)
+/// Advances a tone oscillator's phase (in cycles) by one sample's increment.
+inline void advanceTone(float &ph, float inc) {
+    ph += inc;
+    if (ph > 1000.f) ph -= 1000.f;
+}
+
 // ---------------------------------------------------------------- Engine (a soft purr that follows the speed)
 class EngineHum final : public AmbienceSource {
     FastRandom rng;
@@ -828,8 +836,7 @@ public:
         const float level = (0.4f + 0.6f * sp) * (0.9f + 0.2f * w);
         top.set(250.f, 0.7f, fsr);
         for (int t = 0; t < n; ++t) {
-            ph += f * invSr;
-            if (ph > 1000.f) ph -= 1000.f;
+            advanceTone(ph, f * invSr);
             float x = 0;
             const float amps[6] = {1.f, 0.7f, 0.25f, 0.4f, 0.12f, 0.15f};   // a four-cylinder's even orders
             for (int k = 0; k < 6; ++k) x += amps[k] * sin2pi((float)(k + 1) * ph);
@@ -886,8 +893,7 @@ public:
             const float env = std::exp(-(x / 0.35f) * (x / 0.35f));
             const float pan = 0.9f * dir * x;
             float gl, gr; panGains(pan, gl, gr);
-            ph += 95.f * (1.f - 0.15f * std::tanh(3.f * x)) * invSr;
-            if (ph > 1000.f) ph -= 1000.f;
+            advanceTone(ph, 95.f * (1.f - 0.15f * std::tanh(3.f * x)) * invSr);
             const float tone = 0.25f * sin2pi(ph) + 0.1f * sin2pi(2.f * ph);
             const float a = rng.bipolar(), b = rng.bipolar();
             l[i] += env * gl * (sweepL.band(a) + tone);
@@ -1173,6 +1179,21 @@ void isd_ambience_render(ISDAmbience *a, float *left, float *right, int frames) 
     const int waves = a->waveSeq.load(std::memory_order_acquire);
     if (waves != a->waveSeen) { a->waveSeen = waves; a->engine.triggerWave(a->waveStrength.load(std::memory_order_relaxed)); }
     a->engine.render(left, right, frames);
+}
+
+float isd_ambience_debug_tone_hz(float hz, float sampleRate, float seconds) {
+    if (!(hz > 0.f) || !(sampleRate > 0.f) || !(seconds > 1.f)) return 0.f;
+    using namespace isd::amb;
+    float ph = 0.f;
+    const float inc = hz / sampleRate;
+    const long total = (long)((double)seconds * sampleRate), last = (long)sampleRate;
+    double cycles = 0;
+    for (long i = 0; i < total; ++i) {
+        const float before = ph;
+        advanceTone(ph, inc);
+        if (i >= total - last) cycles += ph >= before ? (double)ph - before : (double)ph + (before - ph > 500.f ? 1000.0 : 1.0) - before;
+    }
+    return (float)cycles;
 }
 
 } // extern "C"

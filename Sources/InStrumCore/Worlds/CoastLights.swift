@@ -27,6 +27,8 @@ public struct CoastLight: Equatable {
     public var hue: Float
     public var age: Float
     public var held: Bool
+    /// Where the car was (metres) when this light joined the road.
+    public var spawnDistance: Double = 0
 }
 
 /// Coast Lights: every note lights a passing light (cat's-eyes low, guardrail in the middle, lamp heads high);
@@ -40,6 +42,8 @@ public struct CoastLights {
     /// Bloom colours: warm for major, cool for minor, violet for tense.
     public static let majorHue: Float = 0.11, minorHue: Float = 0.58, tenseHue: Float = 0.78
     static let riseTau = 0.8, fallTau = 3.0
+    /// Metres a lamp light travels with the car before it has surely left the widest window.
+    public static let lampTravel = 70.0
 
     public static func lane(for note: UInt8) -> Lane { note < 48 ? .road : (note < 72 ? .rail : .lamp) }
 

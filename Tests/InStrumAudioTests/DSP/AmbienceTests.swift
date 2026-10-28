@@ -117,6 +117,28 @@ final class AmbienceTests: XCTestCase {
         XCTAssertLessThan(lowPeak.time, highPeak.time, "crash at \(lowPeak.time) s, wash at \(highPeak.time) s")
     }
 
+    /// A wave that arrives while the surf is fading out (the world is changing) makes no crash.
+    func testWaveIgnoredWhileSurfFadesOut() {
+        let base: [Action] = [Self.level(ISD_AMB_SURF, 1), Self.level(ISD_AMB_SURF, 0, at: 3.0)]
+        let quiet = Self.render(seconds: 4.5, actions: base)
+        let late = Self.render(seconds: 4.5, actions: base + [Self.wave(1, at: 3.1)])
+        let a = DSPTestKit.dBFS(SynthRender.slice(quiet.l, 3.1, 4.5)), b = DSPTestKit.dBFS(SynthRender.slice(late.l, 3.1, 4.5))
+        XCTAssertLessThan(b - a, 0.5, "fading bed \(a) dBFS, with the late wave \(b) dBFS")
+    }
+
+    /// The engine's purr and a passing car's tone keep their pitch however long the drive: their oscillator
+    /// (shared helper) runs at exactly the frequency asked, at every sample rate, after 30 s and after 10 minutes.
+    func testToneOscillatorsHoldPitch() {
+        for sr: Float in [44_100, 48_000, 96_000] {
+            for hz: Float in [35, 42, 60, 70, 95] {
+                for seconds: Float in [30, 600] {
+                    let measured = Double(isd_ambience_debug_tone_hz(hz, sr, seconds))
+                    XCTAssertEqual(DSPTestKit.cents(measured, Double(hz)), 0, accuracy: 0.5, "\(hz) Hz at \(Int(sr)) Hz over \(Int(seconds)) s")
+                }
+            }
+        }
+    }
+
     func testRoadFollowsSpeed() {
         let car: [Action] = [Self.level(ISD_AMB_ROAD, 1), Self.level(ISD_AMB_ENGINE, 1), Self.level(ISD_AMB_WINDOW_WIND, 1)]
         let slow = SynthRender.slice(Self.render(seconds: 10, actions: car + [Self.speed(0.2)]).l, 3, 10)

@@ -14,6 +14,8 @@ final class CoastRoadRenderer: ThemeRenderer {
     static let farRate = 0.002, midRate = 0.05, baseRate = 0.012
     static let midWrap = 40.0, baseWrap = 50.0
     static let postSpacing = 2.5, lampSpacing = 40.0
+    /// The lamps' layer: screen scroll (aspect units) per metre travelled — the shader's kLampSpacing / lampSpacing.
+    static let lampLayerRate = Float(3.3 / lampSpacing)
 
     private let sky: SkyLayer
     let weather: WeatherLayer
@@ -31,6 +33,8 @@ final class CoastRoadRenderer: ThemeRenderer {
     /// Lamp glow and chord bloom after the flash limiter (gentle visuals halve them).
     private(set) var lampOut: Float = 0
     private(set) var bloomOut: Float = 0
+    /// The posts carrying lamp-lane Coast Lights: (x, head y) in aspect units, one per lamp light.
+    private(set) var lampPosts: [SIMD2<Float>] = []
     /// The keys' rectangles in NDC (x0, y0, x1, y1) (tests check they stay inside the frame).
     var keyRects: [SIMD4<Float>] { keyInstances.map(\.rect) }
 

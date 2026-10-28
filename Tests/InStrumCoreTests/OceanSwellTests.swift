@@ -48,13 +48,18 @@ final class OceanSwellTests: XCTestCase {
         var s = OceanSwell(seed: 7)
         let waves = breaks(&s, seconds: 90)
         // Look back over each break (recent keeps the last six).
+        // The wash slides up the sand once the white water has rolled in from the break (washDelay later).
+        let arrive = OceanSwell.washDelay
+        XCTAssertEqual(arrive, 2.5, accuracy: 1e-9)
         for w in waves.suffix(5) {
-            let high = s.washFront(at: w.breakTime + 1.6), drained = s.washFront(at: w.breakTime + 6.5)
+            let high = s.washFront(at: w.breakTime + arrive + 1.6), drained = s.washFront(at: w.breakTime + arrive + 6.5)
             XCTAssertGreaterThan(high, 0.3, "after the break at \(w.breakTime)")
             XCTAssertLessThan(drained, high)
             XCTAssertLessThanOrEqual(high, 1)
         }
-        XCTAssertEqual(s.washFront(at: waves[waves.count - 1].breakTime - 0.5), 0, accuracy: 1e-6, "dry just before a break")
+        let last = waves[waves.count - 1]
+        XCTAssertEqual(s.washFront(at: last.breakTime + arrive - 0.2), 0, accuracy: 1e-6,
+                       "dry until the white water reaches the shore")
     }
 
     func testWeatherScale() {

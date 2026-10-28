@@ -131,6 +131,21 @@ final class AppModelTests: XCTestCase {
         XCTAssertNil(engine.scenes.last?.wave)
     }
 
+    func testAPendingWaveStaysOnTheBeach() {
+        let m = makeModel()
+        let beach = AmbienceScene(levels: [.surf: 0.9, .palms: 0.5], surfDistance: 0.15)
+        m.updateAmbience(beach, at: 3)
+        engine.scenes.removeAll()
+        var breaking = beach; breaking.wave = 0.7
+        m.updateAmbience(breaking, at: 3.01)                                   // held back by the throttle
+        let lounge = AmbienceScene(levels: [.shipHum: 0.6, .airFlow: 0.4])
+        m.updateAmbience(lounge, at: 3.05)                                     // the world changes before it's sent
+        m.updateAmbience(lounge, at: 3.2)
+        m.updateAmbience(lounge, at: 3.4)
+        XCTAssertFalse(engine.scenes.isEmpty)
+        XCTAssertTrue(engine.scenes.allSatisfy { $0.wave == nil }, "the beach's wave doesn't crash in the lounge")
+    }
+
     func testAmbienceSettingsPersist() async {
         let m = makeModel()
         m.setAmbienceVolume(0.4)

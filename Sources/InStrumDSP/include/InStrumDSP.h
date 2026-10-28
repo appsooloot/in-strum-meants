@@ -73,6 +73,9 @@ typedef enum {
 } ISDAmbienceSource;
 
 typedef struct ISDAmbience ISDAmbience;
+/// Internal (tests): the frequency the ambience's tone oscillators really run at, measured over the last second
+/// of a run of `seconds` from phase 0.
+float isd_ambience_debug_tone_hz(float hz, float sampleRate, float seconds);
 /// The same seed gives the same ambience.
 ISDAmbience *isd_ambience_create(double sampleRate, int maxFrames, uint64_t seed);
 void isd_ambience_destroy(ISDAmbience *ambience);

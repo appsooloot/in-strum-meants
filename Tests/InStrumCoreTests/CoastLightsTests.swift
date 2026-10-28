@@ -81,6 +81,33 @@ final class CoastLightsTests: XCTestCase {
         XCTAssertLessThan(fading.bloom, 0.2 * major.bloom, "it fades when the chord lets go")
     }
 
+    func testBloomHueChangesWithTheChordNotThroughOtherColours() {
+        var c = CoastLights()
+        c.bloomAmount = 1
+        for n: UInt8 in [57, 60, 64] { c.noteOn(n, velocity: 100, at: 0) }
+        step(&c, seconds: 0.5)
+        for n: UInt8 in [57, 60, 64] { c.noteOff(n) }
+        for n: UInt8 in [60, 64, 67] { c.noteOn(n, velocity: 100, at: 0.5) }
+        c.step(dt: 1.0 / 60, roles: RoleValues())
+        XCTAssertEqual(c.bloomHue, CoastLights.majorHue, accuracy: 1e-6, "no hue sweep through green on the way")
+    }
+
+    func testLampLightsKnowWhereTheyJoinedTheRoad() {
+        var c = CoastLights()
+        step(&c, seconds: 2)
+        c.noteOn(84, velocity: 100, at: 2)
+        step(&c, seconds: 1.0 / 60)
+        let lamp = try? XCTUnwrap(c.lights.first)
+        XCTAssertEqual(lamp?.lane, .lamp)
+        XCTAssertEqual(lamp?.spawnDistance ?? -1, c.distance, accuracy: 1)
+        // Lamp lights pass with the lamps: gone once the car has gone CoastLights.lampTravel metres on.
+        let joined = c.distance
+        while c.distance - joined < CoastLights.lampTravel - 1 { c.step(dt: 1.0 / 60, roles: RoleValues()) }
+        XCTAssertEqual(c.lights.count, 1, "still passing")
+        while c.distance - joined < CoastLights.lampTravel + 1 { c.step(dt: 1.0 / 60, roles: RoleValues()) }
+        XCTAssertTrue(c.lights.isEmpty, "gone past")
+    }
+
     func testLightsStreamPastAndFade() {
         var c = CoastLights()
         c.noteOn(60, velocity: 127, at: 0)

@@ -72,8 +72,10 @@ final class TideLinesTests: XCTestCase {
         step(&t, seconds: 0.1)
         XCTAssertEqual(t.foam, 0, "no foam until a wave breaks")
         t.step(dt: 1.0 / 60, washFront: 0, breaks: [wave], roles: RoleValues())
-        XCTAssertGreaterThan(t.foam, 0.4 * 0.8)
         XCTAssertFalse(t.chordPending)
+        XCTAssertLessThan(t.foam, 0.3 * 0.8, "the golden foam swells in, it doesn't flash on")
+        step(&t, seconds: 0.3)
+        XCTAssertGreaterThan(t.foam, 0.4 * 0.8)
         var single = TideLines()
         single.noteOn(60, velocity: 100, pedal: false, at: 0)
         single.step(dt: 1.0 / 60, washFront: 0, breaks: [wave], roles: RoleValues())
@@ -88,6 +90,29 @@ final class TideLinesTests: XCTestCase {
         major.noteOn(72, velocity: 90, pedal: false, at: 1); minor.noteOn(69, velocity: 90, pedal: false, at: 1)
         XCTAssertEqual(major.lines.last?.hue, TideLines.majorHue)
         XCTAssertEqual(minor.lines.last?.hue, TideLines.minorHue)
+    }
+
+    func testAChordsOwnLinesTakeItsColour() {
+        var t = TideLines()
+        for n: UInt8 in [57, 60, 64] { t.noteOn(n, velocity: 90, pedal: false, at: 0) }   // A minor, played as one chord
+        t.step(dt: 1.0 / 60, washFront: 0, breaks: [], roles: RoleValues())
+        XCTAssertEqual(t.lines.map(\.hue), [TideLines.minorHue, TideLines.minorHue, TideLines.minorHue])
+        for n: UInt8 in [57, 60, 64] { t.noteOff(n) }
+        for n: UInt8 in [60, 64, 67] { t.noteOn(n, velocity: 90, pedal: false, at: 1) }    // then C major
+        t.step(dt: 1.0 / 60, washFront: 0, breaks: [], roles: RoleValues())
+        XCTAssertEqual(t.lines.suffix(3).map(\.hue), [TideLines.majorHue, TideLines.majorHue, TideLines.majorHue])
+    }
+
+    func testLinesWrittenUnderTheWashWaitForTheNextOne() {
+        var t = TideLines()
+        step(&t, seconds: 0.2, front: 0.9)                  // the wash is up the sand
+        t.noteOn(60, velocity: 100, pedal: false, at: 0.2)
+        step(&t, seconds: 1, front: 0.9)
+        XCTAssertEqual(t.lines.first?.washed ?? -1, 0, "written into the wash, it stays until the sand drains")
+        step(&t, seconds: 1, front: 0)
+        XCTAssertEqual(t.lines.count, 1)
+        step(&t, seconds: 1, front: 0.9)
+        XCTAssertTrue(t.lines.isEmpty, "the next wash takes it")
     }
 
     func testSmoothKeepsTheStrongest24() {

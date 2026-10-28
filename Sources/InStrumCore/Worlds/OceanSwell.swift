@@ -35,6 +35,8 @@ public struct OceanSwell {
     private let phase0: SIMD4<Double>
     private static let componentPeriods = SIMD4<Double>(9.7, 11.3, 7.1, 5.3)
     private static let lookAhead = 40.0
+    /// Seconds from a break until its wash reaches the sand (the white water's run in from the break line).
+    public static let washDelay = 0.0
     private static let keepRecent = 6
 
     public init(seed: UInt64) {
