@@ -448,3 +448,117 @@ final class WorldTests: XCTestCase {
         XCTAssertEqual(levels[.wind] ?? -1, 0.65, accuracy: 1e-6)
     }
 }
+
+// MARK: - Snowbound Cabin
+
+extension WorldTests {
+    private func cabinStep(_ model: inout SnowboundCabinModel, seconds: Double, state: ThemeState = ThemeState()) -> CabinFrame {
+        let p = ThemeRegistry.parameterSet(for: SnowboundCabinModel.id, state: state)
+        var frame: CabinFrame?
+        for _ in 0..<max(1, Int(seconds * 30)) {
+            frame = model.step(dt: 1.0 / 30, params: p, roles: RoleValues(), inputs: InputFrame(), quality: .high)
+        }
+        return frame!
+    }
+
+    private func sky(sun altitude: Double, hour: Double) -> SkyState {
+        var s = SkyState(); s.sun = SkyDirection(azimuth: 0, altitude: altitude); s.hourOfDay = hour
+        return s
+    }
+
+    func testCabinTurnsRainToSnow() {
+        var rain = sky(sun: 20, hour: 13); rain.rain = 0.75; rain.weather = .rain; rain.lightning = 0.5; rain.wetness = 0.7
+        let cold = SnowboundCabinModel.coldSky(rain)
+        XCTAssertEqual(cold.snow, 0.75, accuracy: 1e-6)
+        XCTAssertEqual(cold.rain, 0)
+        XCTAssertEqual(cold.lightning, 0)
+        XCTAssertEqual(cold.wetness, 0)
+        var storm = sky(sun: 20, hour: 13); storm.rain = 1; storm.wind = 0.9; storm.gust = 0.6; storm.weather = .storm
+        let blizzard = SnowboundCabinModel.coldSky(storm)
+        XCTAssertEqual(blizzard.snow, 1)
+        XCTAssertEqual(blizzard.wind, 1)
+        XCTAssertEqual(blizzard.gust, 0.6, accuracy: 1e-6, "the gusts are kept")
+        XCTAssertEqual(blizzard.rain, 0)
+        XCTAssertEqual(blizzard.weather, .blizzard)
+        var drizzle = sky(sun: 20, hour: 13); drizzle.rain = 0.3; drizzle.weather = .drizzle
+        XCTAssertEqual(SnowboundCabinModel.coldSky(drizzle).snow, 0.3, accuracy: 1e-6, "drizzle is light snow")
+        XCTAssertEqual(SnowboundCabinModel.coldSky(drizzle).weather, .snow)
+    }
+
+    func testCabinAmbience() {
+        var model = SnowboundCabinModel()
+        var s = sky(sun: -20, hour: 22); s.snow = 0.8; s.gust = 0.3
+        model.setSky(s)
+        let a = cabinStep(&model, seconds: 0.1).ambience
+        XCTAssertEqual(a.level(.fire), 0.7 * 0.7, accuracy: 1e-9)
+        XCTAssertEqual(a.level(.wind), 0.25 + 0.3, accuracy: 1e-6)
+        XCTAssertEqual(a.level(.rainOnGlass), 0.4 * 0.8, accuracy: 1e-6)
+        XCTAssertEqual(a.snowOnGlass, 0.8, accuracy: 1e-6)
+        XCTAssertEqual(a.indoors, 1)
+        XCTAssertEqual(a.level(.clock), 0)
+        XCTAssertEqual(a.level(.surf), 0)
+        XCTAssertEqual(a.level(.road), 0)
+        XCTAssertEqual(a.wetness, 0)
+    }
+
+    func testCabinDefaults() {
+        XCTAssertEqual(ThemeRegistry.resolve(SnowboundCabinModel.id), SnowboundCabinModel.id)
+        XCTAssertTrue(ThemeRegistry.all.contains { $0.id == SnowboundCabinModel.id && $0.name == "Snowbound Cabin Window" })
+        XCTAssertTrue(ThemeRegistry.isWorld(SnowboundCabinModel.id))
+        assertValidParameters(SnowboundCabinModel.parameters)
+        let params = ThemeRegistry.parameterSet(for: SnowboundCabinModel.id, state: ThemeState())
+        XCTAssertEqual(params.choice("light.hold"), "Follow the sky")
+        XCTAssertEqual(params.choice("visual"), "Frost Grow")
+        XCTAssertEqual(SnowboundCabinModel.visuals, ["Frost Grow", "Galaxy Warp"])
+        XCTAssertEqual(params.number("frost"), 0.6, accuracy: 1e-9)
+        XCTAssertEqual(params.number("fire"), 0.7, accuracy: 1e-9)
+        XCTAssertEqual(params.number("condensation"), 0.4, accuracy: 1e-9)
+        XCTAssertEqual(params.number("farCabin"), 0.7, accuracy: 1e-9)
+        XCTAssertEqual(Mood.hushedWarm, Mood(energy: 0.2, warmth: 0.85, brightness: 0.3, space: 0.35, motion: 0.2))
+    }
+
+    func testCabinFrameCarriesFrost() {
+        var model = SnowboundCabinModel()
+        var s = sky(sun: -20, hour: 22); s.frost = 0.3
+        model.setSky(s)
+        for n: UInt8 in [60, 64, 67] { model.handle(.noteOn(note: n, velocity: 0.7)) }
+        let f = cabinStep(&model, seconds: 20)
+        XCTAssertGreaterThan(f.frostLevel, 0.3 * 0.6 + 0.05, "above the base while notes are held")
+        XCTAssertEqual(f.patches.count, 3)
+        XCTAssertNil(f.warp)
+        XCTAssertEqual(f.keys.count, 88)
+        XCTAssertTrue((0...1).contains(f.fireFlicker))
+    }
+
+    func testCabinWarpOptionStreaksInstead() {
+        var model = SnowboundCabinModel()
+        model.setSky(sky(sun: -20, hour: 22))
+        model.handle(.noteOn(note: 60, velocity: 0.9))
+        let f = cabinStep(&model, seconds: 0.5, state: ThemeState(values: ["visual": .choice("Galaxy Warp")]))
+        XCTAssertNotNil(f.warp)
+        XCTAssertTrue(f.patches.isEmpty, "Galaxy Warp replaces the patches")
+    }
+
+    func testFarCabinLightsAtNight() {
+        func lit(_ altitude: Double, _ hour: Double) -> Bool {
+            var model = SnowboundCabinModel()
+            model.setSky(sky(sun: altitude, hour: hour))
+            return cabinStep(&model, seconds: 0.1).farCabinLit
+        }
+        XCTAssertTrue(lit(-20, 22))
+        XCTAssertFalse(lit(30, 13))
+        XCTAssertFalse(lit(-30, 3), "everyone's asleep")
+    }
+
+    func testFireFlickersDeterministically() {
+        var a = SnowboundCabinModel(), b = SnowboundCabinModel()
+        a.setSky(sky(sun: -20, hour: 22)); b.setSky(sky(sun: -20, hour: 22))
+        var values: [Float] = []
+        for i in 0..<60 {
+            let fa = cabinStep(&a, seconds: 1.0 / 30), fb = cabinStep(&b, seconds: 1.0 / 30)
+            XCTAssertEqual(fa.fireFlicker, fb.fireFlicker, "step \(i)")
+            values.append(fa.fireFlicker)
+        }
+        XCTAssertGreaterThan((values.max() ?? 0) - (values.min() ?? 0), 0.05, "it flickers")
+    }
+}
