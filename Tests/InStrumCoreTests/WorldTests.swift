@@ -430,6 +430,15 @@ final class WorldTests: XCTestCase {
         for (name, scene) in scenes(raining) { XCTAssertEqual(scene.level(.drips), 0, name) }
     }
 
+    func testBirdsSingUnderARainbowEverywhereOutdoors() {
+        var shower = daySky(); shower.rain = 0.3; shower.rainbow = 1
+        for (name, scene) in scenes(shower) { XCTAssertGreaterThanOrEqual(scene.level(.dawnChorus), 0.4 - 1e-9, name) }
+        var none = daySky(); none.rain = 0.3
+        for (name, scene) in scenes(none) { XCTAssertEqual(scene.level(.dawnChorus), 0, accuracy: 0.0001, "\(name): no bow, no daytime birdsong") }
+        var storm = shower; storm.rain = 0.9
+        for (name, scene) in scenes(storm) { XCTAssertEqual(scene.level(.dawnChorus), 0, accuracy: 0.0001, "\(name): not in heavy rain") }
+    }
+
     func testBlizzardHowlsEverywhere() {
         var blizzard = daySky(); blizzard.snow = 1; blizzard.gust = 1; blizzard.wind = 1
         for (name, scene) in scenes(blizzard) { XCTAssertGreaterThanOrEqual(scene.level(.wind), 0.95, name) }
@@ -483,6 +492,9 @@ extension WorldTests {
         var drizzle = sky(sun: 20, hour: 13); drizzle.rain = 0.3; drizzle.weather = .drizzle
         XCTAssertEqual(SnowboundCabinModel.coldSky(drizzle).snow, 0.3, accuracy: 1e-6, "drizzle is light snow")
         XCTAssertEqual(SnowboundCabinModel.coldSky(drizzle).weather, .snow)
+        var shower = sky(sun: 20, hour: 13); shower.rain = 0.3; shower.rainbow = 1; shower.weather = .sunShower
+        XCTAssertEqual(SnowboundCabinModel.coldSky(shower).rainbow, 0, "snow makes no rainbow")
+        XCTAssertEqual(SnowboundCabinModel.coldSky(shower).weather, .snow)
     }
 
     /// Snow that was rain still frosts the glass, and a storm turned blizzard frosts it hard and whites out with each
