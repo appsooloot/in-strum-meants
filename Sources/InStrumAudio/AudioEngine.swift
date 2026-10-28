@@ -1,5 +1,6 @@
 import AVFoundation
 import AudioToolbox
+import CoreAudio
 import InStrumCore
 import os
 
@@ -269,6 +270,12 @@ public final class AudioEngine {
     }
 
     private func restartAfterConfigurationChange() {
+        rebuildOutput()
+        try? engine.start()
+    }
+
+    /// Reconnects every bus at the output's (possibly new) rate, resets the buffer size and the level tap.
+    private func rebuildOutput() {
         engine.disconnectNodeOutput(instrumentBus)
         engine.connect(instrumentBus, to: engine.mainMixerNode, format: renderFormat())
         if let unit = instrument {
@@ -284,6 +291,108 @@ public final class AudioEngine {
         setOutputBufferSize()
         installLevelTap()
         engine.prepare()
+    }
+
+    // MARK: - Output device and recovery
+
+    /// Every sound output on the Mac.
+    public static func listOutputDevices() -> [OutputDevice] { CoreAudioDevices.outputs() }
+    public var outputDevices: [OutputDevice] { CoreAudioDevices.outputs() }
+
+    /// The output the user chose (nil follows the Mac's default output).
+    public private(set) var selectedOutputUID: String?
+    /// True while a chosen output is missing and the Mac's default output stands in for it.
+    public private(set) var usingFallback = false
+    /// How many times the sound had to be restarted.
+    public private(set) var restarts = 0
+
+    public var isRunning: Bool { manualRendering || engine.isRunning }
+
+    /// The output's sample rate in Hz (0 before it starts).
+    public var outputSampleRate: Double {
+        manualRendering ? manualSampleRate : engine.outputNode.outputFormat(forBus: 0).sampleRate
+    }
+
+    /// The device the output is really playing to.
+    private func currentDeviceID() -> AudioDeviceID? {
+        guard let unit = engine.outputNode.audioUnit else { return nil }
+        var id = AudioDeviceID(0)
+        var size = UInt32(MemoryLayout<AudioDeviceID>.size)
+        guard AudioUnitGetProperty(unit, kAudioOutputUnitProperty_CurrentDevice, kAudioUnitScope_Global, 0, &id, &size) == noErr,
+              id != 0 else { return nil }
+        return id
+    }
+
+    private func play(to id: AudioDeviceID) -> Bool {
+        guard let unit = engine.outputNode.audioUnit else { return false }
+        let wasRunning = engine.isRunning
+        engine.stop()
+        var device = id
+        let status = AudioUnitSetProperty(unit, kAudioOutputUnitProperty_CurrentDevice, kAudioUnitScope_Global, 0,
+                                          &device, UInt32(MemoryLayout<AudioDeviceID>.size))
+        guard status == noErr else {
+            if wasRunning { try? engine.start() }
+            return false
+        }
+        rebuildOutput()
         try? engine.start()
+        return true
+    }
+
+    /// Plays to the output with this unique ID, or to the Mac's default output for nil. False if it isn't there
+    /// (or while rendering offline); the sound then stays where it was.
+    @discardableResult
+    public func selectOutputDevice(uid: String?) -> Bool {
+        guard !manualRendering else { return false }
+        guard let id = uid.flatMap(CoreAudioDevices.device(uid:)) ?? (uid == nil ? CoreAudioDevices.defaultOutput() : nil),
+              play(to: id) else { return false }
+        selectedOutputUID = uid
+        usingFallback = false
+        lastSeenDefault = CoreAudioDevices.defaultOutput()
+        return true
+    }
+
+    /// The Mac's default output when it was last looked at (so a change is followed once, never fought over).
+    private var lastSeenDefault: AudioDeviceID?
+
+    /// Restarts the sound from scratch (the Restart audio button).
+    public func restartAudio() {
+        guard !manualRendering else { return }
+        engine.stop()
+        rebuildOutput()
+        try? engine.start()
+        restarts += 1
+    }
+
+    /// Called every couple of seconds: puts the sound back when it has stopped, moves to the Mac's default output
+    /// when the chosen one disappears (and back when it returns), and follows the default output when that's the
+    /// choice. Returns a note for the user when it had to act.
+    public func checkHealth() -> String? {
+        guard !manualRendering, instrumentBus.engine != nil else { return nil }
+        if let uid = selectedOutputUID {
+            let chosen = CoreAudioDevices.device(uid: uid)
+            if usingFallback, let back = chosen, CoreAudioDevices.isAlive(back), play(to: back) {
+                usingFallback = false
+                return "Your chosen output is back: playing to it again."
+            }
+            if !usingFallback, chosen == nil || !(chosen.map(CoreAudioDevices.isAlive) ?? false),
+               let fallback = CoreAudioDevices.defaultOutput(), play(to: fallback) {
+                usingFallback = true
+                return "Your chosen output isn't connected: playing to the Mac's default output until it's back."
+            }
+        } else if let target = CoreAudioDevices.defaultOutput(), target != lastSeenDefault {
+            let first = lastSeenDefault == nil
+            lastSeenDefault = target
+            if !first, currentDeviceID() != target, CoreAudioDevices.isAlive(target), play(to: target) {
+                return nil   // followed the Mac's new default output, as asked
+            }
+        }
+        if !engine.isRunning {
+            rebuildOutput()
+            try? engine.start()
+            restarts += 1
+            return engine.isRunning ? "The sound stopped and was restarted." : "The sound has stopped. Check the output below, then press Restart audio."
+        }
+        return nil
     }
 }

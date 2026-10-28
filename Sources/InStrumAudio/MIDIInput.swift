@@ -1,18 +1,30 @@
 import CoreMIDI
 import Foundation
+import os
 
 public enum MIDIInputError: Error { case clientFailed(OSStatus), portFailed(OSStatus) }
 
-/// Listens to every connected MIDI keyboard. Raw MIDI 1.0 bytes are passed on
+/// Listens to every connected MIDI keyboard (except ones switched off). Raw MIDI 1.0 bytes are passed on
 /// unchanged (parsing happens in InStrumCore) on the CoreMIDI thread.
 public final class MIDIInput {
+    /// Every MIDI input the Mac can see, switched on or off.
     public private(set) var sourceNames: [String] = []
 
     private var client = MIDIClientRef()
     private var port = MIDIPortRef()
-    private var connected: Set<MIDIUniqueID> = []
+    /// Sources being listened to.
+    private var connected: [MIDIUniqueID: MIDIEndpointRef] = [:]
+    /// Sources seen at the last look (to notice removals).
+    private var present: Set<MIDIUniqueID> = []
+    /// A small number per source, handed to CoreMIDI so each message says where it came from.
+    private var tags: [MIDIUniqueID: Int] = [:]
+    private var tagNames: [Int: String] = [:]
+    private var nextTag = 0
+    private var disabled: Set<String> = []
     private var sawRemoval = false
     private let onSourcesChanged: ([String], Bool) -> Void
+    /// When each source last sent a note or controller (system uptime), written on the CoreMIDI thread.
+    private let activity = OSAllocatedUnfairLock(initialState: [Int: Double]())
 
     /// - onBytes: raw bytes plus a timestamp in seconds (system uptime), on the CoreMIDI thread.
     /// - onSourcesChanged: current source names, and whether a source was removed.
@@ -20,12 +32,19 @@ public final class MIDIInput {
                 onSourcesChanged: @escaping (_ names: [String], _ sourceRemoved: Bool) -> Void) throws {
         self.onSourcesChanged = onSourcesChanged
         var status = MIDIClientCreateWithBlock("In Strum Meants" as CFString, &client) { [weak self] note in
-            self?.handle(note.pointee)
+            let id = note.pointee.messageID
+            if Thread.isMainThread { self?.handle(id) } else { DispatchQueue.main.async { self?.handle(id) } }
         }
         guard status == noErr else { throw MIDIInputError.clientFailed(status) }
-        status = MIDIInputPortCreateWithProtocol(client, "In Strum Meants In" as CFString, ._1_0, &port) { list, _ in
+        let activity = self.activity
+        status = MIDIInputPortCreateWithProtocol(client, "In Strum Meants In" as CFString, ._1_0, &port) { list, refCon in
             let time = ProcessInfo.processInfo.systemUptime
-            for bytes in MIDIInput.messages(in: list) where !bytes.isEmpty { onBytes(bytes, time) }
+            let tag = Int(bitPattern: refCon)
+            for bytes in MIDIInput.messages(in: list) where !bytes.isEmpty {
+                // Notes and controllers light the activity dot (clock and active sensing don't).
+                if tag != 0, let status = bytes.first, status >= 0x80, status < 0xF0 { activity.withLock { $0[tag] = time } }
+                onBytes(bytes, time)
+            }
         }
         guard status == noErr else { throw MIDIInputError.portFailed(status) }
         refresh()
@@ -36,10 +55,33 @@ public final class MIDIInput {
         MIDIClientDispose(client)
     }
 
+    // MARK: - Choosing sources (main thread)
+
+    /// Stops listening to the inputs with these names (and listens again to the rest).
+    public func setDisabled(_ names: Set<String>) {
+        guard names != disabled else { return }
+        disabled = names
+        refresh()
+    }
+
+    /// Reconnects every input from scratch (for a keyboard that isn't being heard).
+    public func rescan() {
+        for src in connected.values { MIDIPortDisconnectSource(port, src) }
+        connected.removeAll()
+        refresh(force: true)
+    }
+
+    /// When the input with this name last sent a note or controller (system uptime), if ever.
+    public func lastActivity(_ name: String) -> Double? {
+        let wanted = tagNames.filter { $0.value == name }.map(\.key)
+        guard !wanted.isEmpty else { return nil }
+        return activity.withLock { a in wanted.compactMap { a[$0] }.max() }
+    }
+
     // MARK: - Sources
 
-    private func handle(_ note: MIDINotification) {
-        switch note.messageID {
+    private func handle(_ id: MIDINotificationMessageID) {
+        switch id {
         case .msgObjectRemoved:
             sawRemoval = true
             refresh()
@@ -50,22 +92,33 @@ public final class MIDIInput {
         }
     }
 
-    private func refresh() {
+    private func refresh(force: Bool = false) {
         var names: [String] = []
-        var present: Set<MIDIUniqueID> = []
+        var seen: Set<MIDIUniqueID> = []
         for i in 0..<MIDIGetNumberOfSources() {
             let src = MIDIGetSource(i)
             guard src != 0 else { continue }
             var uid: MIDIUniqueID = 0
             MIDIObjectGetIntegerProperty(src, kMIDIPropertyUniqueID, &uid)
-            present.insert(uid)
-            if !connected.contains(uid) { MIDIPortConnectSource(port, src, nil) }
-            names.append(Self.name(of: src))
+            seen.insert(uid)
+            let name = Self.name(of: src)
+            names.append(name)
+            let tag: Int
+            if let t = tags[uid] { tag = t } else { nextTag += 1; tag = nextTag; tags[uid] = tag }
+            tagNames[tag] = name
+            if !disabled.contains(name) {
+                if connected[uid] == nil, MIDIPortConnectSource(port, src, UnsafeMutableRawPointer(bitPattern: tag)) == noErr {
+                    connected[uid] = src
+                }
+            } else if let old = connected.removeValue(forKey: uid) {
+                MIDIPortDisconnectSource(port, old)
+            }
         }
-        let removed = sawRemoval || !connected.subtracting(present).isEmpty
+        for uid in connected.keys where !seen.contains(uid) { connected[uid] = nil }
+        let removed = sawRemoval || !present.subtracting(seen).isEmpty
         sawRemoval = false
-        connected = present
-        guard names != sourceNames || removed else { return }
+        present = seen
+        guard names != sourceNames || removed || force else { return }
         sourceNames = names
         onSourcesChanged(names, removed)
     }

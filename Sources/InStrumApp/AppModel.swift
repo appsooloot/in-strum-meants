@@ -38,7 +38,8 @@ public final class AppModel: ObservableObject {
     /// True when the previous run ended without settling (offer Safe Mode before launching).
     public let offersSafeMode: Bool
 
-    public var showsOnScreenKeyboard: Bool { midiSourceNames.isEmpty }
+    /// True when no MIDI keyboard is listened to (none connected, or all switched off).
+    public var showsOnScreenKeyboard: Bool { midiSourceNames.allSatisfy { disabledMIDISources.contains($0) } }
     public var volume: Float { engine.masterVolume }
 
     // nonisolated: touched from the CoreMIDI and render threads.
@@ -48,6 +49,8 @@ public final class AppModel: ObservableObject {
         var state = PerformanceState()
         var events: [PerformanceEvent] = []
         var touch: TouchCurve = .normal
+        /// 1…16 to listen to one MIDI channel only; nil for all.
+        var channel: Int?
     }
     nonisolated private let live = OSAllocatedUnfairLock(uncheckedState: Live())
 
@@ -66,6 +69,7 @@ public final class AppModel: ObservableObject {
     private var settings: AppSettings
     private var launched = false
     private var autosaveTimer: Timer?
+    private var watchdogTimer: Timer?
     private var terminateObserver: NSObjectProtocol?
 
     public init(engine: InstrumentEngine, store: SettingsStore, launchGuard: LaunchGuard, presets: PresetStore) {
@@ -84,7 +88,10 @@ public final class AppModel: ObservableObject {
             ?? ReactionPresets.all.first { $0.name == loaded.reactionName }?.map
             ?? ReactionPresets.expressivePianist
         self.offersSafeMode = launchGuard.beginLaunch()
-        live.withLockUnchecked { $0.touch = loaded.touchCurve }
+        self.disabledMIDISources = Set(loaded.disabledMIDISources)
+        outputDeviceUID = loaded.outputDeviceUID
+        midiChannel = loaded.midiChannel
+        live.withLockUnchecked { $0.touch = loaded.touchCurve; $0.channel = loaded.midiChannel }
         let closeness = loaded.ambience.closeness
         ambienceLive.withLockUnchecked { $0.closeness = closeness }
         activeSetID = loaded.activeSetID.flatMap { SetLibrary.set(id: $0) }?.id
@@ -103,10 +110,18 @@ public final class AppModel: ObservableObject {
             status = .needsInstrument(message: "Sound output couldn't start. Check your speakers or headphones, then reopen the app.")
             return
         }
+        if let uid = settings.outputDeviceUID, !engine.selectOutputDevice(uid: uid) {
+            engine.selectOutputDevice(uid: nil)
+            outputDeviceUID = nil
+            settings.outputDeviceUID = nil
+            audioNote = "Your chosen output wasn't found, so the sound is playing to the Mac's default output. Pick it again here once it's connected."
+        }
+        refreshOutputDevices()
         engine.ambienceVolume = Float(settings.ambience.volume)
         engine.ambienceEnabled = settings.ambience.enabled
         await engine.startAmbience()
         startAutosave()
+        startWatchdog()
         if offersSafeMode && skipPluginInSafeMode {
             status = .safeMode
             launchGuard.markStable()
@@ -149,8 +164,14 @@ public final class AppModel: ObservableObject {
 
     // MARK: - Playing (any thread)
 
-    /// Called on the CoreMIDI thread. Sound first, visuals second.
+    /// Called on the CoreMIDI thread. Sound first, visuals second. Messages on other channels than the chosen one are ignored.
     public nonisolated func handleMIDI(bytes raw: [UInt8], time: Double) {
+        let channel = live.withLockUnchecked { $0.channel }
+        guard MIDIChannelFilter.passes(raw, channel: channel) else { return }
+        perform(raw, time: time)
+    }
+
+    private nonisolated func perform(_ raw: [UInt8], time: Double) {
         let bytes = live.withLockUnchecked { $0.touch }.transform(raw)
         engine.send(bytes)
         live.withLockUnchecked { l in
@@ -162,7 +183,7 @@ public final class AppModel: ObservableObject {
 
     public func playFromScreen(note: UInt8, down: Bool) {
         let bytes: [UInt8] = down ? [0x90, note, Self.screenVelocity] : [0x80, note, 0]
-        handleMIDI(bytes: bytes, time: ProcessInfo.processInfo.systemUptime)
+        perform(bytes, time: ProcessInfo.processInfo.systemUptime)   // the screen keys ignore the channel filter
     }
 
     public func midiSourcesChanged(names: [String], removed: Bool) {
@@ -282,6 +303,108 @@ public final class AppModel: ObservableObject {
         engine.bufferFrames = frames
         settings.bufferFrames = frames
         autosave()
+    }
+
+    // MARK: - Sound & MIDI settings
+
+    /// Every sound output on the Mac (refreshed while the settings are open and by the watchdog).
+    @Published public private(set) var outputDevices: [OutputDevice] = []
+    /// The chosen output's unique ID; nil follows the Mac's default output.
+    @Published public private(set) var outputDeviceUID: String?
+    /// What the sound last needed fixing, in plain words (shown in Sound & MIDI).
+    @Published public private(set) var audioNote: String?
+    /// 1…16 to listen to one MIDI channel only; nil for all channels.
+    @Published public private(set) var midiChannel: Int?
+    /// MIDI inputs switched off (by name).
+    @Published public private(set) var disabledMIDISources: Set<String>
+    /// The MIDI input (weak: the app container owns it). Setting it hands over the saved on/off choices.
+    public weak var midi: MIDIControlling? {
+        didSet { midi?.setDisabled(disabledMIDISources) }
+    }
+
+    public var audioRunning: Bool { engine.isRunning }
+    public var outputSampleRate: Double { engine.outputSampleRate }
+
+    public func refreshOutputDevices() {
+        let now = engine.outputDevices
+        if now != outputDevices { outputDevices = now }
+    }
+
+    /// nil plays to the Mac's default output.
+    public func selectOutputDevice(_ uid: String?) {
+        if engine.selectOutputDevice(uid: uid) {
+            outputDeviceUID = uid
+            settings.outputDeviceUID = uid
+            audioNote = nil
+            autosave()
+        } else {
+            audioNote = "That output isn't available right now. Check it's switched on and connected, then try again."
+        }
+        refreshOutputDevices()
+    }
+
+    public func restartAudio() {
+        panic()
+        engine.restartAudio()
+        audioNote = engine.isRunning ? "Sound restarted." : "The sound couldn't restart. Try choosing another output."
+        refreshOutputDevices()
+    }
+
+    /// Run by the watchdog every couple of seconds.
+    public func checkAudioHealth() {
+        if let note = engine.checkHealth() {
+            panic()   // anything held when the sound dropped would otherwise hang
+            if note != audioNote { audioNote = note }
+            refreshOutputDevices()
+        }
+    }
+
+    /// Plays middle C for a moment, to check the sound without a keyboard.
+    public func playTestNote() {
+        playFromScreen(note: 60, down: true)
+        Task { [weak self] in
+            try? await Task.sleep(nanoseconds: 600_000_000)
+            self?.playFromScreen(note: 60, down: false)
+        }
+    }
+
+    /// nil listens to every channel.
+    public func setMIDIChannel(_ channel: Int?) {
+        let c = channel.flatMap { (1...16).contains($0) ? $0 : nil }
+        guard c != midiChannel else { return }
+        panic()   // notes held on the old channel would never get their note-off
+        midiChannel = c
+        settings.midiChannel = c
+        live.withLockUnchecked { $0.channel = c }
+        autosave()
+    }
+
+    public func isMIDISourceEnabled(_ name: String) -> Bool { !disabledMIDISources.contains(name) }
+
+    public func setMIDISource(_ name: String, enabled: Bool) {
+        var set = disabledMIDISources
+        if enabled { set.remove(name) } else { set.insert(name) }
+        guard set != disabledMIDISources else { return }
+        if !enabled { panic() }
+        disabledMIDISources = set
+        settings.disabledMIDISources = set.sorted()
+        midi?.setDisabled(set)
+        autosave()
+    }
+
+    public func rescanMIDI() { midi?.rescan() }
+
+    /// True while this MIDI input is sending notes (lights its dot).
+    public func midiActive(_ name: String) -> Bool {
+        guard let t = midi?.lastActivity(name) else { return false }
+        return ProcessInfo.processInfo.systemUptime - t < 0.25
+    }
+
+    private func startWatchdog() {
+        guard watchdogTimer == nil else { return }
+        watchdogTimer = Timer.scheduledTimer(withTimeInterval: 2, repeats: true) { [weak self] _ in
+            Task { @MainActor in self?.checkAudioHealth() }
+        }
     }
 
     // MARK: - Visuals

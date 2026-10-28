@@ -24,8 +24,14 @@ public struct AppSettings: Codable, Equatable {
     public var themeID: String = "midnight-steinway"
     public var masterVolume: Float = 0.8
     public var touchCurve: TouchCurve = .normal
-    /// Audio output buffer in frames: 128 (fastest), 256 (balanced), 512 (safest).
+    /// Audio output buffer in frames: 128 (fastest), 256 (balanced), 512 (safe), 1024 (safest).
     public var bufferFrames: UInt32 = 256
+    /// The chosen output device's unique ID; nil follows the Mac's default output.
+    public var outputDeviceUID: String?
+    /// 1…16 to listen to one MIDI channel only; nil for all channels.
+    public var midiChannel: Int?
+    /// MIDI inputs switched off (by name).
+    public var disabledMIDISources: [String] = []
     public var themeStates: [String: ThemeState] = [:]
     /// Smooth (lite) by default: fastest and lowest latency; raise it in Display → Quality.
     public var quality: QualitySetting = .lite
@@ -44,7 +50,10 @@ public struct AppSettings: Codable, Equatable {
 
     public init() {}
 
-    enum CodingKeys: String, CodingKey { case instrument, themeID, masterVolume, touchCurve, bufferFrames, themeStates, quality, gentleVisuals, reaction, reactionName, qualityVersion, sky, ambience, activeSetID }
+    enum CodingKeys: String, CodingKey {
+        case instrument, themeID, masterVolume, touchCurve, bufferFrames, themeStates, quality, gentleVisuals, reaction, reactionName,
+             qualityVersion, sky, ambience, activeSetID, outputDeviceUID, midiChannel, disabledMIDISources
+    }
 
     public init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
@@ -64,6 +73,9 @@ public struct AppSettings: Codable, Equatable {
         sky = (try? c.decodeIfPresent(SkySettings.self, forKey: .sky)) ?? d.sky
         ambience = (try? c.decodeIfPresent(AmbienceSettings.self, forKey: .ambience)) ?? d.ambience
         activeSetID = (try? c.decodeIfPresent(String.self, forKey: .activeSetID)) ?? nil
+        outputDeviceUID = (try? c.decodeIfPresent(String.self, forKey: .outputDeviceUID)) ?? nil
+        midiChannel = ((try? c.decodeIfPresent(Int.self, forKey: .midiChannel)) ?? nil).flatMap { (1...16).contains($0) ? $0 : nil }
+        disabledMIDISources = (try? c.decodeIfPresent([String].self, forKey: .disabledMIDISources)) ?? d.disabledMIDISources
     }
 }
 
