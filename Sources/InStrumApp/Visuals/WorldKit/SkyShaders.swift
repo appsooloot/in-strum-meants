@@ -97,8 +97,9 @@ enum SkyShaders {
         float sunAlt = u.sun.w;
 
         // Gradient, with mist thickening the band at the horizon.
-        float t = pow(saturate(alt / 1.5708), 0.45);
-        float3 col = mix(u.horizon.rgb, u.zenith.rgb, t);
+        // A narrow horizon band under a clean zenith colour (mixing them over the whole height turns them grey).
+        float band = exp(-max(alt, 0.0) / (0.2 + 0.25 * mist));
+        float3 col = mix(u.zenith.rgb, u.horizon.rgb, band);
         if (alt < 0.0) col = u.horizon.rgb * 0.6;
         col = mix(col, u.horizon.rgb * 1.05, mist * 0.6 * exp(-max(alt, 0.0) / 0.12));
 
