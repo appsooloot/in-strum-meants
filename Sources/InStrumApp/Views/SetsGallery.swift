@@ -35,39 +35,50 @@ struct SetCard: View {
     let restore: () -> Void
 
     private var credit: Credit? { CreditLibrary.credit(id: set.creditID) }
+    @State private var showCard = false
 
     var body: some View {
-        Button(action: apply) {
-            VStack(alignment: .leading, spacing: 4) {
-                HStack(alignment: .firstTextBaseline) {
-                    Text(set.name).font(.headline)
-                    Spacer()
-                    if modified {
-                        Text("Modified").font(.caption2.weight(.semibold))
-                            .padding(.horizontal, 6).padding(.vertical, 2)
-                            .background(Capsule().fill(.white.opacity(0.18)))
-                        Button("Restore", action: restore).font(.caption).buttonStyle(.borderless)
-                    } else if active {
-                        Image(systemName: "checkmark.circle.fill").foregroundStyle(.white.opacity(0.85))
-                    }
+        // Tapping the card applies the set; its Restore and info buttons stay their own.
+        VStack(alignment: .leading, spacing: 4) {
+            HStack(alignment: .firstTextBaseline) {
+                Text(set.name).font(.headline)
+                Spacer()
+                if modified {
+                    Text("Modified").font(.caption2.weight(.semibold))
+                        .padding(.horizontal, 6).padding(.vertical, 2)
+                        .background(Capsule().fill(.white.opacity(0.18)))
+                    Button("Restore", action: restore).font(.caption).buttonStyle(.borderless)
+                } else if active {
+                    Image(systemName: "checkmark.circle.fill").foregroundStyle(.white.opacity(0.85))
                 }
-                Text(set.moodName).font(.caption).foregroundStyle(.white.opacity(0.75))
                 if let credit {
-                    Text("Inspired by “\(credit.song)” · \(credit.artist)")
-                        .font(.caption2).foregroundStyle(.white.opacity(0.65)).lineLimit(1)
+                    Button { showCard = true } label: { Image(systemName: "info.circle") }
+                        .buttonStyle(.borderless)
+                        .help("Inspired by “\(credit.song)”")
+                        .popover(isPresented: $showCard, arrowEdge: .trailing) {
+                            InspiredByCard(credit: credit).frame(width: 420).padding(10)
+                        }
                 }
             }
-            .foregroundStyle(.white)
-            .padding(12)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .background(
-                RoundedRectangle(cornerRadius: 12)
-                    .fill(LinearGradient(colors: SetsGallery.tint(for: set.id), startPoint: .topLeading, endPoint: .bottomTrailing))
-            )
-            .overlay(RoundedRectangle(cornerRadius: 12).strokeBorder(.white.opacity(active ? 0.55 : 0.12), lineWidth: active ? 1.5 : 1))
-            .contentShape(RoundedRectangle(cornerRadius: 12))
+            Text(set.moodName).font(.caption).foregroundStyle(.white.opacity(0.75))
+            if let credit {
+                Text("Inspired by “\(credit.song)” · \(credit.artist)")
+                    .font(.caption2).foregroundStyle(.white.opacity(0.65)).lineLimit(1)
+            }
         }
-        .buttonStyle(.plain)
+        .foregroundStyle(.white)
+        .padding(12)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(
+            RoundedRectangle(cornerRadius: 12)
+                .fill(LinearGradient(colors: SetsGallery.tint(for: set.id), startPoint: .topLeading, endPoint: .bottomTrailing))
+        )
+        .overlay(RoundedRectangle(cornerRadius: 12).strokeBorder(.white.opacity(active ? 0.55 : 0.12), lineWidth: active ? 1.5 : 1))
+        .contentShape(RoundedRectangle(cornerRadius: 12))
+        .onTapGesture(perform: apply)
+        .accessibilityElement(children: .contain)
+        .accessibilityAddTraits(.isButton)
+        .accessibilityAction(named: "Apply set", apply)
         .accessibilityLabel("\(set.name) set, \(set.moodName)\(modified ? ", modified" : "")")
     }
 }
