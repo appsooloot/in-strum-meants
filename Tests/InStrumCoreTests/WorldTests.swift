@@ -86,9 +86,11 @@ final class WorldTests: XCTestCase {
         var s = SkySettings(); s.timeMode = .frozen; s.frozenHour = hour; s.cityID = "melbourne"; s.weatherMode = .pick; s.weather = weather
         d.sky.settings = s
         d.mood = .serene
-        d.handle(notes.map { .noteOn(note: $0, velocity: 0.8) }, at: 0)
         var frame: LakeFrame?
-        for i in 0..<90 { frame = d.step(dt: 1.0 / 30, t: Double(i) / 30, quality: .high) as? LakeFrame }   // let the 60 s weather blend start settled
+        for i in 0..<90 {   // three seconds for the sky to settle; the notes land in the last third of a second
+            if i == 80 { d.handle(notes.map { .noteOn(note: $0, velocity: 0.8) }, at: Double(i) / 30) }
+            frame = d.step(dt: 1.0 / 30, t: Double(i) / 30, quality: .high) as? LakeFrame
+        }
         return frame
     }
 
