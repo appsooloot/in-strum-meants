@@ -38,6 +38,31 @@ final class FakeEngine: InstrumentEngine {
     var ambienceStarts = 0, startedBeforeAmbience = false
     func startAmbience() async { ambienceStarts += 1; startedBeforeAmbience = started > 0 }
     func setAmbience(_ s: AmbienceScene) { scenes.append(s) }
+    // Output
+    var isRunning = true
+    var restarts = 0
+    var outputDevices: [OutputDevice] = []
+    var selected: [String?] = []
+    var failingUIDs: Set<String> = []
+    var outputSampleRate: Double = 48_000
+    var healthNote: String?
+    var healthChecks = 0
+    func restartAudio() { restarts += 1 }
+    func selectOutputDevice(uid: String?) -> Bool {
+        selected.append(uid)
+        return uid.map { !failingUIDs.contains($0) } ?? true
+    }
+    func checkHealth() -> String? { healthChecks += 1; return healthNote }
+}
+
+/// Stands in for the MIDI input in tests.
+final class FakeMIDI: MIDIControlling {
+    var disabled: Set<String> = []
+    var rescans = 0
+    var activity: [String: Double] = [:]
+    func setDisabled(_ names: Set<String>) { disabled = names }
+    func rescan() { rescans += 1 }
+    func lastActivity(_ name: String) -> Double? { activity[name] }
 }
 
 @MainActor
@@ -75,6 +100,89 @@ final class AppModelTests: XCTestCase {
         await m.launch(skipPluginInSafeMode: false)
         XCTAssertEqual(engine.ambienceStarts, 1)
         XCTAssertTrue(engine.startedBeforeAmbience)
+    }
+
+    // MARK: - Sound & MIDI settings
+
+    func testChannelFilterLetsOnlyTheChosenChannelThrough() {
+        let m = makeModel()
+        m.setMIDIChannel(2)
+        m.handleMIDI(bytes: [0x90, 60, 100], time: 0)
+        XCTAssertTrue(engine.sent.isEmpty, "channel 1 is filtered out")
+        m.handleMIDI(bytes: [0x91, 60, 100], time: 0)
+        XCTAssertEqual(engine.sent.count, 1)
+        m.setMIDIChannel(nil)
+        m.handleMIDI(bytes: [0x90, 62, 100], time: 0)
+        XCTAssertEqual(engine.sent.count, 2, "all channels again")
+    }
+
+    func testMIDIChoicesAreRememberedAndPassedOn() {
+        let m = makeModel()
+        let midi = FakeMIDI()
+        m.midi = midi
+        m.setMIDIChannel(4)
+        m.setMIDISource("Keystation 88", enabled: false)
+        XCTAssertEqual(midi.disabled, ["Keystation 88"])
+        m.autosave()
+        let again = makeModel()
+        let midi2 = FakeMIDI()
+        again.midi = midi2
+        XCTAssertEqual(again.midiChannel, 4)
+        XCTAssertEqual(again.disabledMIDISources, ["Keystation 88"])
+        XCTAssertEqual(midi2.disabled, ["Keystation 88"], "the saved choice reaches the MIDI input at launch")
+        m.setMIDISource("Keystation 88", enabled: true)
+        XCTAssertEqual(midi.disabled, [])
+        m.rescanMIDI()
+        XCTAssertEqual(midi.rescans, 1)
+    }
+
+    func testChoosingAnOutputGoesToTheEngineAndIsRemembered() async {
+        engine.outputDevices = [OutputDevice(id: 7, uid: "speakers", name: "MacBook Pro Speakers")]
+        let m = makeModel()
+        await m.launch(skipPluginInSafeMode: false)
+        m.selectOutputDevice("speakers")
+        XCTAssertEqual(engine.selected.last, "speakers")
+        XCTAssertEqual(m.outputDeviceUID, "speakers")
+        XCTAssertNil(m.audioNote)
+        m.autosave()
+        engine.selected.removeAll()
+        let again = makeModel()
+        await again.launch(skipPluginInSafeMode: false)
+        XCTAssertEqual(engine.selected, ["speakers"], "the chosen output comes back at launch")
+    }
+
+    func testAMissingOutputFallsBackToTheDefault() async throws {
+        var s = AppSettings.default; s.outputDeviceUID = "gone"; try store.save(s)
+        engine.failingUIDs = ["gone"]
+        let m = makeModel()
+        await m.launch(skipPluginInSafeMode: false)
+        XCTAssertEqual(engine.selected, ["gone", nil])
+        XCTAssertNil(m.outputDeviceUID)
+        XCTAssertTrue(m.audioNote?.contains("default") ?? false, m.audioNote ?? "no note")
+    }
+
+    func testHealthChecksReachTheEngineAndShowWhatHappened() {
+        let m = makeModel()
+        m.checkAudioHealth()
+        XCTAssertEqual(engine.healthChecks, 1)
+        XCTAssertNil(m.audioNote)
+        engine.healthNote = "The sound stopped and was restarted."
+        m.checkAudioHealth()
+        XCTAssertEqual(m.audioNote, "The sound stopped and was restarted.")
+    }
+
+    func testRestartAudio() {
+        let m = makeModel()
+        m.restartAudio()
+        XCTAssertEqual(engine.restarts, 1)
+    }
+
+    func testTestNotePlaysMiddleC() async throws {
+        let m = makeModel()
+        m.playTestNote()
+        XCTAssertEqual(engine.sent.first, [0x90, 60, AppModel.screenVelocity])
+        try await Task.sleep(nanoseconds: 900_000_000)
+        XCTAssertTrue(engine.sent.contains([0x80, 60, 0]), "and lets it go")
     }
 
     // MARK: - Worlds drive the ambience
