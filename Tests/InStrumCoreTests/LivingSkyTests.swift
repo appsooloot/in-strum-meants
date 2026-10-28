@@ -388,6 +388,15 @@ extension LivingSkyTests {
         XCTAssertGreaterThan(flashes(1), flashes(0.25), "and a quarter frequency flashes far less")
     }
 
+    func testMoonAndSunSizeSettings() {
+        var s = SkySettings(); s.timeMode = .frozen; s.cityID = "melbourne"
+        XCTAssertEqual(LivingSky(settings: s, homeZone: melbourneZone).step(now: start, dt: 0).moonSize, 1)
+        s.moonSize = 2; s.sunSize = 99
+        let big = LivingSky(settings: s, homeZone: melbourneZone).step(now: start, dt: 0)
+        XCTAssertEqual(big.moonSize, 2)
+        XCTAssertEqual(big.sunSize, 3, "clamped to 3×")
+    }
+
     func testRainMeltsFrost() {
         let s = sky(.snow)
         XCTAssertEqual(s.step(now: start, dt: 0).frost, 0.6, accuracy: 0.01)

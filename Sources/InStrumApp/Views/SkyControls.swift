@@ -95,6 +95,12 @@ struct SkyControls: View {
                     labelled("Storm flashes \(String(format: "%.1f", sky.lightningFrequency))× as often") {
                         Slider(value: Binding(get: { sky.lightningFrequency }, set: { v in update { $0.lightningFrequency = v } }), in: 0.25...3)
                     }
+                    labelled("Moon size \(String(format: "%.1f", sky.moonSize))×") {
+                        Slider(value: Binding(get: { sky.moonSize }, set: { v in update { $0.moonSize = v } }), in: 0.5...3)
+                    }
+                    labelled("Sun size \(String(format: "%.1f", sky.sunSize))×") {
+                        Slider(value: Binding(get: { sky.sunSize }, set: { v in update { $0.sunSize = v } }), in: 0.5...3)
+                    }
                     labelled("Cloud \(Int((sky.cloudScale * 100).rounded()))%") {
                         Slider(value: Binding(get: { sky.cloudScale }, set: { v in update { $0.cloudScale = v } }), in: 0...1.5)
                     }
