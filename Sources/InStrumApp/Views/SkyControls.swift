@@ -82,6 +82,16 @@ struct SkyControls: View {
                         Button("Dreamy") { update { $0.applyAdvanced(.dreamy) } }
                     }
                     Button("Reset Advanced to defaults") { update { $0.resetAdvanced() } }
+                    DisclosureGroup("Weathers in random") {
+                        ForEach(WeatherKind.allCases, id: \.self) { kind in
+                            Toggle(Self.weatherName(kind), isOn: Binding(
+                                get: { !sky.randomExcluded.contains(kind) },
+                                set: { on in update { s in
+                                    s.randomExcluded.removeAll { $0 == kind }
+                                    if !on { s.randomExcluded.append(kind) }
+                                } }))
+                        }
+                    }
                     Toggle("Calm random weather (no storms, blizzards, hail…)", isOn: Binding(get: { sky.calmRandom }, set: { v in update { $0.calmRandom = v } }))
                     labelled("A picked weather takes \(Int(sky.pickBlendSeconds.rounded())) s to arrive") {
                         Slider(value: Binding(get: { sky.pickBlendSeconds }, set: { v in update { $0.pickBlendSeconds = v } }), in: 1...120, step: 1)

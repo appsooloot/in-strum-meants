@@ -34,6 +34,8 @@ public struct SkySettings: Codable, Equatable {
     public var gustScale: Double = 1
     /// Advanced: keep random weather gentle (no storms, blizzards, monsoons, hail, squalls or dust storms).
     public var calmRandom: Bool = false
+    /// Advanced: weathers "Random, beautiful" must never pick (your choice, on top of Calm).
+    public var randomExcluded: [WeatherKind] = []
     /// Advanced: how often a storm flashes (0.25…3, 1 = every 6–20 s), cloud cover (0…1.5) and star brightness (0…1.5).
     public var lightningFrequency: Double = 1
     public var cloudScale: Double = 1
@@ -65,12 +67,12 @@ public struct SkySettings: Codable, Equatable {
         pickBlendSeconds = d.pickBlendSeconds; randomBlendSeconds = d.randomBlendSeconds; spellMinutes = d.spellMinutes
         rainbowStrength = d.rainbowStrength; dryingMinutes = d.dryingMinutes
         windScale = d.windScale; mistScale = d.mistScale; haloScale = d.haloScale; frostScale = d.frostScale
-        rainScale = d.rainScale; snowScale = d.snowScale; gustScale = d.gustScale; calmRandom = d.calmRandom
+        rainScale = d.rainScale; snowScale = d.snowScale; gustScale = d.gustScale; calmRandom = d.calmRandom; randomExcluded = d.randomExcluded
         lightningFrequency = d.lightningFrequency; cloudScale = d.cloudScale; starScale = d.starScale
         moonSize = d.moonSize; sunSize = d.sunSize
     }
 
-    enum CodingKeys: String, CodingKey { case timeMode, dayMinutes, frozenHour, frozenPhase, cityID, weatherMode, weather, pickBlendSeconds, randomBlendSeconds, spellMinutes, rainbowStrength, dryingMinutes, windScale, mistScale, haloScale, frostScale, rainScale, snowScale, gustScale, calmRandom, lightningFrequency, cloudScale, starScale, moonSize, sunSize }
+    enum CodingKeys: String, CodingKey { case timeMode, dayMinutes, frozenHour, frozenPhase, cityID, weatherMode, weather, pickBlendSeconds, randomBlendSeconds, spellMinutes, rainbowStrength, dryingMinutes, windScale, mistScale, haloScale, frostScale, rainScale, snowScale, gustScale, calmRandom, randomExcluded, lightningFrequency, cloudScale, starScale, moonSize, sunSize }
 
     /// Each field falls back on its own, and numbers are clamped, so one bad value never loses the rest.
     public init(from decoder: Decoder) throws {
@@ -100,6 +102,7 @@ public struct SkySettings: Codable, Equatable {
         starScale = min(1.5, max(0, (try? c.decodeIfPresent(Double.self, forKey: .starScale)) ?? d.starScale))
         moonSize = min(3, max(0.5, (try? c.decodeIfPresent(Double.self, forKey: .moonSize)) ?? d.moonSize))
         sunSize = min(3, max(0.5, (try? c.decodeIfPresent(Double.self, forKey: .sunSize)) ?? d.sunSize))
+        randomExcluded = (try? c.decodeIfPresent([WeatherKind].self, forKey: .randomExcluded)) ?? d.randomExcluded
         spellMinutes = min(60, max(2, (try? c.decodeIfPresent(Double.self, forKey: .spellMinutes)) ?? d.spellMinutes))
     }
 }

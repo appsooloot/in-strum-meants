@@ -419,6 +419,24 @@ extension LivingSkyTests {
         XCTAssertTrue(seen[0].calmRandom && !seen[1].calmRandom)
     }
 
+    func testExcludedWeathersNeverAppearInRandom() throws {
+        let banned: [WeatherKind] = [.clear, .lightCloud, .mist, .rain]
+        for seed in 1...4 as ClosedRange<UInt64> {
+            var s = SkySettings(); s.timeMode = .frozen; s.weatherMode = .randomBeautiful; s.randomExcluded = banned
+            let sky = LivingSky(settings: s, seed: seed, homeZone: melbourneZone)
+            var now = start
+            for _ in 0..<3000 {
+                now = now.addingTimeInterval(5)
+                let st = sky.step(now: now, dt: 5)
+                XCTAssertFalse(banned.contains(st.weather) || banned.contains(st.nextWeather), "seed \(seed): \(st.weather)")
+            }
+        }
+        var s = SkySettings(); s.randomExcluded = [.hail, .squall]
+        XCTAssertEqual(try JSONDecoder().decode(SkySettings.self, from: JSONEncoder().encode(s)).randomExcluded, [.hail, .squall])
+        s.resetAdvanced()
+        XCTAssertEqual(s.randomExcluded, [])
+    }
+
     func testRainMeltsFrost() {
         let s = sky(.snow)
         XCTAssertEqual(s.step(now: start, dt: 0).frost, 0.6, accuracy: 0.01)

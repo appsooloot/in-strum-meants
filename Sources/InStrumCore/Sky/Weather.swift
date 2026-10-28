@@ -112,7 +112,7 @@ struct WeatherMachine {
         mode = settings.weatherMode
         let first: WeatherKind
         if settings.weatherMode == .pick { first = settings.weather }
-        else { var r = rng; first = Self.pick(excluding: nil, calm: settings.calmRandom, &r); rng = r }
+        else { var r = rng; first = Self.pick(excluding: nil, calm: settings.calmRandom, excluded: settings.randomExcluded, &r); rng = r }
         current = first; next = first; from = first.values
         var r = rng
         spellLeft = Self.spell(&r, minutes: min(60, max(2, settings.spellMinutes)))
@@ -139,7 +139,7 @@ struct WeatherMachine {
             mode = settings.weatherMode
             if mode == .pick { ice = WeatherKind.lightCloud.values.halo }
             spellLeft = Self.spell(&rng, minutes: sm)
-            if mode == .randomBeautiful { begin(Self.pick(excluding: transitioning ? next : current, calm: settings.calmRandom, &rng), seconds: rs) }
+            if mode == .randomBeautiful { begin(Self.pick(excluding: transitioning ? next : current, calm: settings.calmRandom, excluded: settings.randomExcluded, &rng), seconds: rs) }
         }
         switch mode {
         case .pick:
@@ -149,7 +149,7 @@ struct WeatherMachine {
             if spellLeft <= 0, !transitioning {
                 // After a wet spell, "after the rain" comes next 6 times in 10; otherwise the usual pick (without it).
                 if current.isWet && afterRng.unit() < 0.6 { begin(.afterRain, seconds: rs) }
-                else { begin(Self.pick(excluding: current, also: current.isWet ? .afterRain : nil, calm: settings.calmRandom, &rng), seconds: rs) }
+                else { begin(Self.pick(excluding: current, also: current.isWet ? .afterRain : nil, calm: settings.calmRandom, excluded: settings.randomExcluded, &rng), seconds: rs) }
                 spellLeft += Self.spell(&rng, minutes: sm)
             }
         }
@@ -171,8 +171,8 @@ struct WeatherMachine {
 
     private static func spell(_ rng: inout SeededRandom, minutes: Double) -> Double { (300 + 900 * Double(rng.unit())) * minutes / 12.5 }
 
-    private static func pick(excluding: WeatherKind?, also: WeatherKind? = nil, calm: Bool = false, _ rng: inout SeededRandom) -> WeatherKind {
-        let choices = WeatherKind.allCases.filter { $0 != excluding && $0 != also && $0.beautyWeight > 0 && !(calm && $0.isRough) }
+    private static func pick(excluding: WeatherKind?, also: WeatherKind? = nil, calm: Bool = false, excluded: [WeatherKind] = [], _ rng: inout SeededRandom) -> WeatherKind {
+        let choices = WeatherKind.allCases.filter { $0 != excluding && $0 != also && $0.beautyWeight > 0 && !(calm && $0.isRough) && !excluded.contains($0) }
         let total = choices.reduce(0) { $0 + $1.beautyWeight }
         var x = rng.unit() * total
         for k in choices {
