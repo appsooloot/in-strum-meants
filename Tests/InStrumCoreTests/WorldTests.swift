@@ -477,12 +477,72 @@ extension WorldTests {
         let blizzard = SnowboundCabinModel.coldSky(storm)
         XCTAssertEqual(blizzard.snow, 1)
         XCTAssertEqual(blizzard.wind, 1)
-        XCTAssertEqual(blizzard.gust, 0.6, accuracy: 1e-6, "the gusts are kept")
+        XCTAssertEqual(blizzard.gust, 1, accuracy: 1e-3, "a storm's gusts become a blizzard's")
         XCTAssertEqual(blizzard.rain, 0)
         XCTAssertEqual(blizzard.weather, .blizzard)
         var drizzle = sky(sun: 20, hour: 13); drizzle.rain = 0.3; drizzle.weather = .drizzle
         XCTAssertEqual(SnowboundCabinModel.coldSky(drizzle).snow, 0.3, accuracy: 1e-6, "drizzle is light snow")
         XCTAssertEqual(SnowboundCabinModel.coldSky(drizzle).weather, .snow)
+    }
+
+    /// Snow that was rain still frosts the glass, and a storm turned blizzard frosts it hard and whites out with each
+    /// gust (final review: the frost vanished whenever the cabin's snow came from rain).
+    func testColdSkyKeepsTheFrost() {
+        var rain = sky(sun: 20, hour: 13); rain.rain = 0.75; rain.weather = .rain; rain.frost = 0
+        XCTAssertGreaterThanOrEqual(SnowboundCabinModel.coldSky(rain).frost, 0.45)
+        var storm = sky(sun: 20, hour: 13); storm.rain = 1; storm.wind = 0.9; storm.gust = 0.6; storm.mist = 0.2; storm.weather = .storm; storm.frost = 0
+        let blizzard = SnowboundCabinModel.coldSky(storm)
+        XCTAssertGreaterThanOrEqual(blizzard.frost, 0.85)
+        XCTAssertGreaterThan(blizzard.mist, 0.2 + 0.2, "a gust whites it out")
+        var snow = sky(sun: 20, hour: 13); snow.snow = 0.8; snow.weather = .snow; snow.frost = 0.6
+        XCTAssertEqual(SnowboundCabinModel.coldSky(snow).frost, 0.6, accuracy: 1e-6, "real snow is left as it is")
+    }
+
+    /// A storm turned blizzard comes and goes with the weather's glide, never in one frame (final review: it vanished
+    /// in a frame when the storm ended).
+    func testCabinStormBlizzardGlides() throws {
+        var settings = SkySettings(); settings.timeMode = .frozen; settings.frozenHour = 13; settings.cityID = "melbourne"
+        settings.weatherMode = .pick; settings.weather = .storm
+        let living = LivingSky(settings: settings, seed: 1, homeZone: try XCTUnwrap(TimeZone(identifier: "Australia/Melbourne")))
+        let start = Date(timeIntervalSince1970: 1_793_000_000)
+        var now = start
+        _ = living.step(now: now, dt: 0)
+        for _ in 0..<60 { now += 1; _ = living.step(now: now, dt: 1) }
+        settings.weather = .clear; living.settings = settings
+        var previous = SnowboundCabinModel.coldSky(living.step(now: now, dt: 0))
+        var worstSnow: Float = 0, worstWind: Float = 0
+        for _ in 0..<(75 * 60) {
+            now += 1.0 / 60
+            let cold = SnowboundCabinModel.coldSky(living.step(now: now, dt: 1.0 / 60))
+            worstSnow = max(worstSnow, abs(cold.snow - previous.snow)); worstWind = max(worstWind, abs(cold.wind - previous.wind))
+            previous = cold
+        }
+        XCTAssertLessThan(worstSnow, 0.05)
+        XCTAssertLessThan(worstWind, 0.05)
+        XCTAssertLessThan(previous.snow, 0.05, "and the blizzard is over")
+    }
+
+    /// A panic (or unplugging the keyboard) with the pedal down lets the pedal go too, so later notes don't stay
+    /// "sounding" for ever (final review).
+    func testPanicLetsThePedalGo() {
+        var cabin = SnowboundCabinModel()
+        cabin.setSky(sky(sun: -20, hour: 22))
+        cabin.handle(.pedal(down: true, amount: 1))
+        cabin.handle(.allNotesOff)
+        _ = cabinStep(&cabin, seconds: 0.1)
+        cabin.handle(.noteOn(note: 60, velocity: 0.8))
+        _ = cabinStep(&cabin, seconds: 0.5)
+        cabin.handle(.noteOff(note: 60))
+        XCTAssertTrue(cabinStep(&cabin, seconds: 30).patches.isEmpty, "the patch freezes over again")
+        var bedroom = BedroomDawnModel()
+        bedroom.setSky(bedroomSky(sun: 2, hour: 6.8))
+        bedroom.handle(.pedal(down: true, amount: 1))
+        bedroom.handle(.allNotesOff)
+        _ = bedroomStep(&bedroom, seconds: 0.1)
+        bedroom.handle(.noteOn(note: 64, velocity: 0.8))
+        _ = bedroomStep(&bedroom, seconds: 1)
+        bedroom.handle(.noteOff(note: 64))
+        XCTAssertLessThan(bedroomStep(&bedroom, seconds: 30).glow, 0.02, "the morning glow settles")
     }
 
     func testCabinAmbience() {
@@ -623,12 +683,26 @@ extension WorldTests {
 
     func testWindowsLightUpAsMorningComes() {
         var model = BedroomDawnModel()
+        let follow = ThemeState(values: ["light.hold": .choice(SkyHold.follow.rawValue)])
         model.setSky(bedroomSky(sun: -20, hour: 4))
-        XCTAssertEqual(bedroomStep(&model, seconds: 0.1).litWindows, 0)
+        XCTAssertEqual(bedroomStep(&model, seconds: 0.1, state: follow).litWindows, 0)
         model.setSky(bedroomSky(sun: 5, hour: 7.75))
-        XCTAssertGreaterThanOrEqual(bedroomStep(&model, seconds: 0.1).litWindows, 6)
+        XCTAssertGreaterThanOrEqual(bedroomStep(&model, seconds: 0.1, state: follow).litWindows, 6)
         model.setSky(bedroomSky(sun: -30, hour: 23.5))
-        XCTAssertLessThan(bedroomStep(&model, seconds: 0.1).litWindows, 8, "going dark late at night")
+        XCTAssertLessThan(bedroomStep(&model, seconds: 0.1, state: follow).litWindows, 8, "going dark late at night")
+    }
+
+    /// Pastel dawn (the set's default hold) keeps it morning whatever the clock says: the dawn chorus sings, the street
+    /// is only just waking and the houses are lighting up (final review: an evening session heard no birds, mid-morning
+    /// traffic and houses going dark under a frozen dawn).
+    func testHeldDawnSoundsLikeMorning() {
+        var model = BedroomDawnModel()
+        model.setSky(bedroomSky(sun: 1.5, hour: 20))
+        let evening = bedroomStep(&model, seconds: 0.1)
+        XCTAssertGreaterThanOrEqual(evening.ambience.level(.dawnChorus), 0.5)
+        XCTAssertLessThan(evening.ambience.level(.street), 0.35)
+        model.setSky(bedroomSky(sun: 1.5, hour: 23.5))
+        XCTAssertEqual(bedroomStep(&model, seconds: 0.1).litWindows, BedroomDawnModel.litWindows(hour: 6.5))
     }
 
     func testBedroomAmbience() {
@@ -638,11 +712,11 @@ extension WorldTests {
         var a = bedroomStep(&model, seconds: 0.1).ambience
         XCTAssertEqual(a.level(.kettle), 0.5, accuracy: 1e-9)
         XCTAssertEqual(a.level(.clock), 0.15, accuracy: 1e-9)
-        XCTAssertEqual(a.indoors, 1)
+        XCTAssertEqual(a.indoors, 0.7, accuracy: 1e-9, "an old sash window lets the birds through, softly")
         XCTAssertEqual(a.level(.drips), 0.5, accuracy: 1e-6)
         XCTAssertGreaterThan(a.level(.dawnChorus), 0.3)
         a = bedroomStep(&model, seconds: 0.1, state: ThemeState(values: ["window.open": .bool(true)])).ambience
-        XCTAssertEqual(a.indoors, 0.5)
+        XCTAssertEqual(a.indoors, 0.35, accuracy: 1e-9)
         var early = BedroomDawnModel(), late = BedroomDawnModel()
         early.setSky(bedroomSky(sun: -12, hour: 5)); late.setSky(bedroomSky(sun: 28, hour: 9))
         XCTAssertGreaterThan(bedroomStep(&late, seconds: 0.1).ambience.level(.street), bedroomStep(&early, seconds: 0.1).ambience.level(.street))

@@ -139,8 +139,20 @@ final class HazeBellsTests: XCTestCase {
         let chord = [59, 62, 66, 71].map { R.noteOn(0, UInt8($0), 90) }
         func level(_ engine: ISDEngine) -> Double { DSPTestKit.dBFS(R.slice(R.render(engine, seconds: 1.5, events: chord).l, 0.05, 1.5)) }
         let felt = level(ISD_ENGINE_FELT_GLASS)
-        for (name, engine) in [("Orbit Pad", ISD_ENGINE_ORBIT_PAD), ("Honey Tape", ISD_ENGINE_HONEY_TAPE), ("Haze Bells", ISD_ENGINE_HAZE_BELLS)] {
+        for (name, engine) in [("Orbit Pad", ISD_ENGINE_ORBIT_PAD), ("Honey Tape", ISD_ENGINE_HONEY_TAPE), ("Haze Bells", ISD_ENGINE_HAZE_BELLS),
+                               ("Cabin Felt", ISD_ENGINE_CABIN_FELT), ("Morning Box", ISD_ENGINE_MORNING_BOX)] {
             XCTAssertEqual(level(engine), felt, accuracy: 3, name)
+        }
+        // Morning Box's presets too (final review: Music Box sat 9 dB over the rest).
+        func dials(_ v: [Float]) -> [Int: Float] {
+            Dictionary(uniqueKeysWithValues: zip([ISD_P_BARS, ISD_P_BOX, ISD_P_BLOOM, ISD_P_BUILD, ISD_P_HAZE, ISD_P_SPACE, ISD_P_WIDTH].map { Int($0) }, v))
+        }
+        let presets: [(String, [Int: Float])] = [("Music Box", dials([0.5, 1, 0.1, 0.2, 0.25, 0.4, 0.4])),
+                                                ("Wall of Light", dials([0.45, 0.15, 0.85, 0.9, 0.45, 0.65, 0.8])),
+                                                ("Snooze", dials([0.35, 0.3, 0.55, 0.4, 0.7, 0.55, 0.5]))]
+        for (name, p) in presets {
+            let db = DSPTestKit.dBFS(R.slice(R.render(ISD_ENGINE_MORNING_BOX, seconds: 1.5, params: p, events: chord).l, 0.05, 1.5))
+            XCTAssertEqual(db, felt, accuracy: 3, name)
         }
     }
 

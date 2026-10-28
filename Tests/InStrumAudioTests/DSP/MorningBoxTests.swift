@@ -231,6 +231,61 @@ final class MorningBoxTests: XCTestCase {
         XCTAssertLessThan(stolen, 0.4, "an attack jump this big would be a click")
     }
 
+    /// 24 notes already held by the pedal, then five new ones: the wall lets the oldest go, never the newest
+    /// (final review: it kept stealing the note still swelling in).
+    func testWallFollowsNewNotesUnderThePedal() {
+        var held = [R.pedal(0, 127)]
+        for i in 0..<24 { held += [R.noteOn(0.01 + 0.05 * Double(i), UInt8(60 + i), 100), R.noteOff(0.03 + 0.05 * Double(i), UInt8(60 + i))] }
+        let fresh: [UInt8] = [38, 40, 41, 43, 45]   // below every held note and its sub, so their bands are their own
+        var with = held
+        for (i, n) in fresh.enumerated() { with += [R.noteOn(1.3 + 0.18 * Double(i), n, 100), R.noteOff(1.32 + 0.18 * Double(i), n)] }
+        let a = R.slice(R.render(morning, seconds: 3.6, params: wallOnly, events: with).l, 3.0, 3.6)
+        let b = R.slice(R.render(morning, seconds: 3.6, params: wallOnly, events: held).l, 3.0, 3.6)
+        for n in fresh {
+            let f = midiHz(Double(n))
+            XCTAssertGreaterThan(db(band(a, f * 0.985, f * 1.015)) - db(band(b, f * 0.985, f * 1.015)), 20, "note \(n)")
+        }
+    }
+
+    /// Striking one note again and again under the pedal swells its wall voice again instead of stacking voices.
+    func testRestrikingUnderThePedalReusesTheWallVoice() {
+        var events = [R.pedal(0, 127)]
+        for i in 0..<16 { events += [R.noteOn(0.01 + 0.125 * Double(i), 60, 100), R.noteOff(0.06 + 0.125 * Double(i), 60)] }
+        guard let s = isd_synth_create(morning, R.sr, 256) else { return XCTFail("no synth") }
+        defer { isd_synth_destroy(s) }
+        for (a, v) in wallOnly { isd_synth_set_param(s, Int32(a), v) }
+        var l = [Float](repeating: 0, count: 256), r = l, e = 0
+        let total = Int(2.2 * R.sr)
+        for i in stride(from: 0, to: total, by: 256) {
+            while e < events.count, Int(events[e].time * R.sr) < i + 256 {
+                let off = max(0, Int(events[e].time * R.sr) - i)
+                events[e].bytes.withUnsafeBufferPointer { isd_synth_midi(s, $0.baseAddress, Int32($0.count), Int32(off)) }
+                e += 1
+            }
+            l.withUnsafeMutableBufferPointer { lp in r.withUnsafeMutableBufferPointer { rp in isd_synth_render(s, lp.baseAddress!, rp.baseAddress!, 256) } }
+        }
+        XCTAssertLessThanOrEqual(isd_synth_active_voices(s), 2)
+    }
+
+    /// A full wall (24 notes under the pedal) and an 8-note chord in one sample: every chord note sounds, and the
+    /// voices it displaces fade rather than being cut.
+    func testFullPoolChordIsWholeAndClickFree() {
+        var held = [R.pedal(0, 127)]
+        for i in 0..<24 { held += [R.noteOn(0.01 + 0.05 * Double(i), UInt8(60 + i), 100), R.noteOff(0.03 + 0.05 * Double(i), UInt8(60 + i))] }
+        let big: [UInt8] = [29, 31, 33, 34, 36, 38, 40, 41]
+        let chord = big.map { R.noteOn(2.0, $0, 100) }
+        let full = R.render(morning, seconds: 3.0, params: wallOnly, events: held + chord).l
+        let alone = R.render(morning, seconds: 3.0, params: wallOnly, events: [R.pedal(0, 127)] + chord).l
+        let heldOnly = R.render(morning, seconds: 3.0, params: wallOnly, events: held).l
+        let a = R.slice(full, 2.6, 3.0), c = R.slice(alone, 2.6, 3.0)
+        for n in big {
+            let f = midiHz(Double(n))
+            XCTAssertGreaterThan(db(band(a, f * 0.971, f * 1.029)) - db(band(c, f * 0.971, f * 1.029)), -3, "chord note \(n)")
+        }
+        let residual = (0..<full.count).map { full[$0] - heldOnly[$0] - alone[$0] }
+        XCTAssertLessThan(DSPTestKit.maxJump(R.slice(residual, 1.999, 2.04)), 0.01)
+    }
+
     func testDialSweepIsSmooth() {
         let dials = [ISD_P_BARS, ISD_P_BOX, ISD_P_BLOOM, ISD_P_BUILD, ISD_P_HAZE, ISD_P_SPACE, ISD_P_WIDTH].map { Int($0) }
         var start: [Int: Float] = [:]

@@ -59,20 +59,46 @@ final class ClothTests: XCTestCase {
         XCTAssertLessThan(early, late, "the gust ripples outward")
     }
 
-    /// Review Focus 3: ten minutes of full wind with a puff every 0.1 s stays finite and bounded.
+    /// Review Focus 3: ten minutes of full wind with a hard puff every 0.1 s stays calm: finite, bounded, almost
+    /// never on the safety clamp (final review: up to 8% of the cloth sat pinned on it), and it settles once the wind
+    /// and the puffs stop.
     func testClothStaysCalmUnderLongWind() {
         var c = panel(seed: 9)
         var puffs: [Cloth.Puff] = []
+        var worstOnClamp = 0
         for i in 0..<(10 * 60 * 60) {
             if i % 6 == 0 { puffs.append(Cloth.Puff(x: Float((i / 6) % 10) / 10, strength: 1, age: 0)) }
             for k in puffs.indices { puffs[k].age += 1.0 / 60 }
             puffs.removeAll { $0.age > 1.2 }
             c.step(dt: 1.0 / 60, wind: 1, puffs: puffs)
+            var onClamp = 0
+            for (p, r) in zip(c.positions, c.restPositions) where simd_length(p - r) > Cloth.maxDisplacement - 1e-3 { onClamp += 1 }
+            worstOnClamp = max(worstOnClamp, onClamp)
         }
         for (p, r) in zip(c.positions, c.restPositions) {
             XCTAssertTrue(p.x.isFinite && p.y.isFinite && p.z.isFinite)
             XCTAssertLessThanOrEqual(simd_length(p - r), Cloth.maxDisplacement + 1e-4)
         }
+        XCTAssertLessThanOrEqual(worstOnClamp, c.positions.count / 100, "at most 1% of the cloth on the clamp")
+        run(&c, seconds: 5, wind: 0)
+        let before = c.positions
+        run(&c, seconds: 1.0 / 60, wind: 0)
+        let speed = zip(c.positions, before).map { Double(simd_length($0 - $1)) * 60 }.reduce(0, +) / Double(before.count)
+        XCTAssertLessThan(speed, 0.01, "settled within 5 s (m/s)")
+    }
+
+    /// Dense playing in a gale with the window open: the pushes add up softly, so once the first swing has settled the
+    /// cloth billows well clear of the safety clamp instead of sitting pinned on it.
+    func testPushesSaturate() {
+        var c = panel(seed: 4)
+        let many = (0..<10).map { Cloth.Puff(x: Float($0) / 10, strength: 1, age: 0) }
+        var worst: Float = 0
+        for i in 0..<(30 * 60) {
+            c.step(dt: 1.0 / 60, wind: 2, puffs: many)
+            guard i >= 10 * 60 else { continue }
+            for (p, r) in zip(c.positions, c.restPositions) { worst = max(worst, simd_length(p - r)) }
+        }
+        XCTAssertLessThan(worst, Cloth.maxDisplacement - 0.05)
     }
 
     func testHugeDtIsClamped() {

@@ -347,8 +347,9 @@ extension LivingSkyTests {
             if m.current == .lightCloud { halos.append(LivingSky.halo(m)) }
         }
         XCTAssertGreaterThan(halos.count, 20)
-        XCTAssertTrue(halos.allSatisfy { $0 >= 0.35 - 1e-4 && $0 <= 0.7 + 1e-4 }, "\(halos)")
+        XCTAssertTrue(halos.allSatisfy { $0 >= 0.5 - 1e-4 && $0 <= 1 + 1e-4 }, "\(halos)")
         XCTAssertGreaterThan(Set(halos).count, 5, "each light-cloud spell rolls its own ice")
+        XCTAssertGreaterThan(halos.max() ?? 0, 0.85, "icy spells go past 0.7, where the 46° ring shows (spec §6.3)")
     }
 
     func testPastelMorningsAboutOneInThree() {
@@ -401,24 +402,33 @@ extension LivingSkyTests {
         }
     }
 
-    /// Honolulu's local date is a day behind UTC's from 14:00, so a sky that picked its dawn by the UTC date would
-    /// change its mind mid-morning; the local date holds all morning.
+    /// Dhaka is UTC+6, so UTC's date changes at 06:00 there, in the middle of its dawn. A sky that picked its dawn by
+    /// the UTC date would change its mind mid-dawn; the city's own date holds all morning. The Mac is on UTC here, so
+    /// the Mac's date can't stand in for the city's either.
     func testPastelChoiceHoldsAllMorning() throws {
-        let zone = try XCTUnwrap(TimeZone(identifier: "Pacific/Honolulu"))
+        let zone = try XCTUnwrap(TimeZone(identifier: "Asia/Dhaka"))
         var cal = Calendar(identifier: .gregorian); cal.timeZone = zone
         var day = cal.startOfDay(for: start)
-        while !LivingSky.dawnIsPastel(day: LivingSky.localDay(day, zone: zone), cityID: "honolulu") { day = day.addingTimeInterval(86_400) }
-        var s = SkySettings(); s.timeMode = .realTime; s.cityID = "honolulu"; s.weatherMode = .pick; s.weather = .clear
-        let sky = LivingSky(settings: s, homeZone: zone)
-        var now = day.addingTimeInterval(5.5 * 3600)
+        // A pastel day after a plain one, so the UTC date (still the day before until 06:00) would say no.
+        while !(LivingSky.dawnIsPastel(day: LivingSky.localDay(day, zone: zone), cityID: "dhaka")
+                && !LivingSky.dawnIsPastel(day: LivingSky.localDay(day.addingTimeInterval(-86_400), zone: zone), cityID: "dhaka")) {
+            day = day.addingTimeInterval(86_400)
+        }
+        var s = SkySettings(); s.timeMode = .realTime; s.cityID = "dhaka"; s.weatherMode = .pick; s.weather = .clear
+        let sky = LivingSky(settings: s, homeZone: try XCTUnwrap(TimeZone(identifier: "UTC")))
+        var now = day.addingTimeInterval(4 * 3600)
         _ = sky.step(now: now, dt: 0)
-        var lowest: Float = 1, inWindow = 0
-        while now < day.addingTimeInterval(11.5 * 3600) {
+        var lowest: Float = 1, inWindow = 0, beforeSix = 0
+        while now < day.addingTimeInterval(8 * 3600) {
             now = now.addingTimeInterval(10)
             let st = sky.step(now: now, dt: 10)
-            if st.sun.altitude > -10 && st.sun.altitude < 8 { lowest = min(lowest, st.dawnPastel); inWindow += 1 }
+            if st.sun.altitude > -10 && st.sun.altitude < 8 {
+                lowest = min(lowest, st.dawnPastel); inWindow += 1
+                if now < day.addingTimeInterval(6 * 3600) { beforeSix += 1 }
+            }
         }
         XCTAssertGreaterThan(inWindow, 50)
+        XCTAssertGreaterThan(beforeSix, 10, "part of the dawn falls before UTC's midnight")
         XCTAssertGreaterThanOrEqual(lowest, 0.95)
     }
 

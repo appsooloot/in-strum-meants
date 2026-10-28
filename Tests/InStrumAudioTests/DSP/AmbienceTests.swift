@@ -361,6 +361,33 @@ extension AmbienceTests {
         XCTAssertEqual(fire, fireInside, accuracy: 0.5, "the fire is inside with you")
     }
 
+    /// The waking street: the later the morning (the higher its level), the more often a car goes by (final review:
+    /// only the loudness followed the level).
+    func testStreetCarsComeMoreOftenLater() {
+        func cars(_ level: Float) -> Int32 {
+            guard let a = isd_ambience_create(Self.sr, 512, 7) else { return -1 }
+            defer { isd_ambience_destroy(a) }
+            isd_ambience_set_level(a, ISD_AMB_STREET, level)
+            var l = [Float](repeating: 0, count: 512), r = l
+            for _ in 0..<Int(300 * Self.sr / 512) {
+                l.withUnsafeMutableBufferPointer { lp in r.withUnsafeMutableBufferPointer { rp in isd_ambience_render(a, lp.baseAddress!, rp.baseAddress!, 512) } }
+            }
+            return isd_ambience_debug_events(a, ISD_AMB_STREET)
+        }
+        let early = cars(0.15), late = cars(0.6)
+        XCTAssertGreaterThanOrEqual(late, 2 * early, "\(early) cars early, \(late) later")
+        XCTAssertGreaterThanOrEqual(late, 15)
+    }
+
+    /// The bedroom's old sash window (indoors 0.7) lets the dawn chorus through, softened (final review: behind the
+    /// fully closed window the birds were 26 dB down).
+    func testDawnChorusCarriesThroughTheSash() {
+        let open = DSPTestKit.dBFS(SynthRender.slice(Self.render(seconds: 20, actions: [Self.level(ISD_AMB_DAWN_CHORUS, 0.6)]).l, 4, 20))
+        let sash = DSPTestKit.dBFS(SynthRender.slice(Self.render(seconds: 20, actions: [Self.level(ISD_AMB_DAWN_CHORUS, 0.6), Self.indoors(0.7)]).l, 4, 20))
+        XCTAssertGreaterThan(sash, open - 15)
+        XCTAssertLessThan(sash, open - 4, "still through glass")
+    }
+
     func testWetRoadHisses() {
         let dry = SynthRender.slice(Self.render(seconds: 10, actions: [Self.level(ISD_AMB_ROAD, 1), Self.speed(0.6)]).l, 3, 10)
         let wet = SynthRender.slice(Self.render(seconds: 10, actions: [Self.level(ISD_AMB_ROAD, 1), Self.speed(0.6), Self.wetness(1)]).l, 3, 10)

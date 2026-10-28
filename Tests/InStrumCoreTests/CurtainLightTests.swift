@@ -45,6 +45,20 @@ final class CurtainLightTests: XCTestCase {
         XCTAssertTrue(low.motes.allSatisfy { $0.glint == 0 })
     }
 
+    /// Smooth draws only the first motes (CurtainLight.moteBudget): high notes glint only motes that are drawn
+    /// (final review: on Smooth about half the glints were invisible).
+    func testGlintsStayWithinTheDrawnMotes() {
+        XCTAssertEqual(CurtainLight.moteBudget(.lite), 200)
+        XCTAssertEqual(CurtainLight.moteBudget(.high), 400)
+        var c = CurtainLight(moteCount: 400)
+        c.glintLimit = CurtainLight.moteBudget(.lite)
+        for i in 0..<60 {
+            c.noteOn(UInt8(72 + i % 36), velocity: 0.8, at: Double(i) * 0.1)
+            c.step(dt: 0.1, sunAltitude: 10, roles: RoleValues())
+            for (k, m) in c.motes.enumerated() where m.glint > 0 { XCTAssertLessThan(k, 200, "mote \(k) glints but isn't drawn") }
+        }
+    }
+
     private func distanceToSegment(_ p: SIMD3<Float>, _ a: SIMD3<Float>, _ b: SIMD3<Float>) -> Float {
         let ab = b - a
         let t = min(max(simd_dot(p - a, ab) / simd_dot(ab, ab), 0), 1)

@@ -1295,6 +1295,31 @@ final class BedroomDawnRendererTests: XCTestCase {
         }
     }
 
+    /// Following the sky on a summer afternoon, the sun sinking through 25° in the west doesn't swing the view round
+    /// from east (final review: it turned about 170° whenever the sun crossed 25° or −12°).
+    func testBedroomViewNeverSwingsRound() throws {
+        var frameIndex = 0
+        var azimuths: [Double] = []
+        _ = try renderBedroom(notes: [], at: 4, state: ThemeState(values: ["light.hold": .choice(SkyHold.follow.rawValue)]),
+                              skyEdit: { s in
+                                  frameIndex += 1
+                                  s.sun = SkyDirection(azimuth: 280, altitude: 26 - 2 * Double(frameIndex) / 240)
+                              },
+                              each: { r, _ in if let az = r.viewAzimuth { azimuths.append(az) } })
+        let first = try XCTUnwrap(azimuths.first), last = try XCTUnwrap(azimuths.last)
+        let turn = abs((last - first + 540).truncatingRemainder(dividingBy: 360) - 180)
+        XCTAssertLessThan(turn, 45, "turned \(turn)°")
+    }
+
+    /// The shafts and the panes stop at the window's real bars instead of walking all 19 slots for every sample of
+    /// every pixel (final review: about 133 loop steps per pixel on Smooth).
+    func testBarLoopsStopAtTheBars() {
+        for (name, source) in [("bedroom", BedroomDawnShaders.source), ("cabin", SnowboundCabinShaders.source)] {
+            XCTAssertTrue(source.contains("if (i >= nBars) break;"), name)
+        }
+        XCTAssertTrue(BedroomDawnShaders.source.contains("discard_fragment();   // outside every beam"), "the shaft pass skips pixels no beam can reach")
+    }
+
     func testBedroomBurstStaysInBudget() throws {
         guard let device = MTLCreateSystemDefaultDevice() else { throw XCTSkip("No Metal device") }
         let preview = try XCTUnwrap(PreviewRenderer(width: 640, height: 360))
