@@ -60,6 +60,9 @@ public enum ThemeRegistry {
 
     public static func parameters(for id: String) -> [ParamSpec] { entry(id).parameters }
 
+    /// Worlds live under the Living Sky and play an ambience.
+    public static func isWorld(_ id: String) -> Bool { entry(id).make().wantsSky }
+
     public static func macroTargets(for id: String) -> [Macro: [(id: String, weight: Double)]] { entry(id).macroTargets }
 
     public static func parameterSet(for id: String, state: ThemeState) -> ParameterSet {

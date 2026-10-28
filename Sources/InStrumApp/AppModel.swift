@@ -87,6 +87,8 @@ public final class AppModel: ObservableObject {
         live.withLockUnchecked { $0.touch = loaded.touchCurve }
         let closeness = loaded.ambience.closeness
         ambienceLive.withLockUnchecked { $0.closeness = closeness }
+        activeSetID = loaded.activeSetID.flatMap { SetLibrary.set(id: $0) }?.id
+        mood = activeSetID.flatMap { SetLibrary.set(id: $0) }?.mood ?? .neutral
     }
 
     // MARK: - Launch and instruments
@@ -138,6 +140,7 @@ public final class AppModel: ObservableObject {
         settings.instrument = choice
         watchDials()
         updateBuiltInPatch()
+        engine.setMood(mood)   // a freshly loaded built-in starts neutral
         status = .playing(instrumentName: choice.name)
         autosave()
         let launchGuard = self.launchGuard
@@ -319,19 +322,64 @@ public final class AppModel: ObservableObject {
 
     public var skySettings: SkySettings { settings.sky }
 
-    public func setSkySettings(_ s: SkySettings) {
+    public func setSkySettings(_ s: SkySettings) { setSky(s) }
+
+    // MARK: - Sets
+
+    /// The Set last applied (nil until one is chosen).
+    @Published public private(set) var activeSetID: String?
+
+    /// True when the world, its visual, the built-in instrument or preset, or the ambience differ from the active set.
+    public var isSetModified: Bool {
+        guard let set = activeSetID.flatMap({ SetLibrary.set(id: $0) }) else { return false }
+        if themeID != set.worldID { return true }
+        if ThemeRegistry.parameterSet(for: set.worldID, state: themeState(for: set.worldID)).choice("visual") != set.visual { return true }
+        guard let patch = PatchLibrary.all.first(where: { $0.id == set.patchID }) else { return true }
+        if settings.instrument.flatMap({ BuiltInCatalog.engine(for: $0) }) != patch.engine || builtInPatch?.id != patch.id { return true }
+        return settings.ambience != set.ambience
+    }
+
+    /// Everything at once: the world and its visual, the built-in instrument and preset, the ambience and the mood.
+    public func applySet(_ id: String) async {
+        guard let set = SetLibrary.set(id: id), let patch = PatchLibrary.all.first(where: { $0.id == set.patchID }) else { return }
+        setTheme(set.worldID)
+        var state = themeState(for: set.worldID)
+        state.values["visual"] = .choice(set.visual)
+        saveThemeState(state, for: set.worldID)
+        mood = set.mood
+        if settings.instrument.flatMap({ BuiltInCatalog.engine(for: $0) }) != patch.engine {
+            await load(Self.builtInChoice(patch.engine))
+        }
+        applyPatch(patch)
+        settings.ambience = set.ambience
+        engine.ambienceEnabled = set.ambience.enabled
+        engine.ambienceVolume = Float(set.ambience.volume)
+        let closeness = set.ambience.closeness
+        ambienceLive.withLockUnchecked { $0.closeness = closeness; $0.sent = nil }
+        setMood(set.mood)
+        activeSetID = set.id
+        settings.activeSetID = set.id
+        autosave()
+    }
+
+    /// Puts the active set back as it was designed.
+    public func restoreSet() async {
+        guard let id = activeSetID else { return }
+        await applySet(id)
+    }
+
+    static func builtInChoice(_ kind: BuiltInEngine) -> InstrumentChoice {
+        let d = BuiltInCatalog.description(for: kind)
+        return InstrumentChoice(name: kind.displayName, componentType: d.componentType, componentSubType: d.componentSubType,
+                                componentManufacturer: d.componentManufacturer)
+    }
+
+    /// The Living Sky's settings (persisted; the canvas picks them up through `visualsVersion`).
+    public func setSky(_ s: SkySettings) {
         settings.sky = s
         visualsVersion += 1
         autosave()
     }
-
-    // MARK: - Sets (RED stubs)
-
-    @Published public private(set) var activeSetID: String?
-    public var isSetModified: Bool { false }
-    public func applySet(_ id: String) async {}
-    public func restoreSet() async {}
-    public func setSky(_ s: SkySettings) {}
 
     // MARK: - Ambience
 
