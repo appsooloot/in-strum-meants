@@ -101,6 +101,36 @@ final class ThemeStateSettingsTests: XCTestCase {
         try store.save(s)
         XCTAssertEqual(store.load().quality, .high)
     }
+    func testSkySettingsDecodeTolerantly() throws {
+        let store = SettingsStore(directory: dir)
+        // Saved before the Living Sky existed.
+        try Data(#"{"themeID":"butterfly-garden","masterVolume":0.6}"#.utf8).write(to: dir.appendingPathComponent("settings.json"))
+        var s = store.load()
+        XCTAssertEqual(s.sky, SkySettings())
+        XCTAssertEqual(s.ambience, AmbienceSettings())
+        XCTAssertNil(s.activeSetID)
+        XCTAssertEqual(s.themeID, "butterfly-garden")
+        // A garbled sky falls back to defaults and keeps everything else.
+        try Data(#"{"themeID":"butterfly-garden","masterVolume":0.6,"sky":"banana","ambience":{"volume":"loud","closeness":0.8}}"#.utf8)
+            .write(to: dir.appendingPathComponent("settings.json"))
+        s = store.load()
+        XCTAssertEqual(s.sky, SkySettings())
+        XCTAssertEqual(s.ambience.volume, 0.25)
+        XCTAssertEqual(s.ambience.closeness, 0.8, "good fields inside a partly garbled block survive")
+        XCTAssertEqual(s.masterVolume, 0.6)
+        // Round trip.
+        s.sky.timeMode = .realTime; s.sky.cityID = "tromso"; s.sky.weather = .snow; s.sky.weatherMode = .pick
+        s.ambience.enabled = false; s.activeSetID = "moonlit-lake"
+        try store.save(s)
+        XCTAssertEqual(store.load(), s)
+        // Out-of-range values are clamped.
+        try Data(#"{"sky":{"dayMinutes":500,"frozenHour":30,"frozenPhase":-2}}"#.utf8).write(to: dir.appendingPathComponent("settings.json"))
+        s = store.load()
+        XCTAssertEqual(s.sky.dayMinutes, 60)
+        XCTAssertEqual(s.sky.frozenHour, 23.99, accuracy: 0.01)
+        XCTAssertEqual(s.sky.frozenPhase, 0)
+    }
+
     func testDefaultQualityIsSmooth() {
         XCTAssertEqual(AppSettings().quality, .lite)
     }

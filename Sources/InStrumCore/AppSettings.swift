@@ -35,6 +35,10 @@ public struct AppSettings: Codable, Equatable {
     /// The active reaction style; nil means the built-in named by `reactionName`.
     public var reaction: ReactionMap?
     public var reactionName: String = "Expressive Pianist"
+    public var sky = SkySettings()
+    public var ambience = AmbienceSettings()
+    /// The Set (world + visual + instrument + ambience) last chosen, if any.
+    public var activeSetID: String?
 
     public static let `default` = AppSettings()
 
