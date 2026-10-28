@@ -50,12 +50,19 @@ public struct SnowboundCabinModel: ThemeModel, MoodAware, SkyAware {
 
     public mutating func setSky(_ s: SkyState) { sky = Self.coldSky(s) }
 
-    /// It's cold here: rain falls as snow, storms (or heavy rain) become blizzards, no lightning and never wet.
+    /// It's cold here: rain falls as snow (and frosts the glass), storms become blizzards (gliding in and out with the
+    /// weather, whiting out with each gust), no lightning and never wet.
     public static func coldSky(_ s: SkyState) -> SkyState {
         var s = s
-        let stormy = s.weather == .storm || s.nextWeather == .storm && s.weatherBlend > 0.5 || s.rain >= 0.9
-        s.snow = max(s.snow, s.rain)
-        if stormy { s.snow = 1; s.wind = 1 }
+        // How much storm is in the sky right now: the weather machine's own smoothstep glide between kinds.
+        let t = min(max(s.weatherBlend, 0), 1), glide = t * t * (3 - 2 * t)
+        let storm = (s.weather == .storm ? 1 - glide : 0) + (s.nextWeather == .storm ? glide : 0)
+        let rainAsSnow = s.rain
+        s.snow = max(s.snow, rainAsSnow, storm)
+        s.wind += (1 - s.wind) * storm
+        s.gust = min(1, s.gust * (1 + 0.67 * storm))          // a storm's gusts (0.6) become a blizzard's (1)
+        s.frost = max(s.frost, 0.6 * rainAsSnow, 0.9 * storm)  // rain melts frost; here it's snow, and frosts the glass
+        s.mist = min(1, s.mist + 0.3 * s.gust * storm)          // the blizzard's whiteout with each gust
         s.rain = 0
         s.lightning = 0
         s.wetness = 0
@@ -69,7 +76,6 @@ public struct SnowboundCabinModel: ThemeModel, MoodAware, SkyAware {
         }
         s.weather = cold(s.weather)
         s.nextWeather = cold(s.nextWeather)
-        if stormy { s.weather = .blizzard }
         return s
     }
 
@@ -101,8 +107,9 @@ public struct SnowboundCabinModel: ThemeModel, MoodAware, SkyAware {
             case let .pedal(down, _):
                 frost.setPedal(down)
             case .allNotesOff:
+                // A panic (or an unplugged keyboard) lets the pedal go too: no pedal-up will ever come for it.
                 held.removeAll()
-                frost.allNotesOff()
+                frost.allNotesOff(); frost.setPedal(false)
                 warp.allNotesOff()
                 keyGlow = .init(repeating: 0, count: 88)
             default:

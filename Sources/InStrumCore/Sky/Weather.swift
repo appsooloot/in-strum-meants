@@ -74,8 +74,8 @@ struct WeatherMachine {
     /// Separate streams, so ice and "after the rain" never shift the weather sequence itself.
     private var iceRng: SeededRandom
     private var afterRng: SeededRandom
-    /// How icy this light-cloud spell is: 0.5–1 in "Random, beautiful" (rolled per spell), 1 when picked.
-    private(set) var ice: Float = 1
+    /// How icy this light-cloud spell is (its halo): 0.5–1 in "Random, beautiful" (rolled per spell), 0.7 when picked.
+    private(set) var ice: Float = WeatherKind.lightCloud.values.halo
 
     init(settings: SkySettings, seed: UInt64) {
         rng = SeededRandom(seed: seed &* 0x2545_F491_4F6C_DD1D &+ 0xA5)
@@ -108,7 +108,7 @@ struct WeatherMachine {
     mutating func step(dt: Double, settings: SkySettings) {
         if settings.weatherMode != mode {
             mode = settings.weatherMode
-            if mode == .pick { ice = 1 }
+            if mode == .pick { ice = WeatherKind.lightCloud.values.halo }
             spellLeft = Self.spell(&rng)
             if mode == .randomBeautiful { begin(Self.pick(excluding: transitioning ? next : current, &rng)) }
         }
@@ -131,7 +131,7 @@ struct WeatherMachine {
     }
 
     private mutating func begin(_ kind: WeatherKind) {
-        if kind == .lightCloud { ice = mode == .randomBeautiful ? iceRng.range(0.5, 1) : 1 }
+        if kind == .lightCloud { ice = mode == .randomBeautiful ? iceRng.range(0.5, 1) : WeatherKind.lightCloud.values.halo }
         from = values
         next = kind
         blend = 0

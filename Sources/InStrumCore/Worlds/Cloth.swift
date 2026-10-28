@@ -14,6 +14,9 @@ public struct Cloth {
     public static let maxDisplacement: Float = 0.6
     /// Peak push of a puff of strength 1, and of the breeze at wind 1 (m/s²).
     static let puffPush: Float = 2.5, breezePush: Float = 1.5
+    /// The breeze and the puffs add up softly toward this push (m/s²), so dense playing in a gale billows the cloth
+    /// without ever pinning it on the safety clamp.
+    static let maxPush: Float = 3.5
 
     /// A puff of air from a note: it spreads both ways from `x` (window coordinates) at 1.5 m/s as it ages.
     public struct Puff: Equatable {
@@ -120,7 +123,7 @@ public struct Cloth {
                 let d1 = x - puff.x - spread, d2 = x - puff.x + spread
                 z += Self.puffPush * puff.strength * (exp(-d1 * d1 / 0.02) + exp(-d2 * d2 / 0.02))
             }
-            pushZ[i] = z
+            pushZ[i] = Self.maxPush * (1 - exp(-max(0, z) / Self.maxPush))
             pushX[i] = sway
         }
         let count = positions.count

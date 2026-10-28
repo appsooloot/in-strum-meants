@@ -163,10 +163,11 @@ public final class LivingSky {
         return s
     }
 
-    /// Halo strength: the weather's halo, with each light-cloud spell's own ice.
+    /// Halo strength: the weather's halo, with each light-cloud spell's own ice standing in for light cloud's 0.7
+    /// (0.5–1 in "Random, beautiful", so icy spells pass 0.7 and show the 46° ring; 0.7 when picked).
     static func halo(_ m: WeatherMachine) -> Float {
         let light = m.weight(of: .lightCloud)
-        return m.values.halo * (1 - light + light * m.ice)
+        return max(0, m.values.halo + light * (m.ice - WeatherKind.lightCloud.values.halo))
     }
 
     static func gustEnvelope(_ age: Double) -> Float {

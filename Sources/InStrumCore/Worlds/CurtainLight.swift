@@ -22,6 +22,11 @@ public struct CurtainLight {
         public var glint: Float
     }
 
+    /// How many motes each quality draws (Smooth draws half): glints go only to motes that are drawn.
+    public static func moteBudget(_ q: QualityLevel) -> Int { q == .lite ? 200 : 400 }
+    /// Glints pick among the first `glintLimit` motes (the ones on screen).
+    public var glintLimit = Int.max
+
     /// The mood's scales.
     public var reactionScale: Float = 1
     public var lingerScale: Float = 1
@@ -166,7 +171,8 @@ public struct CurtainLight {
     private mutating func glint(height h: Float) {
         guard !motes.isEmpty else { return }
         let count = 3 + Int(rng.unit() * 3.999)
-        let order = motes.indices.sorted { abs(motes[$0].position.y - h) < abs(motes[$1].position.y - h) }
+        let drawn = motes.indices.prefix(max(1, min(glintLimit, motes.count)))
+        let order = drawn.sorted { abs(motes[$0].position.y - h) < abs(motes[$1].position.y - h) }
         // Pick among the nearest dozen so repeated notes catch different motes.
         var pool = Array(order.prefix(12))
         for _ in 0..<min(count, pool.count) {

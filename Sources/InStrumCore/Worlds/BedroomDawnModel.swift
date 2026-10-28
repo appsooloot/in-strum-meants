@@ -95,6 +95,9 @@ public struct BedroomDawnModel: ThemeModel, MoodAware, SkyAware {
         frost.lingerScale = MoodLook.lingerScale(mood)
         light.reactionScale = MoodLook.reactionScale(mood) * Float(0.5 + p.number("light"))
         light.lingerScale = MoodLook.lingerScale(mood)
+        light.glintLimit = CurtainLight.moteBudget(quality)   // glint only motes the renderer draws
+        // Pastel dawn (the set's default hold) keeps it morning whatever the clock says.
+        let heldDawn = Self.heldDawn(p)
         for e in pending {
             switch e {
             case let .noteOn(note, velocity):
@@ -108,8 +111,10 @@ public struct BedroomDawnModel: ThemeModel, MoodAware, SkyAware {
             case let .pedal(down, _):
                 light.setPedal(down); frost.setPedal(down)
             case .allNotesOff:
+                // A panic (or an unplugged keyboard) lets the pedal go too: no pedal-up will ever come for it.
                 held.removeAll()
                 light.allNotesOff(); frost.allNotesOff(); warp.allNotesOff()
+                light.setPedal(false); frost.setPedal(false)
                 keyGlow = .init(repeating: 0, count: 88)
             default:
                 break
@@ -146,8 +151,9 @@ public struct BedroomDawnModel: ThemeModel, MoodAware, SkyAware {
         return BedroomFrame(sky: sky, curtains: (left.positions, right.positions),
                             glow: curtainVisual ? light.glow : 0, tint: light.tint, motes: light.motes, fairy: light.fairy,
                             frostLevel: frost.level, patches: frostVisual ? frost.patches : [],
-                            streetLamp: lamp, litWindows: Self.litWindows(hour: sky.hourOfDay), windowOpen: open, keys: keys,
-                            ambience: ambience(roles: roles, open: open), mood: mood, time: time,
+                            streetLamp: lamp, litWindows: Self.litWindows(hour: heldDawn ? Self.heldDawnHour : sky.hourOfDay),
+                            windowOpen: open, keys: keys,
+                            ambience: ambience(roles: roles, open: open, heldDawn: heldDawn), mood: mood, time: time,
                             warp: warping ? warpFrame : nil)
     }
 
@@ -156,13 +162,24 @@ public struct BedroomDawnModel: ThemeModel, MoodAware, SkyAware {
         return t * t * (3 - 2 * t)
     }
 
+    /// The hour a held pastel dawn stands for (the houses, the condensation).
+    static let heldDawnHour = 6.5
+
+    /// Whether the light is held at a pastel dawn: then it's morning, whatever the clock says.
+    public static func heldDawn(_ p: ParameterSet) -> Bool { SkyHold(rawValue: p.choice("light.hold")) == .pastelDawn }
+
+    /// How far into the window's glass the outdoors comes: an old sash lets the birds through, softly; open a crack,
+    /// the street comes closer.
+    static let indoorsClosed = 0.7, indoorsOpen = 0.35
+
     /// The bedroom's soundscape: the dawn chorus, the kettle and the clock, the street waking up, the breeze, drips
-    /// after the rain and rain on the glass; all through the window (half as muffled when it's open).
-    private func ambience(roles: RoleValues, open: Bool) -> AmbienceScene {
+    /// after the rain and rain on the glass; all through the window. A held dawn is always morning.
+    private func ambience(roles: RoleValues, open: Bool, heldDawn: Bool) -> AmbienceScene {
         let hour = sky.hourOfDay, sunAlt = sky.sun.altitude
-        let morning = Self.smooth(4.5, 5.5, hour) * (1 - Self.smooth(9, 10.5, hour)) * Self.smooth(-8, -5, sunAlt)
-        let night = sunAlt < -6
-        let progress = hour < 12 ? Self.smooth(-10, 25, sunAlt) : 1
+        let morning = heldDawn ? Self.smooth(-8, -5, sunAlt)
+            : Self.smooth(4.5, 5.5, hour) * (1 - Self.smooth(9, 10.5, hour)) * Self.smooth(-8, -5, sunAlt)
+        let night = !heldDawn && sunAlt < -6
+        let progress = heldDawn || hour < 12 ? Self.smooth(-10, 25, sunAlt) : 1
         var levels: [AmbienceSource: Double] = [
             .dawnChorus: 0.6 * morning,
             .kettle: 0.5,
@@ -175,7 +192,7 @@ public struct BedroomDawnModel: ThemeModel, MoodAware, SkyAware {
         let activity = min(1, 0.6 * roles[.energy] + 0.4 * roles[.density])
         return AmbienceScene(levels: levels, nightCool: 0, activity: activity, thunder: nil,
                              closeness: MoodLook.ambienceCloseness(base: 0.6, mood), density: MoodLook.ambienceDensity(mood),
-                             indoors: open ? 0.5 : 1, wetness: Double(sky.wetness), snowOnGlass: Double(sky.snow))
+                             indoors: open ? Self.indoorsOpen : Self.indoorsClosed, wetness: Double(sky.wetness), snowOnGlass: Double(sky.snow))
     }
 }
 
