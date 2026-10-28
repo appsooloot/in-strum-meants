@@ -94,9 +94,11 @@ final class BuiltInAUTests: XCTestCase {
                                                                  componentManufacturer: kAudioUnitManufacturer_Apple)))
     }
 
-    /// Dials that keep a single note's pitch still enough to measure (the tape's wow and the unison strings move it).
+    /// Dials that keep a single note's pitch still enough to measure (the pad's drift, the tape's wow and the unison
+    /// strings move it; what's left is a symmetric unison, measured by its centre).
     private func steady(_ e: AudioEngine, _ engine: BuiltInEngine) {
         setParam(e, Int(ISD_P_SPACE), 0)
+        if engine == .orbitPad { setParam(e, Int(ISD_P_DRIFT), 0); setParam(e, Int(ISD_P_MOTION), 0) }
         if engine == .honeyTape { setParam(e, Int(ISD_P_WOW), 0); setParam(e, Int(ISD_P_STRINGS), 0) }
     }
 
@@ -108,7 +110,7 @@ final class BuiltInAUTests: XCTestCase {
                 e.send([0x90, 69, 100])
                 let out = try render(e, seconds: 1.4, block: 512, rate: rate)
                 let slice = Array(out[Int(0.3 * rate)..<Int(1.3 * rate)])
-                let cents = DSPTestKit.cents(DSPTestKit.fundamental(slice, sampleRate: rate, near: 440), 440)
+                let cents = DSPTestKit.cents(DSPTestKit.clusterCentre(slice, sampleRate: rate, near: 440), 440)
                 XCTAssertEqual(cents, 0, accuracy: 2, "\(engine.displayName) at \(rate) Hz")
             }
         }
