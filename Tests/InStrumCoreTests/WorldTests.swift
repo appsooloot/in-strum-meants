@@ -562,3 +562,139 @@ extension WorldTests {
         XCTAssertGreaterThan((values.max() ?? 0) - (values.min() ?? 0), 0.05, "it flickers")
     }
 }
+
+// MARK: - Bedroom at Dawn
+
+extension WorldTests {
+    private func bedroomStep(_ model: inout BedroomDawnModel, seconds: Double, state: ThemeState = ThemeState(),
+                             each: ((BedroomFrame) -> Void)? = nil) -> BedroomFrame {
+        let p = ThemeRegistry.parameterSet(for: BedroomDawnModel.id, state: state)
+        var frame: BedroomFrame?
+        for _ in 0..<max(1, Int((seconds * 30).rounded())) {
+            frame = model.step(dt: 1.0 / 30, params: p, roles: RoleValues(), inputs: InputFrame(), quality: .high)
+            if let frame { each?(frame) }
+        }
+        return frame!
+    }
+
+    private func bedroomSky(sun altitude: Double, hour: Double) -> SkyState {
+        var s = SkyState(); s.sun = SkyDirection(azimuth: 90, altitude: altitude); s.hourOfDay = hour
+        return s
+    }
+
+    func testBedroomDefaults() {
+        XCTAssertEqual(ThemeRegistry.resolve(BedroomDawnModel.id), BedroomDawnModel.id)
+        XCTAssertTrue(ThemeRegistry.all.contains { $0.id == BedroomDawnModel.id && $0.name == "Bedroom Window at Dawn" })
+        XCTAssertTrue(ThemeRegistry.isWorld(BedroomDawnModel.id))
+        assertValidParameters(BedroomDawnModel.parameters)
+        let params = ThemeRegistry.parameterSet(for: BedroomDawnModel.id, state: ThemeState())
+        XCTAssertEqual(params.choice("light.hold"), "Pastel dawn")
+        XCTAssertEqual(params.choice("visual"), "Curtain Light")
+        XCTAssertEqual(BedroomDawnModel.visuals, ["Curtain Light", "Frost Grow", "Galaxy Warp"])
+        XCTAssertEqual(params.number("light"), 0.6, accuracy: 1e-9)
+        XCTAssertEqual(params.number("sway"), 0.5, accuracy: 1e-9)
+        XCTAssertEqual(params.number("motes"), 0.6, accuracy: 1e-9)
+        XCTAssertEqual(params.number("fairy"), 0.5, accuracy: 1e-9)
+        XCTAssertEqual(params.number("frost"), 0.5, accuracy: 1e-9)
+        XCTAssertEqual(params.number("window.open"), 0, "the window starts closed")
+        XCTAssertEqual(Mood.softWaking, Mood(energy: 0.25, warmth: 0.6, brightness: 0.65, space: 0.55, motion: 0.3))
+    }
+
+    func testStreetLampHysteresis() {
+        var model = BedroomDawnModel()
+        model.setSky(bedroomSky(sun: -5, hour: 5))
+        var f = bedroomStep(&model, seconds: 5)
+        XCTAssertGreaterThan(f.streetLamp, 0.9, "on in the dark")
+        model.setSky(bedroomSky(sun: -2.5, hour: 6))
+        f = bedroomStep(&model, seconds: 1)
+        XCTAssertGreaterThan(f.streetLamp, 0.9, "still on between −3° and −2°")
+        model.setSky(bedroomSky(sun: 1, hour: 6.5))
+        f = bedroomStep(&model, seconds: 0.2)
+        XCTAssertEqual(f.streetLamp, 0, "off once the sun is above −2°")
+        model.setSky(bedroomSky(sun: -2.5, hour: 19))
+        f = bedroomStep(&model, seconds: 1)
+        XCTAssertEqual(f.streetLamp, 0, "and stays off until below −3°")
+        model.setSky(bedroomSky(sun: -4, hour: 19.5))
+        var levels: [Float] = []
+        _ = bedroomStep(&model, seconds: 4) { levels.append($0.streetLamp) }
+        XCTAssertLessThan(levels[15], 0.8, "warming up at 0.5 s")
+        XCTAssertGreaterThan(levels.last ?? 0, 0.95, "fully on after about 3 s")
+    }
+
+    func testWindowsLightUpAsMorningComes() {
+        var model = BedroomDawnModel()
+        model.setSky(bedroomSky(sun: -20, hour: 4))
+        XCTAssertEqual(bedroomStep(&model, seconds: 0.1).litWindows, 0)
+        model.setSky(bedroomSky(sun: 5, hour: 7.75))
+        XCTAssertGreaterThanOrEqual(bedroomStep(&model, seconds: 0.1).litWindows, 6)
+        model.setSky(bedroomSky(sun: -30, hour: 23.5))
+        XCTAssertLessThan(bedroomStep(&model, seconds: 0.1).litWindows, 8, "going dark late at night")
+    }
+
+    func testBedroomAmbience() {
+        var model = BedroomDawnModel()
+        var s = bedroomSky(sun: 5, hour: 6.5); s.wetness = 0.5
+        model.setSky(s)
+        var a = bedroomStep(&model, seconds: 0.1).ambience
+        XCTAssertEqual(a.level(.kettle), 0.5, accuracy: 1e-9)
+        XCTAssertEqual(a.level(.clock), 0.15, accuracy: 1e-9)
+        XCTAssertEqual(a.indoors, 1)
+        XCTAssertEqual(a.level(.drips), 0.5, accuracy: 1e-6)
+        XCTAssertGreaterThan(a.level(.dawnChorus), 0.3)
+        a = bedroomStep(&model, seconds: 0.1, state: ThemeState(values: ["window.open": .bool(true)])).ambience
+        XCTAssertEqual(a.indoors, 0.5)
+        var early = BedroomDawnModel(), late = BedroomDawnModel()
+        early.setSky(bedroomSky(sun: -12, hour: 5)); late.setSky(bedroomSky(sun: 28, hour: 9))
+        XCTAssertGreaterThan(bedroomStep(&late, seconds: 0.1).ambience.level(.street), bedroomStep(&early, seconds: 0.1).ambience.level(.street))
+        var raining = BedroomDawnModel()
+        var r = bedroomSky(sun: 10, hour: 8); r.rain = 0.6; r.wetness = 0.4
+        raining.setSky(r)
+        let ra = bedroomStep(&raining, seconds: 0.1).ambience
+        XCTAssertEqual(ra.level(.rainOnGlass), 0.6, accuracy: 1e-6)
+        XCTAssertEqual(ra.level(.drips), 0)
+    }
+
+    func testCurtainsMoveMoreWithTheWindowOpen() {
+        func motion(open: Bool) -> Double {
+            var model = BedroomDawnModel()
+            var s = bedroomSky(sun: 10, hour: 8); s.wind = 0.4
+            model.setSky(s)
+            let state = ThemeState(values: ["window.open": .bool(open)])
+            _ = bedroomStep(&model, seconds: 2, state: state)
+            var total = 0.0
+            var previous: [SIMD3<Float>]?
+            _ = bedroomStep(&model, seconds: 10, state: state) { f in
+                let now = f.curtains.left + f.curtains.right
+                if let prev = previous { for (a, b) in zip(now, prev) { total += Double(simd_length(a - b)) } }
+                previous = now
+            }
+            return total
+        }
+        XCTAssertGreaterThanOrEqual(motion(open: true), 1.5 * motion(open: false))
+    }
+
+    func testBedroomFrameCarriesTheCurtains() {
+        var model = BedroomDawnModel()
+        model.setSky(bedroomSky(sun: 2, hour: 6.8))
+        for n: UInt8 in [60, 64, 67, 84] { model.handle(.noteOn(note: n, velocity: 0.8)) }
+        let f = bedroomStep(&model, seconds: 2)
+        XCTAssertEqual(f.curtains.left.count, 24 * 32)
+        XCTAssertEqual(f.curtains.right.count, 24 * 32)
+        XCTAssertTrue((f.curtains.left + f.curtains.right).allSatisfy { $0.x.isFinite && $0.y.isFinite && $0.z.isFinite })
+        XCTAssertGreaterThan(f.glow, 0.3, "held notes raise the morning glow")
+        XCTAssertEqual(f.keys.count, 88)
+        XCTAssertNil(f.warp)
+        XCTAssertEqual(f.fairy.count, CurtainLight.fairyCount)
+    }
+
+    func testBedroomFrostGrowOption() {
+        var model = BedroomDawnModel()
+        var s = bedroomSky(sun: 2, hour: 6.8); s.frost = 0.6
+        model.setSky(s)
+        model.handle(.noteOn(note: 64, velocity: 0.8))
+        let f = bedroomStep(&model, seconds: 3, state: ThemeState(values: ["visual": .choice("Frost Grow")]))
+        XCTAssertEqual(f.patches.count, 1)
+        XCTAssertGreaterThan(f.frostLevel, 0.6 * 0.5 * 0.5, "the sky's frost and the setting set the base")
+        XCTAssertEqual(f.glow, 0, accuracy: 1e-6, "Curtain Light rests while Frost Grow plays")
+    }
+}
