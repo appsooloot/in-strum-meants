@@ -411,12 +411,14 @@ enum CardArt {
         beam.addLine(to: CGPoint(x: w * 0.12, y: h + 10))
         beam.addLine(to: CGPoint(x: -w * 0.12, y: h + 10))
         beam.closeSubpath()
-        light.fill(beam, with: .linearGradient(Gradient(colors: [Color(red: 1, green: 0.93, blue: 0.82).opacity(0.38), .clear]),
+        let beatNow = (t / pulse).truncatingRemainder(dividingBy: 1)
+        let beamGlow = 0.80 + 0.20 * exp(-beatNow * 3)   // the light breathes on the beat
+        light.fill(beam, with: .linearGradient(Gradient(colors: [Color(red: 1, green: 0.93, blue: 0.82).opacity(0.42 * beamGlow), .clear]),
                                                startPoint: CGPoint(x: win.minX, y: win.midY), endPoint: CGPoint(x: 0, y: h)))
         // The sheer curtain over the left of the window: soft folds that sway.
         for k in 0..<6 {
             let x0 = win.minX - 10 + CGFloat(k) * win.width * 0.11
-            let sway = CGFloat(4 * sin(t * 0.6 + Double(k) * 0.9))
+            let sway = CGFloat(7 * sin(t * 0.8 + Double(k) * 0.9))
             var fold = Path()
             fold.move(to: CGPoint(x: x0, y: win.minY - 8))
             fold.addCurve(to: CGPoint(x: x0 + sway, y: win.maxY + 10),
@@ -427,7 +429,7 @@ enum CardArt {
         // Motes drifting in the beam; seven brighter ones twinkle on the beat.
         let beat = (t / pulse).truncatingRemainder(dividingBy: 1)
         for i in 0..<48 {
-            let u = CGFloat((hash(i, 11) + t * 0.01 * (0.5 + hash(i, 12))).truncatingRemainder(dividingBy: 1))
+            let u = CGFloat((hash(i, 11) + t * 0.035 * (0.5 + hash(i, 12))).truncatingRemainder(dividingBy: 1))
             let v = CGFloat(hash(i, 13))
             // A point inside the beam: u runs from the window to the floor, v across it.
             let top = CGPoint(x: win.minX + 2, y: win.minY + 10 + v * win.height * 0.9)
