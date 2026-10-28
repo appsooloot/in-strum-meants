@@ -184,7 +184,7 @@ enum SkyShaders {
                 float ang = toDeg(acos(clamp(mDot, -1.0, 1.0)));
                 float3 h = haloRing(ang, 22.0) * 0.10 + sundogs(d, M, moonAlt) * 0.35;
                 float l = dot(h, float3(0.2126, 0.7152, 0.0722));
-                col += mix(float3(l), h, 0.25) * float3(0.85, 0.9, 1.0) * halo * smoothstep(0.6, 0.9, u.moonInfo.x) * (0.04 + skyLum);
+                col += mix(float3(l), h, 0.25) * float3(0.85, 0.9, 1.0) * halo * smoothstep(0.6, 0.9, u.moonInfo.x) * (0.3 + skyLum);
             }
         }
 
