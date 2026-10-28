@@ -18,8 +18,10 @@ jobs:
         if: always()
         run: |
           {
+            echo "FAILED TESTS: $(grep -E "Test Case '.*' failed" test.log | sed -E "s/.*-\[[A-Za-z]+\.([A-Za-z0-9_]+) ([A-Za-z0-9_]+)\].*/\1.\2/" | sort -u | tr '\n' ' ')"
+            grep -E "Executed [0-9]+ tests" test.log | tail -n 1
             echo "FAILURES:"
-            grep -E "error:|: error|failed \(|Test Case .*failed|Fatal|crashed|signal" test.log | grep -v "^\s*$" | head -n 40
+            grep -E "error:|: error|Fatal|crashed|signal" test.log | grep -v "^\s*$" | sed -E 's,^/.*/(Tests|Sources)/,\1/,' | cut -c1-200 | head -n 40
             grep -E "Test Suite '(All|Selected) tests'|Executed [0-9]+ tests" test.log | tail -n 2
             if grep -q "unexpected signal" test.log; then echo "LAST LINES:"; grep -vE "^\[[0-9]+/[0-9]+\]" test.log | tail -n 30; fi
             swift --version 2>&1 | head -1
@@ -36,7 +38,7 @@ jobs:
     steps:
       - uses: actions/checkout@v5
       - name: Render preview frames
-        run: PREVIEW_DIR="$PWD/previews" DEMO_DIR="$PWD/previews/audio" swift test --filter "PreviewRenderTests|ShaderPreviewArtTests|DemoRenderTests" 2>&1 | tee preview.log; exit ${PIPESTATUS[0]}
+        run: PREVIEW_DIR="$PWD/previews" DEMO_DIR="$PWD/previews/audio" swift test --filter "PreviewRenderTests|ShaderPreviewArtTests|DemoRenderTests|SkyPreviewTests|WorldPreviewTests" 2>&1 | tee preview.log; exit ${PIPESTATUS[0]}
       - name: Encode demo audio
         run: |
           for f in previews/audio/*.wav; do [ -f "$f" ] && afconvert -f m4af -d aac -b 256000 "$f" "${f%.wav}.m4a" && rm "$f"; done
@@ -122,11 +124,13 @@ jobs:
 
           **Install:** download the **.dmg** below and open it, drag *In Strum Meants* onto *Applications* (choose **Replace** if asked), then right-click the app → **Open** → **Open** (first time only). The .zip is a fallback.
 
-          **Hear the built-in instruments first:** the *-demo.m4a* files below are short original demos rendered on the build machine.
+          **New in this build — Sets 1 & 2:** open ✦ Visuals and tap a Set. **Moonlit Lake** (serene: Lake Ripples on a lake under the real sky, Felt Glass, lake ambience) and **Spaceship Lounge** (dreamy: Galaxy Warp past a window on Earth, Orbit Pad, ship ambience). The **World** section sets the time (quick day, real time for your city, or frozen), the moon, the weather and the ambience volume. Each set card's ⓘ opens its "Inspired by" card with a Listen button.
 
-          **Ear checklist (built-in instruments):** goosebumps test · soft vs hard (softer = darker and rounder) · pedal ring and sympathetic shimmer · glass bloom swelling in after each note · **play-along test**: play along with the inspiring song in Spotify (Fine tune in the instrument window if it sounds sour) · presets feel distinct.
+          **Hear it first:** the *-demo.m4a* and *-ambience.m4a* files below are short original clips rendered on the build machine.
 
-          **Check each build:** instant key response · soft vs hard feels right · pedal (optional) lingers · visuals land with notes · unplugging stops all sound · reopening restores your instrument.
+          **Ear-and-eye checklist:** **play-along test** (play along with the inspiring song in Spotify; it should blend or harmonise, never clash — use Fine tune in the instrument window if it sits off-pitch) · goosebumps test · soft vs hard touch (softer = darker and rounder) · pedal ring · pad bloom swelling in after each chord · ambience balance (does the world sit under the instrument?) · mood match (do the world, visual, sound and ambience feel like one place?) · smoothness on the Smooth setting · the Inspired-by cards.
+
+          **Check each build:** instant key response · soft vs hard feels right · pedal (optional) lingers · visuals land with notes · unplugging stops all sound · reopening restores your instrument and set.
           NOTES
           gh release create "build-$GITHUB_RUN_NUMBER" dist/*.dmg dist/*.zip dist/demo/*.m4a --title "In Strum Meants — build $GITHUB_RUN_NUMBER" --notes-file notes.md
       - name: Report

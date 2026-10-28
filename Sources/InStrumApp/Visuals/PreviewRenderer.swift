@@ -28,13 +28,21 @@ final class PreviewRenderer {
 
     /// Simulates the demo performance at 60 fps through the app's SceneDirector and captures
     /// a frame of `themeID` at each time (seconds).
-    func render(themeID: String, at times: [Double], state: ThemeState = ThemeState(), quality: QualityLevel = .high) -> [CGImage] {
+    /// `sky` overrides the Living Sky for worlds (frozen settings give repeatable frames); `mood` sets the set's mood.
+    func render(themeID: String, at times: [Double], state: ThemeState = ThemeState(), quality: QualityLevel = .high,
+                sky: SkySettings? = nil, mood: Mood = .neutral, gentle: Bool = false) -> [CGImage] {
         let director = SceneDirector(themeID: themeID, state: state, reaction: ReactionPresets.expressivePianist)
+        let start = Date(timeIntervalSince1970: 1_793_000_000)   // a fixed wall clock, so previews repeat
+        var elapsed = 0.0
+        director.clock = { start.addingTimeInterval(elapsed) }
+        if let sky { director.sky.reset(settings: sky) }   // settled weather from the first frame
+        director.mood = mood
         var perf = PerformanceState()
         let script = ScriptedPerformance.demo
         var next = 0, time = 0.0
         let dt = 1.0 / 60
-        var garden: ButterflyRenderer?, steinway: SteinwayRenderer?
+        var garden: ButterflyRenderer?, steinway: SteinwayRenderer?, moonlitLake: MoonlitLakeRenderer?
+        var lounge: SpaceshipLoungeRenderer?
         var images: [CGImage] = []
         for t in times.sorted() {
             var current: ThemeRenderer?
@@ -46,6 +54,7 @@ final class PreviewRenderer {
                     next += 1
                 }
                 director.handle(events, at: time)
+                elapsed = time
                 let frame = director.step(dt: dt, t: time, quality: quality)
                 let size = CGSize(width: width, height: height)
                 if let g = frame as? GardenFrame {
@@ -56,6 +65,14 @@ final class PreviewRenderer {
                     if steinway == nil { steinway = SteinwayRenderer(device: device) }
                     steinway?.update(f, quality: quality, gentle: false, dt: dt)
                     current = steinway
+                } else if let l = frame as? LakeFrame {
+                    if moonlitLake == nil { moonlitLake = MoonlitLakeRenderer(device: device) }
+                    moonlitLake?.update(l, params: director.parameters, quality: quality, gentle: gentle, dt: dt, size: size)
+                    current = moonlitLake
+                } else if let l = frame as? LoungeFrame {
+                    if lounge == nil { lounge = SpaceshipLoungeRenderer(device: device) }
+                    lounge?.update(l, params: director.parameters, quality: quality, gentle: gentle, dt: dt, size: size)
+                    current = lounge
                 }
                 if time + dt > t { break }
             }
@@ -68,7 +85,7 @@ final class PreviewRenderer {
         render(themeID: ButterflyGardenModel.id, at: times, state: ThemeState(values: params?.saved ?? [:]))
     }
 
-    private func capture(_ renderer: ThemeRenderer) -> CGImage? {
+    func capture(_ renderer: ThemeRenderer) -> CGImage? {
         guard let cb = queue.makeCommandBuffer() else { return nil }
         renderer.render(stack: stack, commandBuffer: cb)
         let pass = MTLRenderPassDescriptor()
@@ -121,6 +138,29 @@ final class PreviewRenderer {
         let mean = l.reduce(0, +) / Double(l.count)
         let variance = l.reduce(0) { $0 + ($1 - mean) * ($1 - mean) } / Double(l.count)
         return (mean, variance)
+    }
+
+    /// The brightest region: the highest mean luminance of any (2r+1)² patch (summed-area table), so a large
+    /// lit disc beats a single bright star.
+    static func brightestPatch(_ image: CGImage, radius: Int) -> Double {
+        let l = luminances(image), w = image.width, h = image.height, k = 2 * radius + 1
+        guard w >= k, h >= k else { return 0 }
+        var sat = [Double](repeating: 0, count: (w + 1) * (h + 1))
+        for y in 0..<h {
+            var row = 0.0
+            for x in 0..<w {
+                row += l[y * w + x]
+                sat[(y + 1) * (w + 1) + x + 1] = sat[y * (w + 1) + x + 1] + row
+            }
+        }
+        var best = 0.0
+        for y in 0...(h - k) {
+            for x in 0...(w - k) {
+                let a = sat[y * (w + 1) + x], b = sat[y * (w + 1) + x + k], c = sat[(y + k) * (w + 1) + x], d = sat[(y + k) * (w + 1) + x + k]
+                best = max(best, d - b - c + a)
+            }
+        }
+        return best / Double(k * k)
     }
 
     /// Mean absolute luminance difference (images must be the same size).

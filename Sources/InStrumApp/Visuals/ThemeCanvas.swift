@@ -12,6 +12,8 @@ final class ThemeCanvas: NSObject, MTKViewDelegate {
     private var stack: RenderStack?
     private var butterfly: ButterflyRenderer?
     private var steinway: SteinwayRenderer?
+    private var moonlitLake: MoonlitLakeRenderer?
+    private var lounge: SpaceshipLoungeRenderer?
     private var autoQuality: AutoQuality
     private var lastTime: CFTimeInterval = 0
     private var seenVersion = -1
@@ -29,7 +31,11 @@ final class ThemeCanvas: NSObject, MTKViewDelegate {
                                       reaction: model.reaction)
         self.autoQuality = AutoQuality(setting: model.quality)
         super.init()
+        director.sky.reset(settings: model.skySettings)   // launch with the chosen weather, not a blend into it
     }
+
+    /// What the ambience should play for a frame: a world's own soundscape, silence for the other themes.
+    static func ambience(for frame: Any) -> AmbienceScene { (frame as? AmbienceProviding)?.ambience ?? .silent }
 
     func mtkView(_ view: MTKView, drawableSizeWillChange size: CGSize) {
         MainActor.assumeIsolated { stack?.resize(width: Int(size.width), height: Int(size.height)) }
@@ -50,6 +56,8 @@ final class ThemeCanvas: NSObject, MTKViewDelegate {
         }
         autoQuality.setting = model.quality
         director.reaction = model.reaction
+        director.sky.settings = model.skySettings
+        director.mood = model.mood
     }
 
     @MainActor
@@ -79,6 +87,7 @@ final class ThemeCanvas: NSObject, MTKViewDelegate {
         hub.set(.width, sound.width, at: now)
         for (address, value) in model.drainDialChanges() { hub.set(.dial(address), value, at: now) }
         let frame = director.step(dt: dt, t: now, quality: level)
+        model.updateAmbience(Self.ambience(for: frame), at: now)
 
         let renderer: ThemeRenderer?
         if let g = frame as? GardenFrame {
@@ -89,6 +98,14 @@ final class ThemeCanvas: NSObject, MTKViewDelegate {
             if steinway == nil { steinway = SteinwayRenderer(device: device) }
             steinway?.update(s, quality: level, gentle: model.gentleVisuals, dt: dt)
             renderer = steinway
+        } else if let l = frame as? LakeFrame {
+            if moonlitLake == nil { moonlitLake = MoonlitLakeRenderer(device: device) }
+            moonlitLake?.update(l, params: director.parameters, quality: level, gentle: model.gentleVisuals, dt: dt, size: size)
+            renderer = moonlitLake
+        } else if let l = frame as? LoungeFrame {
+            if lounge == nil { lounge = SpaceshipLoungeRenderer(device: device) }
+            lounge?.update(l, params: director.parameters, quality: level, gentle: model.gentleVisuals, dt: dt, size: size)
+            renderer = lounge
         } else {
             renderer = nil
         }

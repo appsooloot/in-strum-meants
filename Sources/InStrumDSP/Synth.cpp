@@ -194,4 +194,6 @@ void isd_synth_all_notes_off(ISDSynth *s) { if (s) s->allOff.store(true); }
 
 int isd_synth_active_voices(const ISDSynth *s) { return s ? s->voices.load(std::memory_order_relaxed) : 0; }
 
+int isd_synth_debug_count(const ISDSynth *s, ISDDebugCount which) { return s && s->engine ? s->engine->debugCount((int)which) : 0; }
+
 } // extern "C"

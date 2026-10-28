@@ -42,6 +42,27 @@ enum DSPTestKit {
         return den > 0 ? num / den : 0
     }
 
+    /// Spectral centroid of the average spectrum (Welch: 8192-sample Hann segments, 50% overlap), for long or sparse signals.
+    static func averageCentroid(_ x: [Float], sampleRate: Double) -> Double {
+        let log2n = 13, n = 1 << log2n
+        guard x.count >= n else { return centroid(x, sampleRate: sampleRate) }
+        var w = [Float](repeating: 0, count: n)
+        vDSP_hann_window(&w, vDSP_Length(n), Int32(vDSP_HANN_NORM))
+        var power = [Double](repeating: 0, count: n / 2)
+        var start = 0
+        while start + n <= x.count {
+            var seg = Array(x[start..<(start + n)])
+            vDSP_vmul(seg, 1, w, 1, &seg, 1, vDSP_Length(n))
+            let mags = magnitudes(seg, log2n: log2n)
+            for i in 1..<mags.count { power[i] += Double(mags[i]) * Double(mags[i]) }
+            start += n / 2
+        }
+        let binHz = sampleRate / Double(n)
+        var num = 0.0, den = 0.0
+        for i in 1..<power.count { num += Double(i) * binHz * power[i]; den += power[i] }
+        return den > 0 ? num / den : 0
+    }
+
     /// Energy (sum of squared magnitudes) between two frequencies, from an FFT of the slice.
     static func bandEnergy(_ x: [Float], sampleRate: Double, from f0: Double, to f1: Double) -> Double {
         var log2n = 10

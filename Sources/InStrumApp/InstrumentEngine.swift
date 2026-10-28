@@ -19,6 +19,11 @@ public protocol InstrumentEngine: AnyObject {
     /// Built-in instruments only.
     func applyPatch(_ patch: Patch)
     var builtInPatchID: String? { get }
+    /// Puts the ambience generator on its own bus (after `start`).
+    func startAmbience() async
+    func setAmbience(_ scene: AmbienceScene)
+    var ambienceVolume: Float { get set }
+    var ambienceEnabled: Bool { get set }
 }
 
 public extension InstrumentEngine {
@@ -27,6 +32,8 @@ public extension InstrumentEngine {
     func setMood(_ mood: Mood) {}
     func applyPatch(_ patch: Patch) {}
     var builtInPatchID: String? { nil }
+    func startAmbience() async {}
+    func setAmbience(_ scene: AmbienceScene) {}
 }
 
 extension AudioEngine: InstrumentEngine {

@@ -35,12 +35,16 @@ public struct AppSettings: Codable, Equatable {
     /// The active reaction style; nil means the built-in named by `reactionName`.
     public var reaction: ReactionMap?
     public var reactionName: String = "Expressive Pianist"
+    public var sky = SkySettings()
+    public var ambience = AmbienceSettings()
+    /// The Set (world + visual + instrument + ambience) last chosen, if any.
+    public var activeSetID: String?
 
     public static let `default` = AppSettings()
 
     public init() {}
 
-    enum CodingKeys: String, CodingKey { case instrument, themeID, masterVolume, touchCurve, bufferFrames, themeStates, quality, gentleVisuals, reaction, reactionName, qualityVersion }
+    enum CodingKeys: String, CodingKey { case instrument, themeID, masterVolume, touchCurve, bufferFrames, themeStates, quality, gentleVisuals, reaction, reactionName, qualityVersion, sky, ambience, activeSetID }
 
     public init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
@@ -57,6 +61,9 @@ public struct AppSettings: Codable, Equatable {
         gentleVisuals = (try? c.decodeIfPresent(Bool.self, forKey: .gentleVisuals)) ?? d.gentleVisuals
         reaction = try? c.decodeIfPresent(ReactionMap.self, forKey: .reaction)
         reactionName = (try? c.decodeIfPresent(String.self, forKey: .reactionName)) ?? d.reactionName
+        sky = (try? c.decodeIfPresent(SkySettings.self, forKey: .sky)) ?? d.sky
+        ambience = (try? c.decodeIfPresent(AmbienceSettings.self, forKey: .ambience)) ?? d.ambience
+        activeSetID = (try? c.decodeIfPresent(String.self, forKey: .activeSetID)) ?? nil
     }
 }
 

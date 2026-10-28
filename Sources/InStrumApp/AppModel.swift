@@ -85,6 +85,10 @@ public final class AppModel: ObservableObject {
             ?? ReactionPresets.expressivePianist
         self.offersSafeMode = launchGuard.beginLaunch()
         live.withLockUnchecked { $0.touch = loaded.touchCurve }
+        let closeness = loaded.ambience.closeness
+        ambienceLive.withLockUnchecked { $0.closeness = closeness }
+        activeSetID = loaded.activeSetID.flatMap { SetLibrary.set(id: $0) }?.id
+        mood = activeSetID.flatMap { SetLibrary.set(id: $0) }?.mood ?? .neutral
     }
 
     // MARK: - Launch and instruments
@@ -99,6 +103,9 @@ public final class AppModel: ObservableObject {
             status = .needsInstrument(message: "Sound output couldn't start. Check your speakers or headphones, then reopen the app.")
             return
         }
+        engine.ambienceVolume = Float(settings.ambience.volume)
+        engine.ambienceEnabled = settings.ambience.enabled
+        await engine.startAmbience()
         startAutosave()
         if offersSafeMode && skipPluginInSafeMode {
             status = .safeMode
@@ -133,6 +140,7 @@ public final class AppModel: ObservableObject {
         settings.instrument = choice
         watchDials()
         updateBuiltInPatch()
+        engine.setMood(mood)   // a freshly loaded built-in starts neutral
         status = .playing(instrumentName: choice.name)
         autosave()
         let launchGuard = self.launchGuard
@@ -301,6 +309,148 @@ public final class AppModel: ObservableObject {
         quality = q; settings.quality = q; visualsVersion += 1; autosave()
     }
 
+    // MARK: - Sky and mood
+
+    /// The set's mood: shapes the world, the visual, the built-in instrument and the ambience.
+    @Published public private(set) var mood: Mood = .neutral
+
+    public func setMood(_ m: Mood) {
+        mood = m
+        engine.setMood(m)
+        visualsVersion += 1
+    }
+
+    public var skySettings: SkySettings { settings.sky }
+
+    public func setSkySettings(_ s: SkySettings) { setSky(s) }
+
+    // MARK: - Sets
+
+    /// The Set last applied (nil until one is chosen).
+    @Published public private(set) var activeSetID: String?
+
+    /// True when the world, its visual, the built-in instrument or preset, or the ambience differ from the active set.
+    public var isSetModified: Bool {
+        guard let set = activeSetID.flatMap({ SetLibrary.set(id: $0) }) else { return false }
+        if themeID != set.worldID { return true }
+        if ThemeRegistry.parameterSet(for: set.worldID, state: themeState(for: set.worldID)).choice("visual") != set.visual { return true }
+        guard let patch = PatchLibrary.all.first(where: { $0.id == set.patchID }) else { return true }
+        if settings.instrument.flatMap({ BuiltInCatalog.engine(for: $0) }) != patch.engine || builtInPatch?.id != patch.id { return true }
+        return settings.ambience != set.ambience
+    }
+
+    private var applyingSet = false
+
+    /// Everything at once: the world and its visual, the built-in instrument and preset, the ambience and the mood.
+    /// A tap while a set (or an instrument) is still loading is ignored, so two quick taps can't interleave.
+    public func applySet(_ id: String) async {
+        guard !isLoading, !applyingSet, let set = SetLibrary.set(id: id),
+              let patch = PatchLibrary.all.first(where: { $0.id == set.patchID }) else { return }
+        applyingSet = true
+        defer { applyingSet = false }
+        setTheme(set.worldID)
+        var state = themeState(for: set.worldID)
+        state.values["visual"] = .choice(set.visual)
+        saveThemeState(state, for: set.worldID)
+        mood = set.mood
+        if settings.instrument.flatMap({ BuiltInCatalog.engine(for: $0) }) != patch.engine {
+            await load(Self.builtInChoice(patch.engine))
+        }
+        applyPatch(patch)
+        settings.ambience = set.ambience
+        engine.ambienceEnabled = set.ambience.enabled
+        engine.ambienceVolume = Float(set.ambience.volume)
+        let closeness = set.ambience.closeness
+        ambienceLive.withLockUnchecked { $0.closeness = closeness; $0.sent = nil }
+        setMood(set.mood)
+        activeSetID = set.id
+        settings.activeSetID = set.id
+        autosave()
+    }
+
+    /// Puts the active set back as it was designed.
+    public func restoreSet() async {
+        guard let id = activeSetID else { return }
+        await applySet(id)
+    }
+
+    static func builtInChoice(_ kind: BuiltInEngine) -> InstrumentChoice {
+        let d = BuiltInCatalog.description(for: kind)
+        return InstrumentChoice(name: kind.displayName, componentType: d.componentType, componentSubType: d.componentSubType,
+                                componentManufacturer: d.componentManufacturer)
+    }
+
+    /// The Living Sky's settings (persisted; the canvas picks them up through `visualsVersion`).
+    public func setSky(_ s: SkySettings) {
+        settings.sky = s
+        visualsVersion += 1
+        scheduleSave()   // the day-length, time and moon sliders drag this
+    }
+
+    // MARK: - Ambience
+
+    /// At most this often (seconds) does a world's soundscape reach the engine.
+    nonisolated static let ambienceInterval = 0.1
+    private struct AmbienceLive {
+        var sent: AmbienceScene?
+        var lastSend = -Double.infinity
+        var pendingThunder: Double?
+        var closeness = 0.5
+    }
+    nonisolated private let ambienceLive = OSAllocatedUnfairLock(uncheckedState: AmbienceLive())
+
+    public var ambienceSettings: AmbienceSettings { settings.ambience }
+
+    /// From the render loop (any thread): hands the world's soundscape to the engine at most ten times a second,
+    /// and only when it has really changed (a level by > 0.01, the activity by > 0.05) or thunder is due.
+    /// The user's closeness leans the world's own closeness; a thunderclap held back by the throttle goes next time.
+    public nonisolated func updateAmbience(_ s: AmbienceScene, at t: Double = ProcessInfo.processInfo.systemUptime) {
+        let out: AmbienceScene? = ambienceLive.withLockUnchecked { a in
+            var scene = s
+            scene.closeness = min(1, max(0, s.closeness + (a.closeness - 0.5)))
+            if let thunder = s.thunder { a.pendingThunder = thunder }
+            scene.thunder = a.pendingThunder
+            guard t - a.lastSend >= Self.ambienceInterval - 1e-9 else { return nil }
+            if scene.thunder == nil, let previous = a.sent, !Self.ambienceChanged(previous, scene) { return nil }
+            a.sent = scene
+            a.lastSend = t
+            a.pendingThunder = nil
+            return scene
+        }
+        if let out { engine.setAmbience(out) }
+    }
+
+    nonisolated static func ambienceChanged(_ a: AmbienceScene, _ b: AmbienceScene) -> Bool {
+        let sources = Set(a.levels.keys).union(b.levels.keys)
+        if sources.contains(where: { abs(a.level($0) - b.level($0)) > 0.01 }) { return true }
+        if abs(a.activity - b.activity) > 0.05 { return true }
+        return abs(a.nightCool - b.nightCool) > 0.01 || abs(a.closeness - b.closeness) > 0.01 || abs(a.density - b.density) > 0.01
+    }
+
+    public func setAmbienceEnabled(_ on: Bool) {
+        objectWillChange.send()   // `settings` isn't published: tell the controls and the set badge
+        settings.ambience.enabled = on
+        engine.ambienceEnabled = on
+        autosave()
+    }
+
+    /// 0…1. A slider drags this at 60 Hz, so the save waits for the drag to settle.
+    public func setAmbienceVolume(_ v: Double) {
+        objectWillChange.send()
+        settings.ambience.volume = min(1, max(0, v))
+        engine.ambienceVolume = Float(settings.ambience.volume)
+        scheduleSave()
+    }
+
+    /// 0 distant … 1 all around you.
+    public func setAmbienceCloseness(_ c: Double) {
+        objectWillChange.send()
+        settings.ambience.closeness = min(1, max(0, c))
+        let closeness = settings.ambience.closeness
+        ambienceLive.withLockUnchecked { $0.closeness = closeness; $0.sent = nil }   // resend with the new closeness
+        scheduleSave()
+    }
+
     public func setGentleVisuals(_ on: Bool) {
         gentleVisuals = on; settings.gentleVisuals = on; visualsVersion += 1; autosave()
     }
@@ -373,7 +523,11 @@ public final class AppModel: ObservableObject {
         }
     }
 
+    /// How many times settings have been written (tests watch the debounce).
+    private(set) var saveCount = 0
+
     public func autosave() {
+        saveCount += 1
         if settings.instrument != nil, case .playing = status {
             settings.instrument?.stateData = engine.currentInstrumentState()
         }

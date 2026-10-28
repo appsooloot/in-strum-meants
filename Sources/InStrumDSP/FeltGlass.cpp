@@ -333,6 +333,7 @@ void FeltGlass::allSoundOff() {
 }
 
 void FeltGlass::retune() {
+    ++retunes;
     const float fsr = (float)sr;
     for (auto &v : voices) {
         if (!v.active) continue;
@@ -460,10 +461,15 @@ void FeltGlass::processBlock(float *left, float *right, int n) {
     const float fsr = (float)sr;
     // Control-rate updates.
     for (int t = 0; t < n; ++t) { fine.next(); warmth.next(); space.next(); }
-    if (std::fabs(fine.value - appliedCents) > 0.005f) {
-        appliedCents = fine.value;
-        fineRatio = std::exp2(appliedCents / 1200.f);
-        retune();
+    // Fine tune glides (20 ms); retuning every ringing partial is costly, so it follows the glide on the
+    // housekeeping cadence (every 4th block) and only for steps a tenth of a cent or more. Phase-continuous.
+    if (blockCount % 4 == 0) {
+        const bool landed = std::fabs(fine.value - fine.target) < 0.01f && std::fabs(fine.target - appliedCents) > 1e-4f;
+        if (landed || std::fabs(fine.value - appliedCents) > 0.1f) {
+            appliedCents = landed ? fine.target : fine.value;
+            fineRatio = std::exp2(appliedCents / 1200.f);
+            retune();
+        }
     }
     const float wv = clamp01(warmth.value + 0.5f * (mWarmth - 0.5f));
     if (std::fabs(wv - appliedWarmth) > 1e-3f) {

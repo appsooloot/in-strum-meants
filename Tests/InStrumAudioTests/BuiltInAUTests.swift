@@ -143,6 +143,47 @@ final class BuiltInAUTests: XCTestCase {
         XCTAssertLessThan(held, -6)
     }
 
+    /// The sound-character tap listens to the instrument bus (it doesn't run in offline rendering), so this
+    /// checks the routing: ambience reaches the speakers through its own bus and never the instrument's.
+    func testSoundCharacterIgnoresAmbience() async throws {
+        let e = try await makeEngine()
+        await e.startAmbience()
+        e.setAmbience(AmbienceScene(levels: [.water: 1, .airFlow: 1]))
+        let ambient = try render(e, seconds: 4)
+        let heard = DSPTestKit.dBFS(ambient[Int(3 * 48_000)...])
+        let toMixer = e.ambienceFeedsMainMixer, toInstrument = e.ambienceFeedsInstrumentBus
+        let loudness = e.soundReading.loudness
+        XCTAssertGreaterThan(heard, -60, "the ambience is playing")
+        XCTAssertTrue(toMixer)
+        XCTAssertFalse(toInstrument)
+        XCTAssertLessThan(loudness, 0.05)
+    }
+
+    func testPanicLeavesAmbience() async throws {
+        let e = try await makeEngine()
+        await e.startAmbience()
+        e.setAmbience(AmbienceScene(levels: [.airFlow: 1]))
+        let before = try render(e, seconds: 4)
+        e.panic()
+        let after = try render(e, seconds: 1)
+        let a = DSPTestKit.dBFS(before[Int(3 * 48_000)...]), b = DSPTestKit.dBFS(after)
+        XCTAssertGreaterThan(a, -60)
+        XCTAssertEqual(b, a, accuracy: 1)
+    }
+
+    func testAmbienceVolumeAndSwitch() async throws {
+        let e = try await makeEngine()
+        await e.startAmbience()
+        e.setAmbience(AmbienceScene(levels: [.airFlow: 1]))
+        let full = DSPTestKit.dBFS(try render(e, seconds: 4)[Int(3 * 48_000)...])
+        e.ambienceVolume = 0.125
+        let half = DSPTestKit.dBFS(try render(e, seconds: 1))
+        e.ambienceEnabled = false
+        let off = DSPTestKit.dBFS(try render(e, seconds: 1)[Int(0.2 * 48_000)...])
+        XCTAssertEqual(full - half, 6, accuracy: 1, "default volume is 0.25")
+        XCTAssertLessThan(off, -100)
+    }
+
     func testMoodReachesTheInstrument() async throws {
         let e = try await makeEngine()
         e.setMood(.serene)

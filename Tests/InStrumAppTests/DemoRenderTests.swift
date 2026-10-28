@@ -67,6 +67,45 @@ final class DemoRenderTests: XCTestCase {
         XCTAssertGreaterThanOrEqual(written, 1)
     }
 
+    /// Renders the ambience alone (levels glide in over 2.5 s, as in the app).
+    nonisolated static func renderAmbience(_ levels: [(ISDAmbienceSource, Float)], seconds: Double, nightCool: Float = 0) -> (l: [Float], r: [Float]) {
+        guard let a = isd_ambience_create(rate, 512, 7) else { return ([], []) }
+        defer { isd_ambience_destroy(a) }
+        for (source, level) in levels { isd_ambience_set_level(a, source, level) }
+        isd_ambience_set_night_cool(a, nightCool)
+        let total = Int(seconds * rate), block = 256
+        var l = [Float](repeating: 0, count: total), r = [Float](repeating: 0, count: total)
+        var i = 0
+        while i < total {
+            let n = min(block, total - i)
+            l.withUnsafeMutableBufferPointer { lp in
+                r.withUnsafeMutableBufferPointer { rp in isd_ambience_render(a, lp.baseAddress! + i, rp.baseAddress! + i, Int32(n)) }
+            }
+            i += n
+        }
+        return (l, r)
+    }
+
+    func testWriteAmbienceDemos() throws {
+        guard let dir = ProcessInfo.processInfo.environment["DEMO_DIR"] else { throw XCTSkip("DEMO_DIR not set") }
+        let url = URL(fileURLWithPath: dir, isDirectory: true)
+        try FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
+        let scenes: [(String, [(ISDAmbienceSource, Float)], Float)] = [
+            ("moonlit-lake-ambience", [(ISD_AMB_WATER, 0.8), (ISD_AMB_CRICKETS, 0.7), (ISD_AMB_BREEZE, 0.4), (ISD_AMB_OWL, 0.3)], 0.3),
+            ("spaceship-lounge-ambience", [(ISD_AMB_SHIP_HUM, 0.8), (ISD_AMB_AIR_FLOW, 0.5), (ISD_AMB_CHIME, 0.3), (ISD_AMB_HULL_TICKS, 0.3)], 0),
+        ]
+        for (name, levels, cool) in scenes {
+            let audio = Self.renderAmbience(levels, seconds: 60, nightCool: cool)
+            let peak = max(audio.l.map(abs).max() ?? 0, audio.r.map(abs).max() ?? 0)
+            XCTAssertLessThanOrEqual(peak, 1.0, name)
+            let rms = (audio.l.reduce(0) { $0 + Double($1) * Double($1) } / Double(max(1, audio.l.count))).squareRoot()
+            XCTAssertGreaterThan(20 * log10(max(rms, 1e-10)), -60, name)
+            try Self.writeWAV(audio, to: url.appendingPathComponent("\(name).wav"))
+            try PreviewRenderer.writePNG(Spectrogram.image(left: audio.l, sampleRate: Self.rate, width: 1400, height: 500),
+                                         to: url.appendingPathComponent("\(name)-spectrogram.png"))
+        }
+    }
+
     func testSpectrogramShowsATone() {
         let tone = (0..<48_000).map { Float(sin(2 * Double.pi * 1000 * Double($0) / Self.rate)) * 0.5 }
         let image = Spectrogram.image(left: tone, sampleRate: Self.rate, width: 200, height: 100)

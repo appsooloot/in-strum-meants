@@ -12,6 +12,9 @@ struct SettingsPanel: View {
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 18) {
+                section("Sets") {
+                    SetsGallery(model: model)
+                }
                 section("Theme") {
                     Picker("", selection: Binding(get: { model.themeID }, set: { model.setTheme($0) })) {
                         ForEach(ThemeRegistry.all, id: \.id) { Text($0.name).tag($0.id) }
@@ -42,6 +45,11 @@ struct SettingsPanel: View {
                             model.saveThemeState(VisualSettings.updated(state, themeID: model.themeID, id: spec.id, to: v),
                                                  for: model.themeID)
                         }
+                    }
+                }
+                if ThemeRegistry.isWorld(model.themeID) {
+                    section("World") {
+                        SkyControls(model: model)
                     }
                 }
                 section("Display") {

@@ -14,7 +14,7 @@ public enum BuiltInCatalog {
                                   componentManufacturer: manufacturer, componentFlags: 0, componentFlagsMask: 0)
     }
 
-    /// The ambience generator (Task 7).
+    /// The ambience generator.
     public static let ambienceDescription = AudioComponentDescription(componentType: kAudioUnitType_Generator,
                                                                       componentSubType: fourCC("isAM"),
                                                                       componentManufacturer: manufacturer,
@@ -28,6 +28,7 @@ public enum BuiltInCatalog {
             AUAudioUnit.registerSubclass(BuiltInInstrumentAU.self, as: description(for: engine),
                                          name: "\(manufacturerName): \(engine.displayName)", version: 1)
         }
+        AUAudioUnit.registerSubclass(AmbienceAU.self, as: ambienceDescription, name: "\(manufacturerName): Ambience", version: 1)
     }()
 
     /// Engines the Sound Core can make right now.

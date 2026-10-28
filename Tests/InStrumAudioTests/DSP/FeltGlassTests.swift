@@ -27,6 +27,43 @@ final class FeltGlassTests: XCTestCase {
         XCTAssertEqual(DSPTestKit.cents(DSPTestKit.fundamental(R.slice(b.l, 0.3, 1.3), sampleRate: R.sr, near: ref), ref), 0, accuracy: 1)
     }
 
+    /// Fine tune glides over 20 ms; retuning every ringing partial on every 32-sample block for the whole glide
+    /// is a CPU burst while chords ring. It should happen on the housekeeping cadence, a handful of times per step.
+    func testFineTuneGlideRetunesSparingly() throws {
+        let synth = try XCTUnwrap(isd_synth_create(ISD_ENGINE_FELT_GLASS, R.sr, 256))
+        defer { isd_synth_destroy(synth) }
+        func render(_ seconds: Double) {
+            var l = [Float](repeating: 0, count: 256), r = l
+            for _ in 0..<Int(seconds * R.sr / 256) {
+                l.withUnsafeMutableBufferPointer { lp in r.withUnsafeMutableBufferPointer { rp in isd_synth_render(synth, lp.baseAddress, rp.baseAddress, 256) } }
+            }
+        }
+        func count() -> Int { Int(isd_synth_debug_count(synth, ISD_DEBUG_RETUNES)) }
+        [UInt8(0xB0), 64, 127].withUnsafeBufferPointer { isd_synth_midi(synth, $0.baseAddress, 3, 0) }
+        for n in stride(from: 36, through: 96, by: 4) { [UInt8(0x90), UInt8(n), 96].withUnsafeBufferPointer { isd_synth_midi(synth, $0.baseAddress, 3, 0) } }
+        render(0.5)
+        let settled = count()
+        isd_synth_set_param(synth, Int32(ISD_P_FINE_TUNE), 1)      // one stepper click
+        render(0.5)
+        let click = count() - settled
+        XCTAssertGreaterThanOrEqual(click, 1, "the glide does retune")
+        XCTAssertLessThanOrEqual(click, 24, "a one-cent step retunes a handful of times, not every block: \(click)")
+        isd_synth_set_param(synth, Int32(ISD_P_FINE_TUNE), 38)     // a preset's whole offset
+        render(0.5)
+        let jump = count() - settled - click
+        XCTAssertLessThanOrEqual(jump, 60, "a 37-cent glide retunes on the housekeeping cadence only: \(jump)")
+        // And the pitch still lands exactly.
+        [UInt8(0xB0), 123, 0].withUnsafeBufferPointer { isd_synth_midi(synth, $0.baseAddress, 3, 0) }
+        render(0.5)
+        [UInt8(0x90), 69, 100].withUnsafeBufferPointer { isd_synth_midi(synth, $0.baseAddress, 3, 0) }
+        var a = (l: [Float](repeating: 0, count: Int(1.4 * R.sr)), r: [Float](repeating: 0, count: Int(1.4 * R.sr)))
+        for i in stride(from: 0, to: a.l.count - 255, by: 256) {
+            a.l.withUnsafeMutableBufferPointer { lp in a.r.withUnsafeMutableBufferPointer { rp in isd_synth_render(synth, lp.baseAddress! + i, rp.baseAddress! + i, 256) } }
+        }
+        let fa = DSPTestKit.fundamental(R.slice(a.l, 0.3, 1.3), sampleRate: R.sr, near: 440 * pow(2, 38.0 / 1200))
+        XCTAssertEqual(DSPTestKit.cents(fa, 440), 38, accuracy: 1)
+    }
+
     func testSofterIsDarker() {
         let soft = R.render(seconds: 0.3, params: dry, events: [R.noteOn(0, 60, 30)])
         let hard = R.render(seconds: 0.3, params: dry, events: [R.noteOn(0, 60, 110)])

@@ -27,10 +27,12 @@ final class CPUBudgetTests: XCTestCase {
         var felt = [R.pedal(0, 127)]
         for n: UInt8 in [36, 43, 48, 52, 55, 60, 64, 67, 71, 72, 76, 79, 83, 84, 88, 91] { felt.append(R.noteOn(0, n, 90)) }
         let pad = [48, 55, 60, 63, 67, 70, 72, 75].map { R.noteOn(0, UInt8($0), 90) }
+        let ambience: [AmbienceTests.Action] = (0..<Int(ISD_AMB_COUNT.rawValue)).map { AmbienceTests.level(ISDAmbienceSource(UInt32($0)), 0.6) }
         let seconds = bestOfThree {
             _ = R.render(seconds: 10, events: felt)
             _ = R.render(ISD_ENGINE_ORBIT_PAD, seconds: 10, events: pad)
+            _ = AmbienceTests.render(seconds: 10, actions: ambience)
         }
-        XCTAssertLessThan(seconds / 10, 0.08, "Felt Glass + Orbit Pad used \(String(format: "%.1f", seconds * 10))% of real time")
+        XCTAssertLessThan(seconds / 10, 0.08, "Felt Glass + Orbit Pad + ambience used \(String(format: "%.1f", seconds * 10))% of real time")
     }
 }

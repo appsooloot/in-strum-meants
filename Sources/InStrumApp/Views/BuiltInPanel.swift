@@ -63,27 +63,11 @@ struct BuiltInPanel: View {
             }
             .help("Fine tune locks onto a recording that sits slightly off standard pitch.")
             if let credit = currentPatch?.credit ?? PatchLibrary.defaultPatch(for: unit.engine).credit {
-                InspiredByText(credit: credit)
+                InspiredByCard(credit: credit).frame(width: 400)
             }
         }
         .padding(20)
         .frame(width: 440)
-    }
-}
-
-/// Text version of the "Inspired by" card (the living artwork arrives with the Sets gallery).
-struct InspiredByText: View {
-    let credit: Credit
-    var body: some View {
-        VStack(alignment: .leading, spacing: 4) {
-            Text("INSPIRED BY").font(.caption2.weight(.semibold)).tracking(1.5).foregroundStyle(.secondary)
-            Text("“\(credit.song)”").font(.headline)
-            Text("\(credit.artist) · \(credit.album) (\(String(credit.year)))").font(.subheadline).foregroundStyle(.secondary)
-            Text(credit.line).font(.callout).italic().padding(.top, 2)
-        }
-        .padding(12)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(RoundedRectangle(cornerRadius: 10).fill(Color.primary.opacity(0.06)))
     }
 }
 

@@ -1,0 +1,27 @@
+/// A Set: one world, its visual, a built-in instrument preset and an ambience, tied together by a mood
+/// and inspired by one song (credited in words and a link only).
+public struct InStrumSet: Codable, Equatable, Identifiable {
+    public let id, name, moodName: String
+    public let mood: Mood
+    public let worldID: String
+    /// The world's `visual` choice.
+    public let visual: String
+    /// A `PatchLibrary` preset (its engine is the built-in instrument to load).
+    public let patchID: String
+    public let ambience: AmbienceSettings
+    /// A `CreditLibrary` id.
+    public let creditID: String
+}
+
+/// The Sets, in gallery order.
+public enum SetLibrary {
+    public static let moonlitLake = InStrumSet(id: "moonlit-lake", name: "Moonlit Lake", moodName: "Serene", mood: .serene,
+                                               worldID: MoonlitLakeModel.id, visual: "Lake Ripples", patchID: "felt-glass",
+                                               ambience: AmbienceSettings(), creditID: CreditLibrary.comeBackToEarth.id)
+    public static let spaceshipLounge = InStrumSet(id: "spaceship-lounge", name: "Spaceship Lounge", moodName: "Dreamy, awe-struck",
+                                                   mood: .dreamy, worldID: SpaceshipLoungeModel.id, visual: "Galaxy Warp",
+                                                   patchID: "orbit-pad", ambience: AmbienceSettings(), creditID: CreditLibrary.innerbloom.id)
+    public static let all: [InStrumSet] = [moonlitLake, spaceshipLounge]
+
+    public static func set(id: String) -> InStrumSet? { all.first { $0.id == id } }
+}

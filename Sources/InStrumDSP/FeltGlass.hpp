@@ -18,6 +18,7 @@ public:
     void allNotesOff() override;
     void allSoundOff() override;
     void render(float *left, float *right, int frames) override;
+    int debugCount(int which) const override { return which == 0 ? retunes : 0; }
     int activeVoices() const override;
 
     static constexpr int kPolyphony = 32;   // sounding voices
@@ -77,7 +78,7 @@ private:
     SpaceReverb reverb;
     PeakLimiter limiter;
     bool idle = true, reverbLive = false;
-    int idleSamples = 0, blockCount = 0;
+    int idleSamples = 0, blockCount = 0, retunes = 0;
 };
 
 } // namespace isd
