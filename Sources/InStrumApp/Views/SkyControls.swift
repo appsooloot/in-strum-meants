@@ -17,11 +17,14 @@ struct SkyControls: View {
         model.setSky(s)
     }
 
-    private var cities: [City] {
-        let q = citySearch.trimmingCharacters(in: .whitespaces).lowercased()
-        let all = Cities.all.sorted { $0.name < $1.name }
-        guard !q.isEmpty else { return all }
-        return all.filter { $0.name.lowercased().contains(q) || $0.country.lowercased().contains(q) }
+    private var cities: [City] { Self.filtered(Cities.all, query: citySearch, keeping: sky.cityID) }
+
+    /// The picker's cities for a search (RED stub: the selected city can drop out).
+    static func filtered(_ all: [City], query: String, keeping selected: String?) -> [City] {
+        let q = query.trimmingCharacters(in: .whitespaces).lowercased()
+        let sorted = all.sorted { $0.name < $1.name }
+        guard !q.isEmpty else { return sorted }
+        return sorted.filter { $0.name.lowercased().contains(q) || $0.country.lowercased().contains(q) }
     }
 
     var body: some View {

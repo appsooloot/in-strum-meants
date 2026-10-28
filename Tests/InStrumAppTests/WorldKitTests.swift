@@ -155,6 +155,41 @@ final class SpaceshipLoungeRendererTests: XCTestCase {
         XCTAssertGreaterThan(PreviewRenderer.difference(frames[0], frames[1]), 0.005)
     }
 
+    func testWorldsHonourGentleVisuals() throws {
+        guard let device = MTLCreateSystemDefaultDevice() else { throw XCTSkip("No Metal device") }
+        func lakeFrame() -> (LakeFrame, ParameterSet) {
+            let d = SceneDirector(themeID: MoonlitLakeModel.id, state: ThemeState(), reaction: ReactionPresets.expressivePianist)
+            d.sky.reset(settings: MoonlitLakeRendererTests.night)
+            d.handle([60, 64, 67, 72].map { .noteOn(note: $0, velocity: 0.9) }, at: 0)
+            var f: LakeFrame?
+            for i in 0..<90 { f = d.step(dt: 1.0 / 30, t: Double(i) / 30, quality: .high) as? LakeFrame }   // glitter settles toward 1
+            return (f!, d.parameters)
+        }
+        let (frame, params) = lakeFrame()
+        XCTAssertGreaterThan(frame.glitter, 0.9)
+        let size = CGSize(width: 640, height: 360)
+        let plain = try XCTUnwrap(MoonlitLakeRenderer(device: device))
+        let gentle = try XCTUnwrap(MoonlitLakeRenderer(device: device))
+        for _ in 0..<10 {
+            plain.update(frame, params: params, quality: .high, gentle: false, dt: 1.0 / 30, size: size)
+            gentle.update(frame, params: params, quality: .high, gentle: true, dt: 1.0 / 30, size: size)
+        }
+        XCTAssertGreaterThan(plain.glitterOut, 0.5)
+        XCTAssertEqual(gentle.glitterOut, plain.glitterOut * 0.5, accuracy: 1e-4, "gentle visuals halve the glints")
+        XCTAssertEqual(gentle.fireflyScale, 0.5, accuracy: 1e-4)
+        XCTAssertEqual(plain.fireflyScale, 1, accuracy: 1e-4)
+
+        let ld = SceneDirector(themeID: SpaceshipLoungeModel.id, state: ThemeState(), reaction: ReactionPresets.expressivePianist)
+        ld.sky.reset(settings: MoonlitLakeRendererTests.night)
+        ld.handle([.noteOn(note: 60, velocity: 1)], at: 0)
+        let lf = try XCTUnwrap(ld.step(dt: 1.0 / 30, t: 0, quality: .high) as? LoungeFrame)
+        let lounge = try XCTUnwrap(SpaceshipLoungeRenderer(device: device))
+        lounge.update(lf, params: ld.parameters, quality: .high, gentle: true, dt: 1.0 / 30, size: size)
+        XCTAssertEqual(lounge.streakScale, 0.5, accuracy: 1e-4, "gentle visuals halve the streaks")
+        lounge.update(lf, params: ld.parameters, quality: .high, gentle: false, dt: 1.0 / 30, size: size)
+        XCTAssertEqual(lounge.streakScale, 1, accuracy: 1e-4)
+    }
+
     func testWarpFieldFollowsQuality() {
         XCTAssertLessThan(WarpLayer.fieldCount(.lite), WarpLayer.fieldCount(.high))
         XCTAssertLessThanOrEqual(WarpLayer.fieldCount(.lite) + GalaxyWarp.cap, 600, "Smooth stays light")

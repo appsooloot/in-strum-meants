@@ -1,5 +1,6 @@
 import XCTest
 import AudioToolbox
+import Combine
 @testable import InStrumApp
 @testable import InStrumAudio
 @testable import InStrumCore
@@ -113,6 +114,7 @@ final class AppModelTests: XCTestCase {
         m.setAmbienceEnabled(false)
         XCTAssertEqual(engine.ambienceVolume, 0.4, accuracy: 1e-6)
         XCTAssertFalse(engine.ambienceEnabled)
+        m.autosave()   // as the periodic timer or quitting would
         let loaded = store.load().ambience
         XCTAssertEqual(loaded.volume, 0.4, accuracy: 1e-9)
         XCTAssertEqual(loaded.closeness, 0.8, accuracy: 1e-9)
@@ -207,6 +209,57 @@ final class AppModelTests: XCTestCase {
         XCTAssertTrue(engine.ambienceEnabled)
     }
 
+    // MARK: - Final review fixes
+
+    func testAmbienceAndSkyControlsPublishChanges() {
+        let m = makeModel()
+        var changes = 0
+        let sub = m.objectWillChange.sink { _ in changes += 1 }
+        defer { sub.cancel() }
+        m.setAmbienceEnabled(false)
+        XCTAssertEqual(changes, 1, "toggling ambience re-renders the controls")
+        m.setAmbienceVolume(0.3)
+        XCTAssertEqual(changes, 2)
+        m.setAmbienceCloseness(0.7)
+        XCTAssertEqual(changes, 3)
+        var s = SkySettings(); s.dayMinutes = 20
+        m.setSky(s)
+        XCTAssertEqual(changes, 4)
+    }
+
+    func testContinuousControlsDebounceSaves() async throws {
+        let m = makeModel()
+        let before = m.saveCount
+        for i in 0..<60 { m.setAmbienceVolume(Double(i) / 60) }
+        var s = SkySettings()
+        for i in 0..<60 { s.dayMinutes = Double(2 + i); m.setSky(s) }
+        for i in 0..<60 { m.setAmbienceCloseness(Double(i) / 60) }
+        XCTAssertEqual(m.saveCount, before, "dragging a slider never writes on every tick")
+        try await Task.sleep(nanoseconds: 1_200_000_000)
+        XCTAssertEqual(m.saveCount, before + 1, "one save once the drag settles")
+        XCTAssertEqual(store.load().ambience.volume, 59.0 / 60, accuracy: 1e-9)
+        XCTAssertEqual(store.load().sky.dayMinutes, 61)
+        // Discrete changes still save at once.
+        m.setAmbienceEnabled(false)
+        XCTAssertEqual(m.saveCount, before + 2)
+    }
+
+    func testApplySetIgnoresTapsWhileLoading() async throws {
+        let m = makeModel()
+        await m.launch(skipPluginInSafeMode: false)
+        engine.loadDelay = 300_000_000
+        async let first: () = m.applySet("moonlit-lake")
+        try await Task.sleep(nanoseconds: 60_000_000)
+        await m.applySet("spaceship-lounge")   // a second tap while the first is loading
+        await first
+        XCTAssertEqual(m.activeSetID, "moonlit-lake")
+        XCTAssertEqual(m.themeID, MoonlitLakeModel.id)
+        XCTAssertEqual(engine.loaded.count, 1)
+        XCTAssertEqual(engine.loaded.last.flatMap { BuiltInCatalog.engine(for: $0) }, .feltGlass)
+        XCTAssertEqual(m.mood, .serene)
+        XCTAssertFalse(m.isSetModified)
+    }
+
     func testSkySettingsPersist() {
         let m = makeModel()
         let version = m.visualsVersion
@@ -214,6 +267,7 @@ final class AppModelTests: XCTestCase {
         m.setSky(s)
         XCTAssertEqual(m.skySettings, s)
         XCTAssertGreaterThan(m.visualsVersion, version)
+        m.autosave()
         XCTAssertEqual(store.load().sky, s)
         XCTAssertEqual(makeModel().skySettings, s)
     }

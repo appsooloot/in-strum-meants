@@ -16,6 +16,8 @@ final class SpaceshipLoungeRenderer: ThemeRenderer {
     private var u = [SIMD4<Float>](repeating: .zero, count: 14)
     private var keyInstances: [KeyInstance] = []
     private(set) var post = PostSettings()
+    /// Streak and field brightness after the flash limiter (gentle visuals halve it).
+    private(set) var streakScale: Float = 1
 
     private struct KeyInstance { var rect: SIMD4<Float>; var info: SIMD4<Float> }
 

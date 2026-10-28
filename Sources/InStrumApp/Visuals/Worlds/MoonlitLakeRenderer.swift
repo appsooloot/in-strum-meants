@@ -23,6 +23,9 @@ final class MoonlitLakeRenderer: ThemeRenderer {
     private var viewAzimuth: Double?
     private(set) var post = PostSettings()
     private(set) var rippleCount = 0
+    /// The glitter and firefly strength after the flash limiter (gentle visuals halve them).
+    private(set) var glitterOut: Float = 0
+    private(set) var fireflyScale: Float = 1
 
     private struct KeyInstance { var rect: SIMD4<Float>; var info: SIMD4<Float> }
 
@@ -123,6 +126,7 @@ final class MoonlitLakeRenderer: ThemeRenderer {
         let mood = frame.mood
         let mist = min(1, Float(p.number("mist")) * MoodLook.hazeScale(mood) * 0.8 + s.mist)
         let glitter = Float(p.number("glitter")) * (0.25 + 0.75 * frame.glitter)
+        glitterOut = glitter
 
         // Ripples → wave packets.
         let budget = Self.rippleBudget(quality)

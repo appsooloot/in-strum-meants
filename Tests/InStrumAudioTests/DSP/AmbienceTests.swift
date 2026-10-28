@@ -99,6 +99,18 @@ final class AmbienceTests: XCTestCase {
         XCTAssertGreaterThan(10 * log10(low(storm.l) / max(low(quiet.l), 1e-12)), 6)
         let beforeStrike = DSPTestKit.dBFS(SynthRender.slice(storm.l, 3, 3.4)) - DSPTestKit.dBFS(SynthRender.slice(quiet.l, 3, 3.4))
         XCTAssertEqual(beforeStrike, 0, accuracy: 1, "thunder waits for the distance delay")
+        // A clap is a rumble under the beds, never a full-scale slab: peak well under the limiter, and the
+        // first second of the roll between −32 and −12 dBFS (bed at this rain level ≈ −32 dBFS).
+        let strike = 3 + 0.5 + 5.5 * 0.5
+        XCTAssertLessThan(storm.l.map(abs).max() ?? 1, 0.7, "thunder must not pin the limiter")
+        let roll = DSPTestKit.dBFS(SynthRender.slice(storm.l, strike, strike + 1))
+        XCTAssertGreaterThan(roll, -32); XCTAssertLessThan(roll, -12)
+        // Distance is audible: a near clap is clearly louder than a far one.
+        let near = Self.render(seconds: 12, actions: bed + [(3, { isd_ambience_trigger_thunder($0, 0.1) })])
+        let far = Self.render(seconds: 12, actions: bed + [(3, { isd_ambience_trigger_thunder($0, 0.9) })])
+        let nearDb = DSPTestKit.dBFS(SynthRender.slice(near.l, 3 + 0.5 + 0.55, 3 + 0.5 + 0.55 + 1))
+        let farDb = DSPTestKit.dBFS(SynthRender.slice(far.l, 3 + 0.5 + 4.95, 3 + 0.5 + 4.95 + 1))
+        XCTAssertGreaterThan(nearDb - farDb, 5, "near \(nearDb) dBFS vs far \(farDb) dBFS")
     }
 
     func testClosenessChangesTheRoom() {

@@ -30,7 +30,7 @@ final class PreviewRenderer {
     /// a frame of `themeID` at each time (seconds).
     /// `sky` overrides the Living Sky for worlds (frozen settings give repeatable frames); `mood` sets the set's mood.
     func render(themeID: String, at times: [Double], state: ThemeState = ThemeState(), quality: QualityLevel = .high,
-                sky: SkySettings? = nil, mood: Mood = .neutral) -> [CGImage] {
+                sky: SkySettings? = nil, mood: Mood = .neutral, gentle: Bool = false) -> [CGImage] {
         let director = SceneDirector(themeID: themeID, state: state, reaction: ReactionPresets.expressivePianist)
         let start = Date(timeIntervalSince1970: 1_793_000_000)   // a fixed wall clock, so previews repeat
         var elapsed = 0.0
@@ -67,11 +67,11 @@ final class PreviewRenderer {
                     current = steinway
                 } else if let l = frame as? LakeFrame {
                     if moonlitLake == nil { moonlitLake = MoonlitLakeRenderer(device: device) }
-                    moonlitLake?.update(l, params: director.parameters, quality: quality, gentle: false, dt: dt, size: size)
+                    moonlitLake?.update(l, params: director.parameters, quality: quality, gentle: gentle, dt: dt, size: size)
                     current = moonlitLake
                 } else if let l = frame as? LoungeFrame {
                     if lounge == nil { lounge = SpaceshipLoungeRenderer(device: device) }
-                    lounge?.update(l, params: director.parameters, quality: quality, gentle: false, dt: dt, size: size)
+                    lounge?.update(l, params: director.parameters, quality: quality, gentle: gentle, dt: dt, size: size)
                     current = lounge
                 }
                 if time + dt > t { break }

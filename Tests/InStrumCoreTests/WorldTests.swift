@@ -73,6 +73,18 @@ final class WorldTests: XCTestCase {
         XCTAssertLessThan(CFAbsoluteTimeGetCurrent() - t0, 0.008)
     }
 
+    func testSmoothBudgetKeepsTheStrongestRings() {
+        // 40 rings: 32 fresh strong ones, then 8 faint old ones added last.
+        var rings: [Ripple] = (0..<32).map { Ripple(x: Float($0) / 32, depth: 0.5, age: 0.2, strength: 1, lifetime: 3) }
+        rings += (0..<8).map { Ripple(x: Float($0) / 8, depth: 0.2, age: 2.8, strength: 0.3, lifetime: 3) }
+        let kept = LakeRipples.visible(rings, limit: 32)
+        XCTAssertEqual(kept.count, 32)
+        XCTAssertTrue(kept.allSatisfy { $0.strength == 1 }, "the faint, nearly spent rings are the ones left out")
+        XCTAssertEqual(LakeRipples.visible(rings, limit: 64).count, 40)
+        // The pick is stable: the same set every frame while nothing changes.
+        XCTAssertEqual(LakeRipples.visible(rings, limit: 32), kept)
+    }
+
     func testRipplesFadeAway() {
         var lake = LakeRipples()
         lake.noteOn(60, velocity: 100, pedal: false, at: 0)
@@ -184,6 +196,17 @@ final class WorldTests: XCTestCase {
         XCTAssertEqual(f.streaks.count, 0)
         XCTAssertLessThan(f.warpSpeed, 0.15)
         XCTAssertLessThan(f.nebula, 0.1)
+    }
+
+    func testStreakSpawnsAreRationedPerStep() {
+        var warp = GalaxyWarp()
+        for i in 0..<400 { warp.noteOn(UInt8(21 + i % 88), velocity: 127, at: Double(i) * 0.0005) }   // a MIDI burst
+        let first = warp.step(dt: 1.0 / 60, roles: RoleValues(), inputs: InputFrame())
+        XCTAssertLessThanOrEqual(first.streaks.count, GalaxyWarp.maxSpawnsPerStep, "a burst can't fill the window in one frame")
+        var f = first
+        for _ in 0..<20 { f = warp.step(dt: 1.0 / 60, roles: RoleValues(), inputs: InputFrame()) }
+        XCTAssertGreaterThan(f.streaks.count, GalaxyWarp.maxSpawnsPerStep, "the rest follow over the next frames")
+        XCTAssertLessThanOrEqual(f.streaks.count, GalaxyWarp.cap)
     }
 
     func testWarpCapAndBudget() {

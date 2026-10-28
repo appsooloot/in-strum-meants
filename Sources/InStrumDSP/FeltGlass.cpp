@@ -333,6 +333,7 @@ void FeltGlass::allSoundOff() {
 }
 
 void FeltGlass::retune() {
+    ++retunes;
     const float fsr = (float)sr;
     for (auto &v : voices) {
         if (!v.active) continue;

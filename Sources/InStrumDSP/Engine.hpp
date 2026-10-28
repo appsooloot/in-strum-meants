@@ -18,6 +18,8 @@ public:
     /// Overwrites the buffers.
     virtual void render(float *left, float *right, int frames) = 0;
     virtual int activeVoices() const = 0;
+    /// Internal counters for tests (see ISDDebugCount); engines without one return 0.
+    virtual int debugCount(int which) const { (void)which; return 0; }
 };
 
 } // namespace isd

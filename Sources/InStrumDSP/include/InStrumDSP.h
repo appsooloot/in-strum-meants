@@ -56,6 +56,9 @@ void isd_synth_render(ISDSynth *synth, float *left, float *right, int frames);
 /// Any thread: every note fades out over 20 ms at the next render.
 void isd_synth_all_notes_off(ISDSynth *synth);
 int isd_synth_active_voices(const ISDSynth *synth);
+/// Internal counters for tests. Not real-time safe to rely on; read between renders.
+typedef enum { ISD_DEBUG_RETUNES = 0 } ISDDebugCount;
+int isd_synth_debug_count(const ISDSynth *synth, ISDDebugCount which);
 
 // ---------- Ambience (generated live, never loops) ----------
 typedef enum {

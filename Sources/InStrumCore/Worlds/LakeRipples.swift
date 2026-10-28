@@ -93,6 +93,9 @@ public struct LakeRipples {
         }
     }
 
+    /// The `limit` rings worth drawing when the budget is smaller than the cap (RED stub: the newest).
+    public static func visible(_ ripples: [Ripple], limit: Int) -> [Ripple] { Array(ripples.suffix(limit)) }
+
     public mutating func noteOff(_ note: UInt8) { held.remove(note) }
 
     public mutating func allNotesOff() { held.removeAll() }

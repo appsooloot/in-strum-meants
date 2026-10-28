@@ -32,6 +32,8 @@ public struct GalaxyWarp {
     /// Hues for chord qualities: major warm violet, minor deep blue, tense magenta.
     public static let majorHue: Float = 0.78, minorHue: Float = 0.63, tenseHue: Float = 0.9
     public static let maxAge: Float = 7
+    /// New streaks admitted per step (RED stub: not enforced yet).
+    public static let maxSpawnsPerStep = 40
     /// Warp speed reaches 90% of a rise in 0.6 s and falls 90% in 2.5 s.
     static let riseTau = 0.6 / log(10.0), fallTau = 2.5 / log(10.0)
 

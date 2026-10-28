@@ -514,7 +514,11 @@ public final class AppModel: ObservableObject {
         }
     }
 
+    /// How many times settings have been written (tests watch the debounce).
+    private(set) var saveCount = 0
+
     public func autosave() {
+        saveCount += 1
         if settings.instrument != nil, case .playing = status {
             settings.instrument?.stateData = engine.currentInstrumentState()
         }
