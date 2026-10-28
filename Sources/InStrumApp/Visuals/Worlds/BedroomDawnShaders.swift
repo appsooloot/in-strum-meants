@@ -15,7 +15,7 @@ enum BedroomDawnShaders {
         float4 c;        // street lamp 0…1, lit windows 0…8, wetness, mist
         float4 d;        // frame width (NDC x), quality (0 Smooth), sparkle scale, window open 0/1
         float4 beam;     // the beams' screen direction per unit (x, y), the beams' length, frost on the glass (sky)
-        float4 light;    // outside light rgb, sun strength 0…1
+        float4 light;    // outside light rgb, sun strength 0…1 (the room uses the direct sun, b.w)
         float4 tint;     // the glow's tint rgb, dust motes setting
         float4 e;        // wind, fairy lights level, floor line (NDC y), sill height
         float4 f;        // the floor patch's depth (window heights per floor depth), unused…
@@ -294,7 +294,7 @@ enum BedroomDawnShaders {
         float night = c.b.x, glow = c.b.y, setting = c.b.z, direct = c.b.w;
         float3 outside = c.light.rgb;
         float3 tint = c.tint.rgb;
-        float3 sunLight = float3(1.0, 0.86, 0.68) * c.light.w * direct;
+        float3 sunLight = float3(1.0, 0.86, 0.68) * direct;
         float floorLine = c.e.z;
         float wallLight = 0.0;
         // Soft light from the window across the wall, and the morning glow (held notes) warming it.
@@ -331,7 +331,7 @@ enum BedroomDawnShaders {
                          + bvn2(float2(sx * 21.0 - time * 0.5 * c.e.x, sy * 41.0)) * 0.4;
             float dapple = 0.55 + 0.45 * smoothstep(0.35, 0.55, leaves);
             float patch = lit ? dapple : 0.0;
-            col += albedo * (sunLight * 1.8 * (0.35 + 0.65 * glow) * setting + outside * 0.25) * tint * patch;
+            col += albedo * (sunLight * 1.8 * (0.45 + 0.55 * glow) * setting + outside * 0.25) * tint * patch;
             depth = 0.08 + 0.1 * k;
         }
 
@@ -385,7 +385,7 @@ enum BedroomDawnShaders {
     // ---------------------------------------------------------------- light shafts (additive, analytic)
     fragment float4 bed_shaft_fragment(BedOut in [[stage_in]], constant BedU& c [[buffer(1)]]) {
         float2 p = in.ndc;
-        float strength = c.light.w * c.b.w * c.b.z * (0.35 + 0.65 * c.b.y);
+        float strength = c.b.w * c.b.z * (0.45 + 0.55 * c.b.y);
         if (strength < 0.002) discard_fragment();
         float2 v = c.beam.xy;
         float len = c.beam.z;
@@ -403,7 +403,7 @@ enum BedroomDawnShaders {
         if (c.d.y > 0.5) {
             density = 0.6 + 0.8 * bvn2(float2(p.x * c.a.y * 6.0 + c.a.w * 0.05, p.y * 6.0 - c.a.w * 0.03));
         }
-        float3 col = float3(1.0, 0.86, 0.66) * c.tint.rgb * sum * strength * density * (0.4 + 0.6 * c.tint.w) * 0.55;
+        float3 col = float3(1.0, 0.86, 0.66) * c.tint.rgb * sum * strength * density * (0.4 + 0.6 * c.tint.w) * 0.95;
         return float4(col, 0.0);
     }
 
@@ -431,7 +431,7 @@ enum BedroomDawnShaders {
         float edgeOn = 1.0 - abs(n.z);
         float density = saturate(0.28 + 0.5 * edgeOn + 0.15 * in.fold);
         float3 outside = c.light.rgb;
-        float3 sun = float3(1.0, 0.86, 0.68) * c.light.w * c.b.w;
+        float3 sun = float3(1.0, 0.86, 0.68) * c.b.w;
         float glow = c.b.y * c.b.z;
         float3 tint = c.tint.rgb;
         // Back-lit by the window (and the sun), front-lit by the room.

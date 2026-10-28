@@ -183,13 +183,15 @@ final class BedroomDawnRenderer: ThemeRenderer {
         let sunDir = SkyLayer.enu(s.sun)
         let ls = SIMD3<Float>(simd_dot(sunDir, cam.right), simd_dot(sunDir, cam.up), simd_dot(sunDir, cam.forward))
         let ahead = min(max(ls.z * 3, 0), 1)
-        let direct = sunUp * ahead * (1 - 0.8 * s.cloudCover) * (1 - 0.5 * s.mist)
+        // Direct sun comes through once the disk clears the rooftops (most striking just after sunrise).
+        let disk = Float(Self.smooth(-1.5, 2.5, s.sun.altitude))
+        let direct = disk * ahead * (1 - 0.8 * s.cloudCover) * (1 - 0.5 * s.mist)
         limiter.gentle = gentle
         let exposure = MoodLook.exposure(frame.mood) * weather.exposureBoost * (1 + 0.12 * frame.glow * sparkleScale)
         let limited = limiter.limit(exposure: exposure, sparkle: 1, dt: dt)
         glowOut = frame.glow * limited.sparkle
         let setting = Float(p.number("light"))
-        shaftOut = direct * setting * (0.35 + 0.65 * glowOut)
+        shaftOut = direct * setting * (0.45 + 0.55 * glowOut)
         let motesSetting = Float(p.number("motes"))
         let fairyLevel = Float(p.number("fairy")) * Float(Self.smooth(2, -1, s.sun.altitude))
         let brightestGlint = frame.motes.prefix(Self.moteBudget(quality)).map(\.glint).max() ?? 0
