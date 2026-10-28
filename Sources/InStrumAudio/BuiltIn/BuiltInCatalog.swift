@@ -61,6 +61,7 @@ public enum BuiltInCatalog {
         case .honeyTape: return "isHT"
         case .hazeBells: return "isHB"
         case .cabinFelt: return "isCF"
+        case .morningBox: return "isMB"
         }
     }
 
@@ -71,6 +72,7 @@ public enum BuiltInCatalog {
         case .honeyTape: return ISD_ENGINE_HONEY_TAPE
         case .hazeBells: return ISD_ENGINE_HAZE_BELLS
         case .cabinFelt: return ISD_ENGINE_CABIN_FELT
+        case .morningBox: return ISD_ENGINE_MORNING_BOX
         }
     }
 

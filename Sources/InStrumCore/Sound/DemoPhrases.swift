@@ -103,6 +103,37 @@ public enum DemoPhrases {
         return m.sorted
     }()
 
+    /// C♯-major colours at 82 BPM for 40 s, long enough to hear the wall build: held chords (C♯maj9, F♯maj9,
+    /// A♯m9, G♯sus, C♯maj9, F♯maj9, then C♯6/9) under a ticking eighth-note celesta figure that keeps playing.
+    public static let morningBox: Phrase = {
+        var m = Builder()
+        let eighth = 60.0 / 82 / 2
+        let sections: [(chord: [UInt8], figure: [UInt8])] = [
+            ([37, 49, 56, 60, 63], [73, 80, 75, 77, 84, 80, 75, 72]),
+            ([42, 54, 58, 61, 65], [78, 82, 85, 77, 82, 78, 73, 77]),
+            ([46, 58, 61, 65, 68], [77, 80, 84, 82, 77, 80, 73, 75]),
+            ([44, 56, 61, 63], [75, 80, 85, 80, 73, 75, 80, 78]),
+            ([37, 49, 56, 60, 63], [73, 77, 80, 84, 85, 84, 80, 77]),
+            ([42, 54, 58, 61, 65], [82, 85, 89, 85, 82, 78, 77, 73]),
+        ]
+        let length = 16 * eighth
+        for (i, section) in sections.enumerated() {
+            let t = 0.2 + Double(i) * length
+            m.pedal(t - 0.03, down: false); m.pedal(t + 0.02, down: true)
+            for (k, n) in section.chord.enumerated() { m.note(t + Double(k) * 0.02, n, 64, length - 0.08) }
+            for k in 0..<16 {
+                let n = section.figure[k % 8]
+                m.note(t + Double(k) * eighth, n, UInt8(k % 2 == 0 ? 80 : 64), eighth * 0.8)
+            }
+        }
+        let end = 0.2 + 6 * length
+        m.pedal(end - 0.03, down: false); m.pedal(end + 0.02, down: true)
+        for (k, n) in [37, 49, 56, 63, 70].enumerated() { m.note(end + Double(k) * 0.02, UInt8(n), 60, 5) }
+        for (k, n) in [73, 77, 80, 84, 85].enumerated() { m.note(end + 0.5 + Double(k) * 0.45, UInt8(n), 66, 3.5) }
+        m.pedal(end + 5.4, down: false)
+        return m.sorted
+    }()
+
     private struct Builder {
         var events: Phrase = []
         mutating func note(_ t: Double, _ n: UInt8, _ v: UInt8, _ length: Double) {

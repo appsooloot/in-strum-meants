@@ -4,7 +4,7 @@ import InStrumCore
 /// Original living art for each "Inspired by" card, drawn in code from the song's feeling (never artwork,
 /// photos or logos). The song's tempo is hidden in the motion: everything breathes at `pulsePeriod`.
 enum CardArt {
-    case comeBackToEarth, innerbloom, musicToWatchBoysTo, highByTheBeach, stay
+    case comeBackToEarth, innerbloom, musicToWatchBoysTo, highByTheBeach, stay, dunno
 
     static func art(for creditID: String) -> CardArt? {
         switch creditID {
@@ -13,6 +13,7 @@ enum CardArt {
         case CreditLibrary.musicToWatchBoysTo.id: return .musicToWatchBoysTo
         case CreditLibrary.highByTheBeach.id: return .highByTheBeach
         case CreditLibrary.stay.id: return .stay
+        case CreditLibrary.dunno.id: return .dunno
         default: return nil
         }
     }
@@ -26,6 +27,7 @@ enum CardArt {
         case .musicToWatchBoysTo: return .custom("Didot", size: 30)
         case .highByTheBeach: return .custom("Futura-CondensedMedium", size: 28)
         case .stay: return .system(size: 30, weight: .regular, design: .serif)
+        case .dunno: return .system(size: 26, weight: .light, design: .rounded)
         }
     }
 
@@ -36,6 +38,7 @@ enum CardArt {
         case .highByTheBeach: return 3
         case .comeBackToEarth: return 0.5
         case .stay: return 1
+        case .dunno: return 2
         }
     }
 
@@ -53,6 +56,7 @@ enum CardArt {
         case .musicToWatchBoysTo: Self.goldenHaze(ctx, size, t, pulse)
         case .highByTheBeach: Self.coastLine(ctx, size, t, pulse)
         case .stay: Self.cabinWindow(ctx, size, t, pulse)
+        case .dunno: Self.dawnBedroom(ctx, size, t, pulse)
         }
     }
 
@@ -370,6 +374,72 @@ enum CardArt {
             let r = 0.8 + 1.4 * hash(i, 5)
             ctx.fill(Path(ellipseIn: CGRect(x: x - r, y: y - r, width: 2 * r, height: 2 * r)),
                      with: .color(.white.opacity(0.35 + 0.4 * hash(i, 9))))
+        }
+    }
+
+    // MARK: - Dunno: a pastel dawn through a ten-pane window, a sheer curtain, one beam full of motes
+
+    private static func dawnBedroom(_ ctx: GraphicsContext, _ size: CGSize, _ t: Double, _ pulse: Double) {
+        let rect = CGRect(origin: .zero, size: size)
+        let w = size.width, h = size.height
+        ctx.fill(Path(rect), with: .linearGradient(
+            Gradient(stops: [.init(color: Color(red: 0.96, green: 0.74, blue: 0.80), location: 0),
+                             .init(color: Color(red: 0.78, green: 0.72, blue: 0.93), location: 0.5),
+                             .init(color: Color(red: 0.99, green: 0.82, blue: 0.68), location: 1)]),
+            startPoint: .zero, endPoint: CGPoint(x: w, y: h)))
+        // The window: two columns of five panes, glowing with the dawn.
+        let win = CGRect(x: w * 0.60, y: h * 0.10, width: w * 0.28, height: h * 0.62)
+        ctx.fill(Path(win.insetBy(dx: -5, dy: -5)), with: .color(Color(red: 0.97, green: 0.93, blue: 0.95).opacity(0.9)))
+        let gap: CGFloat = 4
+        let pw = (win.width - gap) / 2, ph = (win.height - 4 * gap) / 5
+        for row in 0..<5 {
+            for col in 0..<2 {
+                let pane = CGRect(x: win.minX + CGFloat(col) * (pw + gap), y: win.minY + CGFloat(row) * (ph + gap), width: pw, height: ph)
+                let warmth = Double(row) / 4
+                ctx.fill(Path(pane), with: .linearGradient(
+                    Gradient(colors: [Color(red: 1, green: 0.90 - 0.06 * warmth, blue: 0.86 - 0.12 * warmth),
+                                      Color(red: 1, green: 0.84 - 0.05 * warmth, blue: 0.74 - 0.10 * warmth)]),
+                    startPoint: CGPoint(x: pane.minX, y: pane.minY), endPoint: CGPoint(x: pane.maxX, y: pane.maxY)))
+            }
+        }
+        // One diagonal beam from the window down across the room.
+        var light = ctx
+        light.blendMode = .plusLighter
+        var beam = Path()
+        beam.move(to: CGPoint(x: win.minX, y: win.minY + 10))
+        beam.addLine(to: CGPoint(x: win.minX + 4, y: win.maxY))
+        beam.addLine(to: CGPoint(x: w * 0.12, y: h + 10))
+        beam.addLine(to: CGPoint(x: -w * 0.12, y: h + 10))
+        beam.closeSubpath()
+        light.fill(beam, with: .linearGradient(Gradient(colors: [Color(red: 1, green: 0.93, blue: 0.82).opacity(0.38), .clear]),
+                                               startPoint: CGPoint(x: win.minX, y: win.midY), endPoint: CGPoint(x: 0, y: h)))
+        // The sheer curtain over the left of the window: soft folds that sway.
+        for k in 0..<6 {
+            let x0 = win.minX - 10 + CGFloat(k) * win.width * 0.11
+            let sway = CGFloat(4 * sin(t * 0.6 + Double(k) * 0.9))
+            var fold = Path()
+            fold.move(to: CGPoint(x: x0, y: win.minY - 8))
+            fold.addCurve(to: CGPoint(x: x0 + sway, y: win.maxY + 10),
+                          control1: CGPoint(x: x0 + 6 + sway * 0.5, y: win.minY + win.height * 0.35),
+                          control2: CGPoint(x: x0 - 6 + sway, y: win.minY + win.height * 0.7))
+            ctx.stroke(fold, with: .color(.white.opacity(0.22)), lineWidth: win.width * 0.09)
+        }
+        // Motes drifting in the beam; seven brighter ones twinkle on the beat.
+        let beat = (t / pulse).truncatingRemainder(dividingBy: 1)
+        for i in 0..<48 {
+            let u = CGFloat((hash(i, 11) + t * 0.01 * (0.5 + hash(i, 12))).truncatingRemainder(dividingBy: 1))
+            let v = CGFloat(hash(i, 13))
+            // A point inside the beam: u runs from the window to the floor, v across it.
+            let top = CGPoint(x: win.minX + 2, y: win.minY + 10 + v * win.height * 0.9)
+            let bottom = CGPoint(x: -w * 0.12 + v * w * 0.24, y: h + 10)
+            let wobbleX = CGFloat(3 * sin(t * 0.7 + Double(i))), wobbleY = CGFloat(2 * cos(t * 0.5 + Double(i) * 1.3))
+            let x: CGFloat = top.x + (bottom.x - top.x) * u + wobbleX
+            let y: CGFloat = top.y + (bottom.y - top.y) * u + wobbleY
+            let bright = i < 7
+            let phase: Double = (beat + Double(i) / 7).truncatingRemainder(dividingBy: 1)
+            let flash: Double = bright ? 0.45 + 0.55 * exp(-phase * 5) : 0.35
+            let r: CGFloat = bright ? 2.2 : 1.1
+            light.fill(Path(ellipseIn: CGRect(x: x - r, y: y - r, width: 2 * r, height: 2 * r)), with: .color(.white.opacity(flash)))
         }
     }
 
