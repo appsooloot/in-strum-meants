@@ -1,6 +1,6 @@
 import Foundation
 
-public enum WeatherKind: String, Codable, CaseIterable { case clear, lightCloud, overcast, mist, drizzle, rain, storm, snow, blizzard, afterRain, sunShower, fogBank, sleet, monsoon, hail, smokeHaze, iceFog, thunderheads, dustStorm, flurries, freezingDrizzle, squall }
+public enum WeatherKind: String, Codable, CaseIterable { case clear, lightCloud, overcast, mist, drizzle, rain, storm, snow, blizzard, afterRain, sunShower, fogBank, sleet, monsoon, hail, smokeHaze, iceFog, thunderheads, dustStorm, flurries, freezingDrizzle, squall, dryLightning }
 
 /// Pick one yourself, or let the sky wander through beautiful weathers. (`.real` comes later.)
 public enum WeatherMode: String, Codable, CaseIterable { case pick, randomBeautiful }
@@ -42,6 +42,7 @@ public extension WeatherKind {
         case .flurries: return WeatherValues(cloud: 0.55, rain: 0, snow: 0.3, mist: 0.2, wind: 0.15, halo: 0.2, frost: 0.4, gust: 0.1)
         case .freezingDrizzle: return WeatherValues(cloud: 0.85, rain: 0.25, snow: 0, mist: 0.5, wind: 0.15, frost: 0.5)
         case .squall: return WeatherValues(cloud: 1, rain: 0.9, snow: 0, mist: 0.3, wind: 1, gust: 1)
+        case .dryLightning: return WeatherValues(cloud: 0.85, rain: 0, snow: 0, mist: 0.1, wind: 0.5, gust: 0.4)
         case .sunShower: return WeatherValues(cloud: 0.5, rain: 0.3, snow: 0, mist: 0.25, wind: 0.2, gust: 0.1)
         }
     }
@@ -58,7 +59,10 @@ public extension WeatherKind {
     var isWet: Bool { self == .drizzle || self == .rain || self == .storm || self == .sleet || self == .monsoon || self == .hail || self == .squall || self == .freezingDrizzle }
 
     /// Left out of random weather when "Calm random weather" is on.
-    var isRough: Bool { [.storm, .blizzard, .monsoon, .hail, .squall, .dustStorm].contains(self) }
+    var isRough: Bool { [.storm, .blizzard, .monsoon, .hail, .squall, .dustStorm, .dryLightning].contains(self) }
+
+    /// Weathers that throw lightning.
+    var flashes: Bool { self == .storm || self == .squall || self == .monsoon || self == .dryLightning }
 
     /// How often "random beautiful" picks it (overcast only when chosen).
     var beautyWeight: Float {
@@ -70,6 +74,7 @@ public extension WeatherKind {
         case .blizzard: return 0.3
         case .afterRain: return 1.5
         case .sunShower: return 1
+        case .dryLightning: return 0.3
         case .flurries: return 1
         case .freezingDrizzle: return 0.4
         case .squall: return 0.3

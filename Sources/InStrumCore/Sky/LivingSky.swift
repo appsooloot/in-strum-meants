@@ -220,9 +220,9 @@ public final class LivingSky {
     private func stormAmount() -> Float {
         let t = Float(weather.blend), b = t * t * (3 - 2 * t)
         if weather.transitioning {
-            return (weather.current == .storm ? 1 - b : 0) + (weather.next == .storm ? b : 0)
+            return (weather.current.flashes ? 1 - b : 0) + (weather.next.flashes ? b : 0)
         }
-        return weather.current == .storm ? 1 : 0
+        return weather.current.flashes ? 1 : 0
     }
 }
 

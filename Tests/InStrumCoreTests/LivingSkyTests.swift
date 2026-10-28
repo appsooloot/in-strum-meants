@@ -237,7 +237,7 @@ extension LivingSkyTests {
     }
 
     func testNewWeatherValues() {
-        XCTAssertEqual(WeatherKind.allCases, [.clear, .lightCloud, .overcast, .mist, .drizzle, .rain, .storm, .snow, .blizzard, .afterRain, .sunShower, .fogBank, .sleet, .monsoon, .hail, .smokeHaze, .iceFog, .thunderheads, .dustStorm, .flurries, .freezingDrizzle, .squall])
+        XCTAssertEqual(WeatherKind.allCases, [.clear, .lightCloud, .overcast, .mist, .drizzle, .rain, .storm, .snow, .blizzard, .afterRain, .sunShower, .fogBank, .sleet, .monsoon, .hail, .smokeHaze, .iceFog, .thunderheads, .dustStorm, .flurries, .freezingDrizzle, .squall, .dryLightning])
         // cloud, rain, snow, mist, wind, halo, frost, gust (spec §6.1)
         let table: [WeatherKind: [Float]] = [
             .clear: [0, 0, 0, 0.1, 0.1, 0, 0.15, 0],
@@ -262,6 +262,7 @@ extension LivingSkyTests {
             .flurries: [0.55, 0, 0.3, 0.2, 0.15, 0.2, 0.4, 0.1],
             .freezingDrizzle: [0.85, 0.25, 0, 0.5, 0.15, 0, 0.5, 0],
             .squall: [1, 0.9, 0, 0.3, 1, 0, 0, 1],
+            .dryLightning: [0.85, 0, 0, 0.1, 0.5, 0, 0, 0.4],
         ]
         for k in WeatherKind.allCases {
             let v = k.values
@@ -442,6 +443,22 @@ extension LivingSkyTests {
         XCTAssertEqual(try JSONDecoder().decode(SkySettings.self, from: JSONEncoder().encode(s)).randomExcluded, [.hail, .squall])
         s.resetAdvanced()
         XCTAssertEqual(s.randomExcluded, [])
+    }
+
+    func testDryLightningFlashesWithoutRain() {
+        var s = SkySettings(); s.timeMode = .frozen; s.cityID = "melbourne"; s.weatherMode = .pick; s.weather = .dryLightning
+        let sky = LivingSky(settings: s, homeZone: melbourneZone)
+        var now = start, flashes = 0, was: Float = 0, rain: Float = 0
+        for _ in 0..<(120 * 30) {
+            now = now.addingTimeInterval(1.0 / 30)
+            let st = sky.step(now: now, dt: 1.0 / 30)
+            rain = max(rain, st.rain)
+            if st.lightning > 0.9 && was <= 0.9 { flashes += 1 }
+            was = st.lightning
+        }
+        XCTAssertGreaterThanOrEqual(flashes, 3, "a dry thunderstorm still flashes")
+        XCTAssertEqual(rain, 0, "and drops no rain")
+        XCTAssertTrue(WeatherKind.storm.flashes && WeatherKind.squall.flashes && !WeatherKind.rain.flashes)
     }
 
     func testRainMeltsFrost() {

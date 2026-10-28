@@ -211,6 +211,7 @@ struct SkyControls: View {
         case .flurries: return "Snow flurries"
         case .freezingDrizzle: return "Freezing drizzle"
         case .squall: return "Squall"
+        case .dryLightning: return "Dry lightning"
         case .smokeHaze: return "Smoke haze"
         case .monsoon: return "Monsoon"
         }

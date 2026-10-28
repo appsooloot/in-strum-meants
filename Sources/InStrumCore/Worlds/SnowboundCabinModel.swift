@@ -71,6 +71,7 @@ public struct SnowboundCabinModel: ThemeModel, MoodAware, SkyAware {
             switch k {
             case .drizzle, .rain, .sunShower, .sleet, .hail, .freezingDrizzle: return .snow
             case .squall: return .blizzard
+            case .dryLightning: return .overcast
             case .flurries: return .snow
             case .smokeHaze, .iceFog, .dustStorm: return .mist
             case .thunderheads: return .overcast
