@@ -2,8 +2,8 @@ import XCTest
 @testable import InStrumCore
 
 final class SetsTests: XCTestCase {
-    func testTwoSetsAreComplete() throws {
-        XCTAssertEqual(SetLibrary.all.map(\.id), ["moonlit-lake", "spaceship-lounge"])
+    func testFourSetsAreComplete() throws {
+        XCTAssertEqual(SetLibrary.all.map(\.id), ["moonlit-lake", "spaceship-lounge", "golden-hour-beach", "coast-road"])
         for s in SetLibrary.all {
             XCTAssertEqual(ThemeRegistry.resolve(s.worldID), s.worldID, s.id)
             let visual = try XCTUnwrap(ThemeRegistry.parameters(for: s.worldID).first { $0.id == "visual" }, s.id)
@@ -26,9 +26,33 @@ final class SetsTests: XCTestCase {
         XCTAssertEqual(lounge.visual, "Galaxy Warp")
         XCTAssertEqual(PatchLibrary.all.first { $0.id == lounge.patchID }?.engine, .orbitPad)
         XCTAssertEqual(lounge.creditID, CreditLibrary.innerbloom.id)
+        let beach = try XCTUnwrap(SetLibrary.set(id: "golden-hour-beach"))
+        XCTAssertEqual(beach.name, "Golden Hour Beach")
+        XCTAssertEqual(beach.moodName, "Warm, hazy, nostalgic")
+        XCTAssertEqual(beach.mood, .warmHaze)
+        XCTAssertEqual(beach.worldID, GoldenHourBeachModel.id)
+        XCTAssertEqual(beach.visual, "Tide Lines")
+        XCTAssertEqual(PatchLibrary.all.first { $0.id == beach.patchID }?.engine, .honeyTape)
+        XCTAssertEqual(beach.patchID, "honey-tape")
+        XCTAssertEqual(beach.creditID, CreditLibrary.musicToWatchBoysTo.id)
+        let road = try XCTUnwrap(SetLibrary.set(id: "coast-road"))
+        XCTAssertEqual(road.name, "Coast Road")
+        XCTAssertEqual(road.moodName, "Hazy, restless, free")
+        XCTAssertEqual(road.mood, .restless)
+        XCTAssertEqual(road.worldID, CoastRoadModel.id)
+        XCTAssertEqual(road.visual, "Coast Lights")
+        XCTAssertEqual(PatchLibrary.all.first { $0.id == road.patchID }?.engine, .hazeBells)
+        XCTAssertEqual(road.patchID, "haze-bells")
+        XCTAssertEqual(road.creditID, CreditLibrary.highByTheBeach.id)
         XCTAssertNil(SetLibrary.set(id: "nope"))
         // Each set's built-in preset carries the same credit as the set.
         for s in SetLibrary.all { XCTAssertEqual(PatchLibrary.all.first { $0.id == s.patchID }?.creditID, s.creditID) }
+    }
+
+    func testNewMoods() {
+        XCTAssertEqual(Mood.warmHaze, Mood(energy: 0.25, warmth: 0.85, brightness: 0.55, space: 0.75, motion: 0.35))
+        XCTAssertEqual(Mood.restless, Mood(energy: 0.5, warmth: 0.35, brightness: 0.4, space: 0.85, motion: 0.75))
+        XCTAssertNotEqual(Mood.warmHaze, Mood.serene); XCTAssertNotEqual(Mood.restless, Mood.dreamy)
     }
 
     // MARK: - Inspired-by cards

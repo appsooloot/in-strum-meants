@@ -207,6 +207,34 @@ final class AppModelTests: XCTestCase {
         XCTAssertEqual(engine.moods.last, .dreamy)
     }
 
+    func testApplyingGoldenHourBeachLoadsHoneyTape() async {
+        let m = makeModel()
+        await m.launch(skipPluginInSafeMode: false)
+        await m.applySet("golden-hour-beach")
+        XCTAssertEqual(engine.loaded.last.flatMap { BuiltInCatalog.engine(for: $0) }, .honeyTape)
+        XCTAssertEqual(engine.applied.last?.id, "honey-tape")
+        XCTAssertEqual(engine.moods.last, .warmHaze)
+        XCTAssertEqual(m.mood, .warmHaze)
+        XCTAssertEqual(m.themeID, GoldenHourBeachModel.id)
+        XCTAssertEqual(visual(m), "Tide Lines")
+        XCTAssertEqual(m.activeSetID, "golden-hour-beach")
+        XCTAssertFalse(m.isSetModified)
+    }
+
+    func testApplyingCoastRoadLoadsHazeBells() async {
+        let m = makeModel()
+        await m.launch(skipPluginInSafeMode: false)
+        await m.applySet("coast-road")
+        XCTAssertEqual(engine.loaded.last.flatMap { BuiltInCatalog.engine(for: $0) }, .hazeBells)
+        XCTAssertEqual(engine.applied.last?.id, "haze-bells")
+        XCTAssertEqual(engine.moods.last, .restless)
+        XCTAssertEqual(m.mood, .restless)
+        XCTAssertEqual(m.themeID, CoastRoadModel.id)
+        XCTAssertEqual(visual(m), "Coast Lights")
+        XCTAssertEqual(m.activeSetID, "coast-road")
+        XCTAssertFalse(m.isSetModified)
+    }
+
     func testChangingAPartMarksModifiedAndRestoreReverts() async {
         let m = makeModel()
         await m.launch(skipPluginInSafeMode: false)
