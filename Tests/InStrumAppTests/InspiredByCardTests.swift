@@ -12,6 +12,17 @@ final class InspiredByCardTests: XCTestCase {
         XCTAssertNotEqual(CardArt.art(for: CreditLibrary.comeBackToEarth.id), CardArt.art(for: CreditLibrary.innerbloom.id))
     }
 
+    /// No two cards look alike.
+    func testCardsAreDistinct() throws {
+        let images = try CreditLibrary.all.map { try XCTUnwrap(Self.render($0, at: 1.0), $0.id) }
+        for i in 0..<images.count {
+            for j in (i + 1)..<images.count {
+                let d = PreviewRenderer.difference(images[i], images[j])
+                if d <= 0.02 { XCTFail("\(CreditLibrary.all[i].id) and \(CreditLibrary.all[j].id) differ by only \(d)") }
+            }
+        }
+    }
+
     /// Renders a card at a fixed moment (600×360, the card's 5:3).
     static func render(_ c: Credit, at t: Double) -> CGImage? {
         let renderer = ImageRenderer(content: InspiredByCard(credit: c, fixedTime: t).frame(width: 600, height: 360))
