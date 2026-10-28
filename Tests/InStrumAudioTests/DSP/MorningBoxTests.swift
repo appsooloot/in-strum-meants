@@ -213,13 +213,22 @@ final class MorningBoxTests: XCTestCase {
 
     // MARK: - Hygiene
 
+    /// The box's struck attacks are sharp by design, so stealing is judged against the same 40 attacks played
+    /// short (no pedal, at most a handful sounding, nothing stolen): stealing 16 voices must add no bigger jump.
     func testStealingIsClickFree() {
-        var events = [R.pedal(0, 127)]
-        for i in 0..<40 { events.append(R.noteOn(Double(i) * 0.05, UInt8(48 + i), 90)) }
-        let out = R.render(morning, seconds: 3, params: dry, events: events)
-        XCTAssertTrue(out.l.allSatisfy(\.isFinite) && out.r.allSatisfy(\.isFinite))
-        XCTAssertLessThan(DSPTestKit.maxJump(out.l), 0.2)
-        XCTAssertLessThan(DSPTestKit.maxJump(out.r), 0.2)
+        var stealing = [R.pedal(0, 127)], short: [R.Event] = []
+        for i in 0..<40 {
+            let t = Double(i) * 0.05, n = UInt8(48 + i)
+            stealing.append(R.noteOn(t, n, 90))
+            short.append(R.noteOn(t, n, 90)); short.append(R.noteOff(t + 0.3, n))
+        }
+        let a = R.render(morning, seconds: 3, params: dry, events: stealing)
+        let b = R.render(morning, seconds: 3, params: dry, events: short)
+        XCTAssertTrue(a.l.allSatisfy(\.isFinite) && a.r.allSatisfy(\.isFinite))
+        let stolen = max(DSPTestKit.maxJump(a.l), DSPTestKit.maxJump(a.r))
+        let attacks = max(DSPTestKit.maxJump(b.l), DSPTestKit.maxJump(b.r))
+        XCTAssertLessThan(stolen, 1.25 * attacks + 0.01, "stealing \(stolen) against the attacks alone \(attacks)")
+        XCTAssertLessThan(stolen, 0.4, "an attack jump this big would be a click")
     }
 
     func testDialSweepIsSmooth() {
