@@ -44,6 +44,7 @@ final class PreviewRenderer {
         var garden: ButterflyRenderer?, steinway: SteinwayRenderer?, moonlitLake: MoonlitLakeRenderer?
         var lounge: SpaceshipLoungeRenderer?, beach: GoldenHourBeachRenderer?, road: CoastRoadRenderer?
         var cabin: SnowboundCabinRenderer?
+        var bedroom: BedroomDawnRenderer?
         var images: [CGImage] = []
         for t in times.sorted() {
             var current: ThemeRenderer?
@@ -89,6 +90,13 @@ final class PreviewRenderer {
                     }
                     cabin?.update(c, params: director.parameters, quality: quality, gentle: gentle, dt: dt, size: size)
                     current = cabin
+                } else if let b = frame as? BedroomFrame {
+                    if bedroom == nil {
+                        bedroom = BedroomDawnRenderer(device: device)
+                        bedroom?.awaitField()
+                    }
+                    bedroom?.update(b, params: director.parameters, quality: quality, gentle: gentle, dt: dt, size: size)
+                    current = bedroom
                 }
                 if time + dt > t { break }
             }

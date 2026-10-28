@@ -55,9 +55,10 @@ public struct BedroomDawnModel: ThemeModel, MoodAware, SkyAware {
     private static let layout = KeyboardLayout.keys()
 
     public init() {
-        // Sheer panels hang from the rod just above the window, each over a little less than half of it.
-        left = Cloth(width: 0.46, height: 1.24, origin: SIMD3(-0.02, 1.08, 0.03), seed: 0x1EF7)
-        right = Cloth(width: 0.46, height: 1.24, origin: SIMD3(0.56, 1.08, 0.03), seed: 0x816A7)
+        // Sheer panels hang from the rod just above the window, drawn back toward the sides (each over a fifth of
+        // the glass and the wall beside it).
+        left = Cloth(width: 0.5, height: 1.24, origin: SIMD3(-0.3, 1.08, 0.03), seed: 0x1EF7)
+        right = Cloth(width: 0.5, height: 1.24, origin: SIMD3(0.8, 1.08, 0.03), seed: 0x816A7)
     }
 
     public mutating func handle(_ e: PerformanceEvent) { pending.append(e) }
