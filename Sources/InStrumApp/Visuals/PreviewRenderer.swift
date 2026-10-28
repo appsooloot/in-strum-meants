@@ -131,16 +131,27 @@ final class PreviewRenderer {
         return (mean, variance)
     }
 
-    /// Mean luminance of the square patch around the brightest pixel.
+    /// The brightest region: the highest mean luminance of any (2r+1)² patch (summed-area table), so a large
+    /// lit disc beats a single bright star.
     static func brightestPatch(_ image: CGImage, radius: Int) -> Double {
-        let l = luminances(image), w = image.width, h = image.height
-        guard let best = l.indices.max(by: { l[$0] < l[$1] }) else { return 0 }
-        let bx = best % w, by = best / w
-        var sum = 0.0, n = 0
-        for y in max(0, by - radius)...min(h - 1, by + radius) {
-            for x in max(0, bx - radius)...min(w - 1, bx + radius) { sum += l[y * w + x]; n += 1 }
+        let l = luminances(image), w = image.width, h = image.height, k = 2 * radius + 1
+        guard w >= k, h >= k else { return 0 }
+        var sat = [Double](repeating: 0, count: (w + 1) * (h + 1))
+        for y in 0..<h {
+            var row = 0.0
+            for x in 0..<w {
+                row += l[y * w + x]
+                sat[(y + 1) * (w + 1) + x + 1] = sat[y * (w + 1) + x + 1] + row
+            }
         }
-        return n > 0 ? sum / Double(n) : 0
+        var best = 0.0
+        for y in 0...(h - k) {
+            for x in 0...(w - k) {
+                let a = sat[y * (w + 1) + x], b = sat[y * (w + 1) + x + k], c = sat[(y + k) * (w + 1) + x], d = sat[(y + k) * (w + 1) + x + k]
+                best = max(best, d - b - c + a)
+            }
+        }
+        return best / Double(k * k)
     }
 
     /// Mean absolute luminance difference (images must be the same size).
