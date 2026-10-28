@@ -13,6 +13,8 @@ final class BedroomDawnRenderer: ThemeRenderer {
     static func moteBudget(_ q: QualityLevel) -> Int { q == .lite ? 200 : 400 }
     static func patchBudget(_ q: QualityLevel) -> Int { q == .lite ? 24 : 48 }
     static let fieldSeed: UInt64 = 0xBED5
+    /// Degrees the view turns left of a low sun, so it rises right of the middle bar and the beams slant.
+    static let sunOffset = 10.0
 
     /// The sash window: two panes across, three up (two sashes), above the sill; the floor shows below the wall.
     static func layout(aspect: Float, keyTop: Float) -> (window: WindowSpec, floorLine: Float) {
@@ -157,7 +159,8 @@ final class BedroomDawnRenderer: ThemeRenderer {
         let horizonY = spec.rect.y + (spec.rect.w - spec.rect.y) * 0.42
 
         // Face the low sun (rising between the chimneys, or wherever the held light puts it), else east.
-        let target = s.sun.altitude > -12 && s.sun.altitude < 25 ? s.sun.azimuth : 90
+        // The sun sits a little right of the middle bar, so its beams slant down across the room.
+        let target = s.sun.altitude > -12 && s.sun.altitude < 25 ? s.sun.azimuth - Self.sunOffset : 90
         if let az = viewAzimuth {
             let diff = (target - az + 540).truncatingRemainder(dividingBy: 360) - 180
             viewAzimuth = az + diff * (1 - exp(-min(dt, 0.1) / 4))
@@ -283,7 +286,10 @@ final class BedroomDawnRenderer: ThemeRenderer {
                 let wx = (q.x - spec.rect.x) / glassW, wy = (q.y - spec.rect.y) / glassH
                 if wx > 0, wx < 1, wy > 0, wy < 1 { lit = max(lit, 1 - sAlong) }
             }
-            let bright = motesSetting * (0.06 + 0.9 * lit * direct * (0.4 + 0.6 * glowOut)) * (1 + 2.5 * m.glint * limited.sparkle)
+            // Dust shows in the beams against the dim room; over the bright glass it all but disappears.
+            let overGlass = pos.x > spec.rect.x && pos.x < spec.rect.z && pos.y > spec.rect.y && pos.y < spec.rect.w
+            let bright = motesSetting * (0.06 + 0.7 * lit * direct * (0.4 + 0.6 * glowOut)) * (overGlass ? 0.3 : 1)
+                * (1 + 2.5 * m.glint * limited.sparkle)
             guard bright > 0.01 else { continue }
             let size: Float = 0.0035 + 0.004 * m.position.z
             spriteData.append(SIMD4(pos.x, pos.y, size, min(bright, 2)))

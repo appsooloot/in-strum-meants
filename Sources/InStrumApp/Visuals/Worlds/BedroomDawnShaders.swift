@@ -329,9 +329,11 @@ enum BedroomDawnShaders {
             bool lit = inPane(float2(wx, wy), c);
             float leaves = bvn2(float2(sx * 9.0 + time * 0.3 * (0.3 + c.e.x), sy * 20.0 + sin(time * 0.8) * 0.3 * c.e.x)) * 0.6
                          + bvn2(float2(sx * 21.0 - time * 0.5 * c.e.x, sy * 41.0)) * 0.4;
-            float dapple = 0.55 + 0.45 * smoothstep(0.35, 0.55, leaves);
+            float dapple = 0.8 + 0.2 * smoothstep(0.3, 0.6, leaves);
             float patch = lit ? dapple : 0.0;
-            col += albedo * (sunLight * 1.8 * (0.45 + 0.55 * glow) * setting + outside * 0.25) * tint * patch;
+            // Sunlit boards read pale gold rather than orange.
+            float3 litAlbedo = mix(albedo, float3(0.78, 0.66, 0.52), 0.4);
+            col += litAlbedo * (sunLight * 0.9 * (0.45 + 0.55 * glow) * setting + outside * 0.2) * tint * patch;
             depth = 0.08 + 0.1 * k;
         }
 
@@ -369,11 +371,12 @@ enum BedroomDawnShaders {
             float rise = mugP.y - mugH;
             if (rise > 0.0 && rise < 0.22) {
                 float bend = c.d.w * rise * rise * 3.0;
-                float centre = 0.008 * sin(rise * 40.0 - time * 2.0) + bend;
-                float q = (mugP.x - centre) / (0.006 + rise * 0.08);
-                float n = bvn2(float2(mugP.x * 50.0, rise * 30.0 - time * 1.2));
-                steam = exp(-q * q) * smoothstep(0.3, 0.7, n) * (1.0 - smoothstep(0.05, 0.22, rise)) * 0.35;
-                col = mix(col, objLight * 1.2 + 0.05, steam);
+                float centre = 0.006 * sin(rise * 45.0 - time * 2.0) + bend;
+                float q = (mugP.x - centre) / (0.003 + rise * 0.05);
+                // Thin wisps that break up as they rise.
+                float n = bvn2(float2(mugP.x * 90.0, rise * 45.0 - time * 1.5));
+                steam = exp(-q * q) * smoothstep(0.45, 0.75, n) * smoothstep(0.0, 0.015, rise) * (1.0 - smoothstep(0.04, 0.18, rise)) * 0.2;
+                col += (objLight * 0.8 + 0.03) * steam;
             }
         }
         bool objectHit = potHit || leafHit || mugBody || handle || steam > 0.03;
