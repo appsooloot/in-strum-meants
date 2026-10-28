@@ -100,6 +100,7 @@ final class BuiltInAUTests: XCTestCase {
         setParam(e, Int(ISD_P_SPACE), 0)
         if engine == .orbitPad { setParam(e, Int(ISD_P_DRIFT), 0); setParam(e, Int(ISD_P_MOTION), 0) }
         if engine == .honeyTape { setParam(e, Int(ISD_P_WOW), 0); setParam(e, Int(ISD_P_STRINGS), 0) }
+        if engine == .hazeBells { setParam(e, Int(ISD_P_DRIFT), 0); setParam(e, Int(ISD_P_ECHO), 0) }
     }
 
     func testTuningHoldsAt44_1And96k() async throws {

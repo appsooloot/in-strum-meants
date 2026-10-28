@@ -555,6 +555,17 @@ final class AppModelTests: XCTestCase {
         XCTAssertEqual(credit?.key, "C♯ minor"); XCTAssertEqual(credit?.tempoBPM, 132)
     }
 
+    func testHazeBellsPresetsCarryTheirCredit() {
+        let presets = PatchLibrary.patches(for: .hazeBells)
+        XCTAssertEqual(presets.map(\.id), ["haze-bells", "church-keys", "night-drive", "lo-fi"])
+        for p in presets { XCTAssertTrue(p.displayName.hasSuffix("· after \"High by the Beach\""), p.displayName) }
+        XCTAssertEqual(PatchLibrary.defaultPatch(for: .hazeBells).id, "haze-bells")
+        let credit = CreditLibrary.credit(id: "high-by-the-beach")
+        XCTAssertEqual(credit?.artist, "Lana Del Rey"); XCTAssertEqual(credit?.album, "Honeymoon")
+        XCTAssertEqual(credit?.year, 2015); XCTAssertEqual(credit?.trackNumber, 5)
+        XCTAssertEqual(credit?.key, "B minor"); XCTAssertEqual(credit?.tempoBPM, 132)
+    }
+
     func testPresetNamesCarryCredit() {
         XCTAssertEqual(PatchLibrary.defaultPatch(for: .feltGlass).displayName, "Felt Glass · after \"Come Back to Earth\"")
         XCTAssertEqual(Patch(id: "x", name: "Plain", engine: .feltGlass, values: [:]).displayName, "Plain")
