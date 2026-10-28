@@ -21,7 +21,14 @@ public enum SetLibrary {
     public static let spaceshipLounge = InStrumSet(id: "spaceship-lounge", name: "Spaceship Lounge", moodName: "Dreamy, awe-struck",
                                                    mood: .dreamy, worldID: SpaceshipLoungeModel.id, visual: "Galaxy Warp",
                                                    patchID: "orbit-pad", ambience: AmbienceSettings(), creditID: CreditLibrary.innerbloom.id)
-    public static let all: [InStrumSet] = [moonlitLake, spaceshipLounge]
+    public static let goldenHourBeach = InStrumSet(id: "golden-hour-beach", name: "Golden Hour Beach", moodName: "Warm, hazy, nostalgic",
+                                                   mood: .warmHaze, worldID: GoldenHourBeachModel.id, visual: "Tide Lines",
+                                                   patchID: "honey-tape", ambience: AmbienceSettings(),
+                                                   creditID: CreditLibrary.musicToWatchBoysTo.id)
+    public static let coastRoad = InStrumSet(id: "coast-road", name: "Coast Road", moodName: "Hazy, restless, free",
+                                             mood: .restless, worldID: CoastRoadModel.id, visual: "Coast Lights",
+                                             patchID: "haze-bells", ambience: AmbienceSettings(), creditID: CreditLibrary.highByTheBeach.id)
+    public static let all: [InStrumSet] = [moonlitLake, spaceshipLounge, goldenHourBeach, coastRoad]
 
     public static func set(id: String) -> InStrumSet? { all.first { $0.id == id } }
 }
