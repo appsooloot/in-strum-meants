@@ -8,8 +8,8 @@ namespace isd {
 namespace {
 
 // Level calibration (see docs/superpowers/briefs/morning-box.md).
-constexpr float kBoxGain = 0.32f;
-constexpr float kWallGain = 0.16f;
+constexpr float kBoxGain = 0.13f;
+constexpr float kWallGain = 0.10f;
 constexpr float kMaster = 1.0f;
 
 /// Celesta bars (free-free bar modes over a tuned resonator) and a music box's plucked cantilever tines.
@@ -110,13 +110,19 @@ MorningBox::BoxVoice &MorningBox::allocateBox() {
 
 MorningBox::WallVoice &MorningBox::allocateWall() {
     int sounding = 0;
-    WallVoice *quietest = nullptr;
+    WallVoice *victim = nullptr;
+    // Released voices go first (quietest first); then notes the pedal is holding, then held keys (oldest first).
+    // Never the newest note: under the pedal it's still swelling in and would always be the quietest.
+    auto rank = [](const WallVoice &v) { return v.released ? 0 : (v.keyDown ? 2 : 1); };
     for (auto &v : wall) {
         if (!v.active || v.fading) continue;
         ++sounding;
-        if (!quietest || v.env < quietest->env) quietest = &v;
+        if (!victim) { victim = &v; continue; }
+        const int a = rank(v), b = rank(*victim);
+        if (a != b) { if (a < b) victim = &v; continue; }
+        if (a == 0 ? v.env < victim->env : v.born < victim->born) victim = &v;
     }
-    if (sounding >= kWallPolyphony && quietest) { quietest->fading = true; quietest->fadeStep = 1.f / (0.02f * (float)sr); }
+    if (sounding >= kWallPolyphony && victim) { victim->fading = true; victim->fadeStep = 1.f / (0.02f * (float)sr); }
     for (auto &v : wall) if (!v.active) return v;
     WallVoice *best = nullptr;
     for (auto &v : wall) if (v.fading && (!best || v.fadeGain < best->fadeGain)) best = &v;
@@ -136,7 +142,21 @@ void MorningBox::noteOn(int note, int velocity) {
     for (auto &v : wall)
         if (v.active && !v.fading && v.note == note && v.keyDown) { v.keyDown = false; if (!sustain) releaseWall(v); }
     if (!wallOnly) startBox(allocateBox(), note, pitch, velocity);
-    if (!boxOnly) startWall(allocateWall(), note, pitch, velocity);
+    if (!boxOnly) {
+        // The same note struck again while its wall is still sounding (the pedal, or its release) swells that voice
+        // again instead of stacking another.
+        WallVoice *again = nullptr;
+        for (auto &v : wall)
+            if (v.active && !v.fading && v.note == note && v.pitch == pitch && !v.keyDown && (!again || v.env > again->env)) again = &v;
+        if (again) {
+            const float vp = (float)std::clamp(velocity, 1, 127) / 127.f;
+            again->keyDown = true; again->released = false;
+            again->velocity = std::max(again->velocity, vp);
+            again->born = ++wallStamp;
+        } else {
+            startWall(allocateWall(), note, pitch, velocity);
+        }
+    }
 }
 
 void MorningBox::startBox(BoxVoice &v, int note, int pitch, int velocity) {
@@ -185,7 +205,7 @@ void MorningBox::startBox(BoxVoice &v, int note, int pitch, int velocity) {
 void MorningBox::startWall(WallVoice &v, int note, int pitch, int velocity) {
     const float vp = (float)std::clamp(velocity, 1, 127) / 127.f;
     v.active = true; v.keyDown = true; v.released = false; v.fading = false;
-    v.note = note; v.pitch = pitch; v.velocity = vp;
+    v.note = note; v.pitch = pitch; v.velocity = vp; v.born = ++wallStamp;
     v.env = 0; v.fadeGain = 1; v.fadeStep = 0;
     const float attack = 1.2f - 0.8f * vp;   // 0.4–1.2 s: harder notes bloom sooner
     v.attackK = 1.f - std::exp(-1.f / (attack / 3.f * (float)sr));

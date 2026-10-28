@@ -1114,9 +1114,12 @@ public:
         if ((toCar -= dt) <= 0) {
             for (auto &car : cars) if (car.t < 0) {
                 car.t = 0; car.dur = 4.f + 4.f * rng.uniform(); car.dir = rng.uniform() < 0.5f ? -1.f : 1.f; car.amp = 0.6f + 0.5f * rng.uniform();
+                ++events;
                 break;
             }
-            toCar = (6.f + 14.f * rng.uniform()) / c.density;
+            // The street wakes up: the higher its level (the later the morning), the more often a car goes by.
+            const float busy = std::min(2.f, std::max(0.25f, level / 0.4f));
+            toCar = (6.f + 14.f * rng.uniform()) / (c.density * busy);
         }
         if ((toBell -= dt) <= 0) {
             const float f = 2600.f + 600.f * rng.uniform();
@@ -1532,6 +1535,7 @@ void isd_ambience_set_indoors(ISDAmbience *a, float v) { if (a && std::isfinite(
 void isd_ambience_set_wetness(ISDAmbience *a, float v) { if (a && std::isfinite(v)) a->wetness.store(isd::clamp01(v), std::memory_order_relaxed); }
 void isd_ambience_set_snow_on_glass(ISDAmbience *a, float v) { if (a && std::isfinite(v)) a->snowOnGlass.store(isd::clamp01(v), std::memory_order_relaxed); }
 void isd_ambience_debug_start_kettle(ISDAmbience *a) { if (a) a->kettleSeq.fetch_add(1, std::memory_order_release); }
+int isd_ambience_debug_events(const ISDAmbience *a, ISDAmbienceSource source) { return a ? a->engine.events((int)source) : 0; }
 
 void isd_ambience_render(ISDAmbience *a, float *left, float *right, int frames) {
     if (!a || frames <= 0) return;

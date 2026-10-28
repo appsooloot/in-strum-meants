@@ -33,6 +33,8 @@ public:
     bool indoor = false;
     /// This block's level (0…1), for sources whose events thin out as they fade.
     float level = 0.f;
+    /// Events started so far (tests): the street counts its passing cars.
+    int events = 0;
 };
 
 class Thunder;
@@ -56,6 +58,8 @@ public:
     void setWetness(float v) { wetTarget = clamp01(v); }
     void setSnowOnGlass(float v) { snowTarget = clamp01(v); }
     void startKettle();
+    /// Events a source has started (tests; read when not rendering).
+    int events(int source) const { return source >= 0 && source < ISD_AMB_COUNT && sources[source] ? sources[source]->events : 0; }
     void render(float *left, float *right, int frames);
 
     static constexpr int kBlock = 64;

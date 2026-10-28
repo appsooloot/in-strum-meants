@@ -26,7 +26,7 @@ public:
     int activeVoices() const override;
 
     static constexpr int kBoxPolyphony = 24, kWallPolyphony = 24;
-    static constexpr int kBoxPool = 30, kWallPool = 30;   // plus voices fading out after being stolen
+    static constexpr int kBoxPool = 30, kWallPool = 36;   // plus voices fading out after being stolen (a 12-note chord at once)
     static constexpr int kSub = 32;
     static constexpr int kUnison = 6;
 
@@ -59,6 +59,7 @@ private:
     struct WallVoice {
         bool active = false, keyDown = false, released = false, fading = false;
         int note = 0, pitch = 0;
+        uint64_t born = 0;   // when it was struck (the wall's oldest held note is the one to let go)
         float velocity = 0, env = 0, attackK = 0, fadeGain = 1, fadeStep = 0;
         double phase[kUnison + 1] = {}, sub = 0, shimmer = 0;
         float s[2][4] = {};       // the two channels' 4-pole filter states
@@ -78,6 +79,7 @@ private:
     double sr;
     BoxVoice box[kBoxPool];
     WallVoice wall[kWallPool];
+    uint64_t wallStamp = 0;
     bool sustain = false;
     FastRandom rng;
 
