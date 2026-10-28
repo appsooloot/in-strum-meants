@@ -1,14 +1,16 @@
-/// Metal source for Golden Hour Beach: a low headland, the Ocean layer out to the breakers, white water, the
-/// wash sliding up the sand, wet sand mirroring the sky, dry sand with ripple marks, Tide Lines glowing in the
-/// sand, palm silhouettes and an amber keyboard. Built on SkyShaders.common and OceanShaders.common.
-/// Smooth rules: no ray marching, ≤ 2 noise octaves, ≤ 24 lines per sand pixel on Smooth.
+/// Metal source for Golden Hour Beach: a low headland, the Ocean layer out to the breakers, crests rolling in
+/// and breaking into white water, the wash sliding up the sand, wet sand mirroring the sky, dry sand with ripple
+/// marks, Tide Lines glowing in the sand, palms and dune grass, and an amber keyboard. Built on
+/// SkyShaders.common and OceanShaders.common.
+/// Smooth rules: no ray marching, ≤ 2 noise octaves, ≤ 24 lines per sand pixel on Smooth; everything that moves
+/// is timed by the swell's wrapped phases (never a raw clock).
 enum GoldenHourBeachShaders {
     static let source = SkyShaders.common + OceanShaders.common + """
     struct BeachU {
         float4 a;           // keys top (NDC y), unused, glitter 0…1, haze 0…1
         float4 b;           // palms 0…1, wind, line count, night 0…1
-        float4 c;           // aspect, camera height (m), unused, unused
-        float4 shore;       // wash front 0…1, foam from chords 0…1, smooth (1) or not (0), white water 0…1
+        float4 c;           // aspect, camera height (m), seconds since the last break (< 0: none), its strength
+        float4 shore;       // wash front 0…1, foam from chords 0…1, smooth (1) or not (0), unused
         float4 crest[3];    // the next crests: metres beyond the break line, strength
         float4 line[48];    // across (m), out (m), half length (m), glow
         float4 lineB[48];   // hue, unused…
@@ -18,6 +20,7 @@ enum GoldenHourBeachShaders {
     constant float kWaterline = 10.0;   // metres from the camera to where the sea meets the sand
     constant float kWetBand = 5.0;      // wet sand from here back toward the camera
     constant float kBreak = 18.0;       // where the waves break
+    constant float kBoreSpeed = 4.0;    // white water rushing in from the break (m/s)
 
     vertex BeachOut beach_vertex(uint vid [[vertex_id]]) {
         float2 p[3] = { float2(-1, -1), float2(3, -1), float2(-1, 3) };
@@ -31,52 +34,97 @@ enum GoldenHourBeachShaders {
         return normalize(u.forward.xyz + u.right.xyz * ndc.x * u.right.w + u.up.xyz * ndc.y * u.up.w);
     }
 
-    float3 hueColor(float h) {
+    /// A line's colour: warm gold tinted toward the chord's hue.
+    float3 lineColor(float h) {
         float3 k = clamp(abs(fract(h + float3(0.0, 2.0 / 3.0, 1.0 / 3.0)) * 6.0 - 3.0) - 1.0, 0.0, 1.0);
-        return mix(float3(1.0), k, 0.55);
+        return mix(float3(1.0, 0.86, 0.6), k, 0.6);
     }
 
-    float segDist(float2 p, float2 a, float2 b) {
+    /// Distance from p to segment ab, and how far along it (0…1) the nearest point lies.
+    float2 segDistH(float2 p, float2 a, float2 b) {
         float2 pa = p - a, ba = b - a;
         float h = saturate(dot(pa, ba) / max(dot(ba, ba), 1e-6));
-        return length(pa - ba * h);
+        return float2(length(pa - ba * h), h);
     }
 
-    // Palm silhouettes at the frame's edges, swaying with the wind (timed by the swell's wrapped phases, so they
-    // never jump however long the session). Returns coverage 0…1.
-    float palms(float2 p, constant BeachU& b, constant OceanU& o) {
-        float amount = b.b.x;
-        if (amount < 0.01 || abs(p.x) < 0.5) return 0.0;
-        float aspect = b.c.x, wind = b.b.y, base = b.a.x;
-        float2 q = float2(p.x * aspect, p.y);
+    /// One palm's coverage at q (screen units: x × aspect, y): a tapered, ringed trunk and a crown of drooping
+    /// fronds with serrated leaflets. Sway comes from the swell's wrapped phases.
+    float palmTree(float2 q, float2 root, float height, float lean, float scale, float sway, float frondSway, float seed) {
+        float2 top = root + float2(lean + sway, height);
+        // Cheap bounds: nothing far from the trunk or the crown.
+        if (q.y < root.y - 0.02 || q.y > top.y + 0.42 * scale) return 0.0;
         float cover = 0.0;
-        for (int i = 0; i < 3; i++) {
-            float3 h = hash33(float3(float(i), 3.0, 9.0));
-            if (float(i) > amount * 3.0) continue;
-            float side = (i == 1) ? 1.0 : -1.0;
-            float2 root = float2(side * (0.8 + 0.18 * h.x + (i == 2 ? 0.16 : 0.0)) * aspect, base - 0.05);
-            float height = 1.15 + 0.35 * h.y;
-            float sway = (0.012 + 0.04 * wind) * sin(o.phases[i] + h.x * 10.0);
-            float2 top = root + float2(-side * (0.14 + 0.12 * h.y) + sway, height);
-            float2 ctrl = root + float2(side * 0.05, height * 0.55);
-            // The trunk: a gentle curve in four pieces, thinning toward the crown.
-            float2 prev = root;
-            for (int k = 1; k <= 4; k++) {
-                float t = float(k) / 4.0;
+        float2 ctrl = root + float2(lean * 0.15 + 0.05 * sign(lean), height * 0.55);
+        float2 prev = root;
+        if (abs(q.x - mix(root.x, top.x, saturate((q.y - root.y) / height))) < 0.12) {
+            for (int k = 1; k <= 6; k++) {
+                float t = float(k) / 6.0;
                 float2 pt = (1.0 - t) * (1.0 - t) * root + 2.0 * (1.0 - t) * t * ctrl + t * t * top;
-                float w = mix(0.022, 0.011, t);
-                cover = max(cover, smoothstep(w, w * 0.5, segDist(q, prev, pt)));
+                float2 dh = segDistH(q, prev, pt);
+                float tt = (float(k - 1) + dh.y) / 6.0;
+                float w = mix(0.03, 0.014, tt) * scale * (1.0 + 0.12 * abs(sin(tt * 70.0 + seed)));
+                cover = max(cover, smoothstep(w, w * 0.6, dh.x));
                 prev = pt;
             }
-            // The crown: seven drooping fronds.
-            for (int f = 0; f < 7; f++) {
-                float a = -2.6 + float(f) * 0.86 + 0.15 * sin(o.phases.w + float(f) + h.y * 5.0) * (0.4 + wind);
-                float len = 0.22 + 0.08 * hash13(float3(float(i), float(f), 2.0));
-                float2 dir = float2(cos(a), sin(a) * 0.6 + 0.25);
-                float2 p1 = top + dir * len * 0.5;
-                float2 p2 = top + dir * len + float2(0.0, -0.09 * len / 0.25);
-                float d1 = segDist(q, top, p1), d2 = segDist(q, p1, p2);
-                cover = max(cover, smoothstep(0.009, 0.004, min(d1, d2)));
+        }
+        if (length(q - top) > 0.42 * scale) return cover;
+        // A dark knot where the fronds meet.
+        cover = max(cover, smoothstep(0.03 * scale, 0.018 * scale, length(q - top - float2(0, -0.01))));
+        for (int f = 0; f < 10; f++) {
+            float h = hash13(float3(seed, float(f), 4.0));
+            float a = -0.25 + float(f) * 0.36 + 0.25 * (h - 0.5) + 0.06 * sin(frondSway + float(f) * 1.7);
+            float len = (0.26 + 0.1 * h) * scale;
+            float2 dir = float2(cos(a), sin(a));
+            float droop = (0.12 + 0.1 * saturate(dir.y)) * scale;
+            float2 p0 = top;
+            float2 p1 = top + dir * len * 0.4 + float2(0, 0.02 * scale);
+            float2 p2 = top + dir * len * 0.75 - float2(0, droop * 0.45);
+            float2 p3 = top + dir * len - float2(0, droop);
+            float2 d1 = segDistH(q, p0, p1), d2 = segDistH(q, p1, p2), d3 = segDistH(q, p2, p3);
+            float2 best = d1; float base = 0.0;
+            if (d2.x < best.x) { best = d2; base = 1.0; }
+            if (d3.x < best.x) { best = d3; base = 2.0; }
+            float t = (base + best.y) / 3.0;
+            // Leaflets: wide in the middle, a comb of points along the edge.
+            float w = 0.034 * scale * sin(3.14159 * min(1.0, t * 1.1)) * (0.45 + 0.55 * abs(sin(t * 46.0 + h * 9.0)));
+            cover = max(cover, smoothstep(w + 0.002, w * 0.5, best.x) * step(0.04, t));
+            cover = max(cover, smoothstep(0.006 * scale, 0.003 * scale, best.x));   // the midrib
+        }
+        return cover;
+    }
+
+    /// Palms at the frame's edges and dune grass along the bottom corners. Returns coverage 0…1.
+    float shoreSilhouettes(float2 p, constant BeachU& b, constant OceanU& o) {
+        float amount = b.b.x;
+        if (amount < 0.01 || abs(p.x) < 0.25) return 0.0;
+        float aspect = b.c.x, wind = b.b.y, base = b.a.x;
+        float2 q = float2(p.x * aspect, p.y);
+        float sway = (0.01 + 0.035 * wind);
+        float cover = 0.0;
+        // Left: a tall palm leaning in and a smaller one behind it; right: one leaning in.
+        cover = max(cover, palmTree(q, float2(-0.93 * aspect, base - 0.02), 1.45, 0.2, 1.0,
+                                    sway * sin(o.phases.x), o.phases.w, 1.0));
+        if (amount > 0.35) {
+            cover = max(cover, 0.85 * palmTree(q, float2(-0.68 * aspect, base + 0.03), 0.95, 0.12, 0.72,
+                                               sway * sin(o.phases.y + 1.0), o.phases.w + 2.0, 2.0));
+        }
+        if (amount > 0.65) {
+            cover = max(cover, palmTree(q, float2(0.9 * aspect, base - 0.02), 1.3, -0.24, 0.95,
+                                        sway * sin(o.phases.z + 2.0), o.phases.w + 4.0, 3.0));
+        }
+        // Dune grass: thin blades in tufts near the bottom corners.
+        float edge = smoothstep(0.55, 0.9, abs(p.x));
+        if (edge > 0.0 && p.y < base + 0.2) {
+            float x = q.x * 55.0;
+            float i = floor(x), fx = fract(x);
+            float hb = hash13(float3(i, 7.0, 1.0));
+            float tuft = smoothstep(0.3, 0.7, vnoise3(float3(i * 0.08, 3.0, 2.0)));
+            float bladeH = (0.04 + 0.13 * hb) * edge * tuft * amount;
+            float y = (p.y - base) / max(bladeH, 1e-3);
+            if (y >= 0.0 && y < 1.0) {
+                float lean = (0.25 + 0.6 * wind) * sin(o.phases.w + hb * 6.0) * y * y;
+                float width = 0.42 * (1.0 - y);
+                cover = max(cover, smoothstep(width, width * 0.6, abs(fx - 0.5 - lean)));
             }
         }
         return cover;
@@ -107,15 +155,19 @@ enum GoldenHourBeachShaders {
         float haze = b.a.w, night = b.b.w;
         float3 horizon = u.horizon.rgb, zenith = u.zenith.rgb;
         float3 hazeCol = horizon * (1.02 + 0.1 * night);
-        float palm = palms(p, b, o);
-        float3 palmCol = zenith * 0.05 + horizon * 0.03;
+        float sil = shoreSilhouettes(p, b, o);
+        float3 silCol = zenith * 0.04 + horizon * 0.035;
+
+        // Both lights, each by its own weight (never an either/or switch, so dusk crosses to moonlight smoothly).
+        float lightW = saturate(o.sun.w + o.moon.w);
+        float3 lightCol = (o.sunColor.rgb * o.sun.w + o.moonColor.rgb * o.moon.w) / max(o.sun.w + o.moon.w, 1e-3);
 
         float3 col;
         float depth = 1.0;
         if (alt >= 0.0) {
             float hl = headland(azRel);
             bool hit = alt < hl;
-            if (!hit && palm < 0.01) discard_fragment();
+            if (!hit && sil < 0.01) discard_fragment();
             if (hit) {
                 float3 c = mix(horizon, zenith, 0.4) * 0.3 + o.sunColor.rgb * 0.02 * o.sun.w;
                 col = mix(c, hazeCol, saturate(0.45 + 0.4 * haze) * (0.6 + 0.4 * exp(-alt / 0.02)));
@@ -131,48 +183,65 @@ enum GoldenHourBeachShaders {
             float2 fwd = normalize(u.forward.xy), rgt = float2(fwd.y, -fwd.x);
             float f = dot(P.xy, fwd), s = dot(P.xy, rgt);
             float2 q = float2(s, f);
-            float front = kWaterline - b.shore.x * kWetBand;
-            // Both lights, each by its own weight (never an either/or switch, so dusk crosses to moonlight smoothly).
-            float lightW = saturate(o.sun.w + o.moon.w);
-            float3 lightCol = (o.sunColor.rgb * o.sun.w + o.moonColor.rgb * o.moon.w) / max(o.sun.w + o.moon.w, 1e-3);
+            float since = b.c.z, last = b.c.w;
+            // The wash's front wanders along the shore.
+            float wobble = (vnoise3(float3(s * 0.35, 1.0, 2.0 * sin(o.phases.y))) - 0.5) * 0.9;
+            float front = kWaterline - b.shore.x * kWetBand + wobble * saturate(b.shore.x * 3.0);
+            float3 foamBase = (horizon * 0.55 + 0.35) * (0.55 + 0.6 * lightW) + lightCol * 0.25 * lightW;
+            float foamGold = b.shore.y;
+            float3 foamCol = mix(foamBase, foamBase * float3(1.15, 0.95, 0.7) + o.sunColor.rgb * 0.3, foamGold);
             if (f > kWaterline) {
-                // The sea: swells steepen as they near the break; white water between the break and the shore.
+                // The sea: swells steepen over the shallows; crests roll in, curl and break into white water.
                 float2 slope = oceanSlope(q, o);
-                float shoal = smoothstep(kBreak + 25.0, kBreak, f);
-                slope *= 1.0 + 1.2 * shoal;
+                float shoal = smoothstep(kBreak + 25.0, kBreak - 4.0, f);
+                slope *= 1.0 + 1.0 * shoal;
                 float white = 0.0;
                 for (int i = 0; i < 3; i++) {
-                    float cf = kBreak + b.crest[i].x;
-                    float band = exp(-((f - cf) * (f - cf)) / 2.2);
-                    white += b.crest[i].y * band * smoothstep(kBreak + 30.0, kBreak + 2.0, cf);
-                    slope.y += b.crest[i].y * band * 0.35 * shoal;
+                    float ahead = b.crest[i].x, strength = b.crest[i].y;
+                    if (strength <= 0.0 || ahead < 0.0 || ahead > 45.0) continue;
+                    float cf = kBreak + ahead + 0.9 * sin(s * 0.06 + float(i) * 2.1);   // never ruler-straight
+                    float x = f - cf;              // > 0 behind the crest, < 0 its face toward you
+                    float nearing = smoothstep(45.0, 8.0, ahead);
+                    float lip = exp(-(x * x) / 0.5);
+                    float face = exp(-((x + 1.3) * (x + 1.3)) / 1.6);
+                    slope.y += strength * nearing * (0.9 * face - 0.35 * lip);
+                    float curl = smoothstep(5.0, 0.0, ahead) * strength;
+                    float broken = 0.5 + 0.5 * vnoise3(float3(s * 0.22, ahead * 0.4, 1.0));
+                    white += curl * lip * broken * 1.4 + strength * nearing * lip * 0.12;
                 }
-                float surge = b.shore.w * smoothstep(kWaterline, kWaterline + 1.0, f) * smoothstep(kBreak + 2.0, kBreak - 2.0, f);
-                float lace = vnoise3(float3(q * float2(1.3, 2.4), 3.0 * sin(o.phases.x)));
-                white = saturate(white + surge * (0.4 + 0.6 * lace));
+                // The bore: white water rushing in from the break, foam spreading and fading behind it.
+                if (last > 0.0 && since >= 0.0 && since < 12.0) {
+                    float fb = max(kWaterline, kBreak - since * kBoreSpeed) + 0.7 * (vnoise3(float3(s * 0.3, 2.0, 0.0)) - 0.5);
+                    float behind = f - fb;
+                    float bore = exp(-(behind * behind) / 0.6);
+                    float trail = behind > 0.0 ? exp(-behind / (1.5 + since * 0.8)) * step(f, kBreak + 1.5) : 0.0;
+                    float lace = smoothstep(0.32, 0.72, vnoise3(float3(q * float2(0.8, 1.6), 2.0 * sin(o.phases.x) + since * 0.2)));
+                    white += last * exp(-since / 4.5) * (bore * 1.1 + trail * lace);
+                }
+                // Lingering lace over the shallows.
+                white += 0.22 * shoal * smoothstep(0.58, 0.85, vnoise3(float3(q * float2(0.5, 1.1), 1.5 * cos(o.phases.z))));
+                white = saturate(white);
                 float3 nrm = oceanNormal(slope, fwd, rgt);
                 col = oceanShade(d, nrm, q, f, u, o);
-                float foamGold = b.shore.y;
-                float3 foamCol = (horizon * 0.55 + 0.35) * (0.6 + 0.6 * lightW) + lightCol * 0.25 * lightW;
-                foamCol = mix(foamCol, foamCol * float3(1.15, 0.95, 0.7) + o.sunColor.rgb * 0.3, foamGold);
-                col = mix(col, foamCol, white * (0.55 + 0.35 * foamGold));
+                col = mix(col, foamCol, white * (0.7 + 0.25 * foamGold));
                 // Spray glints on golden foam.
-                float spark = smoothstep(0.82, 0.95, vnoise3(float3(q * 6.0, 5.0 * sin(o.phases.y))));
-                col += lightCol * spark * white * foamGold * 1.5 * lightW;
+                float spark = smoothstep(0.8, 0.95, vnoise3(float3(q * 6.0, 5.0 * sin(o.phases.y))));
+                col += lightCol * spark * white * (0.3 + foamGold) * 1.5 * lightW;
                 depth = saturate(f / 60.0);
             } else {
                 // The sand: wet below the highest recent wash (a mirror), dry beyond it.
-                float wetTop = kWaterline - kWetBand;
-                float wet = smoothstep(wetTop - 0.6, wetTop + 0.6, f);
+                float wetTop = kWaterline - kWetBand + wobble * 0.5;
+                float wet = smoothstep(wetTop - 0.8, wetTop + 0.8, f);
+                float grain = vnoise3(float3(q * float2(9.0, 5.0), 3.0));
                 float ripple = 0.5 + 0.5 * sin(f * 11.0 + 2.0 * vnoise3(float3(q * 0.7, 1.0)) + s * 0.8);
-                float3 sandDry = float3(0.62, 0.50, 0.36) * (0.92 + 0.08 * ripple);
-                float3 sandWet = float3(0.16, 0.12, 0.09);
+                float3 sandDry = float3(0.62, 0.50, 0.36) * (0.88 + 0.07 * ripple + 0.1 * grain);
+                float3 sandWet = float3(0.16, 0.12, 0.09) * (0.9 + 0.2 * grain);
                 float3 sky = mix(zenith, horizon, 0.7);
                 float3 direct = o.sunColor.rgb * saturate(o.sun.z * 3.0 + 0.15) * o.sun.w
                               + o.moonColor.rgb * saturate(o.moon.z * 3.0 + 0.15) * o.moon.w;
                 float3 dryCol = sandDry * (sky * 0.55 + direct * 0.7 + 0.02);
-                // Wet sand reflects the sky (slightly rough) and the light's path.
-                float2 rough = (float2(vnoise3(float3(q * 3.0, 2.0)), vnoise3(float3(q * 3.0 + 7.0, 4.0))) - 0.5) * 0.06;
+                // Wet sand reflects the sky (slightly rough) and the lights' paths.
+                float2 rough = (float2(vnoise3(float3(q * 3.0, 2.0)), vnoise3(float3(q * 3.0 + 7.0, 4.0))) - 0.5) * 0.07;
                 float3 n = normalize(float3(rough, 1.0));
                 float3 rd = reflect(d, n);
                 rd.z = max(rd.z, 0.002);
@@ -185,35 +254,45 @@ enum GoldenHourBeachShaders {
                             + o.moonColor.rgb * (pow(sdM, 90.0) * 1.4 + pow(sdM, 12.0) * 0.12) * o.moon.w;
                 wetCol += spec * (0.5 + 0.5 * b.a.z);
                 col = mix(dryCol, wetCol, wet);
-                // The wash: a thin sheet of water up to its front, lacy foam along its edge.
+                // Sand drifting in the breeze over the dry sand.
+                float drift = smoothstep(0.6, 0.9, vnoise3(float3(q * float2(0.6, 7.0) + float2(3.0 * sin(o.phases.x), 0.0), 4.0)));
+                col += sandDry * sky * 0.12 * drift * b.b.y * (1.0 - wet);
+                // The wash: a thin sheet of water from the waterline up to its front, lacy foam along its edge.
                 if (f > front) {
-                    float3 sheet = mix(refl, horizon * 0.7 + 0.2, 0.25);
-                    col = mix(col, sheet, 0.55);
-                    float edge = smoothstep(0.9, 0.0, f - front);
-                    float lacy = smoothstep(0.35, 0.75, vnoise3(float3(q * float2(2.2, 4.0), 2.0 * sin(o.phases.z))));
-                    col = mix(col, (horizon * 0.5 + 0.4) * (0.7 + 0.5 * lightW), edge * (0.35 + 0.5 * lacy));
+                    float thick = smoothstep(front, front + 2.5, f);
+                    float3 sheet = mix(refl, horizon * 0.6 + 0.15, 0.2);
+                    col = mix(col, sheet, 0.25 + 0.4 * thick);
+                    float edge = exp(-(f - front) / 0.3);
+                    float lacy = smoothstep(0.3, 0.7, vnoise3(float3(q * float2(1.8, 3.5), 2.0 * sin(o.phases.z))));
+                    col = mix(col, foamCol, saturate(edge * (0.45 + 0.5 * lacy) + (1.0 - thick) * lacy * 0.15));
                 }
-                // Tide Lines glowing in the sand.
+                // Tide Lines: strokes traced by a finger, a soft groove with light welling up from it.
                 int count = int(b.b.z + 0.5);
                 float3 glow = float3(0);
                 for (int i = 0; i < 48; i++) {
                     if (i >= count) break;
                     float4 ln = b.line[i];
-                    // Drawn deeper than wide (÷4 along the view) so foreshortening leaves a readable stroke.
-                    float dx = max(abs(s - ln.x) - ln.z, 0.0), dy = (f - ln.y) * 0.25;
+                    float ax = s - ln.x;
+                    if (abs(ax) > ln.z + 0.4) continue;
+                    float along = ax / max(ln.z, 0.05);
+                    float curve = 0.18 * sin(along * 1.7 + b.lineB[i].x * 23.0) * min(ln.z, 1.0);
+                    float dy = (f - ln.y - curve) * 0.2;              // ÷5 along the view: foreshortening
+                    float dx = max(abs(ax) - ln.z, 0.0);
+                    float taper = 1.0 - 0.6 * smoothstep(0.6, 1.0, abs(along));
                     float dist2 = dx * dx + dy * dy;
-                    if (dist2 > 0.09) continue;
-                    float core = exp(-dist2 / 0.004), halo = exp(-dist2 / 0.03) * 0.4;
-                    glow += hueColor(b.lineB[i].x) * (core + halo) * ln.w;
+                    float w = 0.022 * taper;
+                    float core = exp(-dist2 / (w * w)), halo = exp(-dist2 / 0.012) * 0.22;
+                    glow += lineColor(b.lineB[i].x) * (core * 1.4 + halo) * ln.w;
+                    col *= 1.0 - 0.25 * exp(-dist2 / 0.004) * ln.w;    // the groove
                 }
-                col += glow * (1.2 + 0.8 * night);
+                col += glow * (1.1 + 0.9 * night);
                 depth = saturate(f / 60.0);
             }
             // Haze over the sea, thicker far away.
             col = mix(col, hazeCol, saturate(haze * 0.7 * (1.0 - exp(-f / 120.0))));
         }
-        col = mix(col, palmCol, palm);
-        if (palm > 0.5) depth = 0.03;
+        col = mix(col, silCol, sil);
+        if (sil > 0.5) depth = 0.03;
         out.color = float4(col, 1.0);
         out.depth = float4(depth, 0, 0, 1);
         return out;

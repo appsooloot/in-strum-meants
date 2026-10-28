@@ -109,9 +109,11 @@ final class GoldenHourBeachRenderer: ThemeRenderer {
         for i in 0..<TideLines.cap { beachU[7 + i] = .zero; beachU[7 + TideLines.cap + i] = .zero }
         for (i, l) in lines.enumerated() {
             let pt = Self.shorePoint(x: l.x, y: l.y, tanH: cam.tanH)
-            let halfLength = l.length * 0.5 * 2 * pt.f * cam.tanH * 0.85 * l.drawn
-            let glow = l.strength * l.drawn * (1 - l.washed) * (0.55 + 0.45 * sparkleScale)
-            beachU[7 + i] = SIMD4(pt.s, pt.f, halfLength, glow)
+            // Traced left to right like a finger drawing it: the stroke grows from its left end.
+            let fullHalf = l.length * 0.5 * 2 * pt.f * cam.tanH * 0.85
+            let halfLength = fullHalf * l.drawn
+            let glow = l.strength * min(1, 0.3 + l.drawn) * (1 - l.washed) * (0.55 + 0.45 * sparkleScale)
+            beachU[7 + i] = SIMD4(pt.s - fullHalf + halfLength, pt.f, halfLength, glow)
             beachU[7 + TideLines.cap + i] = SIMD4(l.hue, 0, 0, 0)
         }
         // The next crests (metres beyond the break line) and the white water from the last break.
@@ -120,15 +122,15 @@ final class GoldenHourBeachRenderer: ThemeRenderer {
             let ahead = Float(w.breakTime - frame.swellTime) * Self.waveSpeed
             crests[i] = SIMD4(ahead, w.strength, 0, 0)
         }
-        var whiteWater: Float = 0
-        if let last = frame.recent.last {
-            let since = Float(frame.swellTime - last.breakTime)
-            if since >= 0 { whiteWater = last.strength * exp(-since / 2.5) * min(1, since * 4) }
+        // The last break: how long ago and how strong (the shader rolls its white water in from the break line).
+        var since: Float = -1, lastStrength: Float = 0
+        if let last = frame.recent.last, frame.swellTime >= last.breakTime {
+            since = Float(min(60, frame.swellTime - last.breakTime)); lastStrength = last.strength
         }
         beachU[0] = SIMD4(keyTop, 0, limited.sparkle, haze)
         beachU[1] = SIMD4(Float(p.number("palms")), s.wind, Float(lines.count), night)
-        beachU[2] = SIMD4(aspect, Self.cameraHeight, 0, 0)
-        beachU[3] = SIMD4(frame.washFront, frame.foam * sparkleScale, quality == .lite ? 1 : 0, whiteWater)
+        beachU[2] = SIMD4(aspect, Self.cameraHeight, since, lastStrength)
+        beachU[3] = SIMD4(frame.washFront, frame.foam * sparkleScale, quality == .lite ? 1 : 0, 0)
         beachU[4] = crests[0]; beachU[5] = crests[1]; beachU[6] = crests[2]
 
         oceanU[0] = frame.swellPhases
@@ -153,7 +155,7 @@ final class GoldenHourBeachRenderer: ThemeRenderer {
 
         post = PostSettings(
             bloom: 0.6, bloomThreshold: 0.85,
-            dof: quality == .lite ? 0 : 0.25, focusDepth: 0.2,
+            dof: quality == .lite ? 0 : 0.2, focusDepth: 0.13,
             grade: 0, grain: 0.02, vignette: 0.25,
             exposure: limited.exposure,
             warmth: MoodLook.warmthOffset(mood) + 0.08 * (1 - night),
