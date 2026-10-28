@@ -71,6 +71,20 @@ final class CPUBudgetTests: XCTestCase {
         XCTAssertLessThan(best / 10, 0.06, "Morning Box used \(String(format: "%.1f", best * 10))% of real time")
     }
 
+    /// The cabin's and the bedroom's soundscapes, each heard through the window.
+    func testWindowAmbienceBudget() {
+        typealias A = AmbienceTests
+        let cabin: [A.Action] = [A.level(ISD_AMB_FIRE, 0.7), A.level(ISD_AMB_WIND, 0.5), A.level(ISD_AMB_RAIN_GLASS, 0.4),
+                                 A.snowOnGlass(1), A.indoors(1)]
+        let bedroom: [A.Action] = [A.level(ISD_AMB_KETTLE, 0.5), A.startKettle(at: 0), A.level(ISD_AMB_STREET, 0.6),
+                                   A.level(ISD_AMB_DAWN_CHORUS, 0.6), A.level(ISD_AMB_BREEZE, 0.4), A.level(ISD_AMB_DRIPS, 0.5),
+                                   A.level(ISD_AMB_CLOCK, 0.15), A.indoors(1)]
+        for (name, scene) in [("cabin", cabin), ("bedroom", bedroom)] {
+            let seconds = bestOfThree { _ = A.render(seconds: 10, actions: scene) }
+            XCTAssertLessThan(seconds / 10, 0.025, "\(name) ambience used \(String(format: "%.1f", seconds * 10))% of real time")
+        }
+    }
+
     func testWorldAmbienceBudget() {
         typealias A = AmbienceTests
         var beach: [A.Action] = [ISD_AMB_SURF, ISD_AMB_PALMS, ISD_AMB_GULLS, ISD_AMB_CRICKETS, ISD_AMB_BREEZE, ISD_AMB_RAIN_WATER].map { A.level($0, 1) }

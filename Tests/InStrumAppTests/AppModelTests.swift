@@ -207,6 +207,24 @@ final class AppModelTests: XCTestCase {
 
     // MARK: - Worlds drive the ambience
 
+    func testIndoorsAndWetnessCountAsChanges() {
+        let base = AmbienceScene(levels: [.fire: 0.7])
+        XCTAssertTrue(AppModel.ambienceChanged(base, AmbienceScene(levels: [.fire: 0.7], indoors: 0.2)))
+        XCTAssertTrue(AppModel.ambienceChanged(base, AmbienceScene(levels: [.fire: 0.7], wetness: 0.2)))
+        XCTAssertTrue(AppModel.ambienceChanged(base, AmbienceScene(levels: [.fire: 0.7], snowOnGlass: 0.2)))
+        XCTAssertFalse(AppModel.ambienceChanged(base, AmbienceScene(levels: [.fire: 0.7], indoors: 0.005)))
+    }
+
+    func testLeavingTheCabinUnmufflesTheBeach() {
+        let m = makeModel()
+        m.updateAmbience(AmbienceScene(levels: [.fire: 0.7, .wind: 0.5], indoors: 1, snowOnGlass: 1), at: 0)
+        m.updateAmbience(AmbienceScene(levels: [.surf: 0.8, .palms: 0.4]), at: 1)
+        let sent = engine.scenes.last
+        XCTAssertEqual(sent?.level(.surf), 0.8)
+        XCTAssertEqual(sent?.indoors, 0)
+        XCTAssertEqual(sent?.snowOnGlass, 0)
+    }
+
     func testAmbienceForwardingIsThrottled() {
         let m = makeModel()
         let lake = AmbienceScene(levels: [.water: 0.8, .crickets: 0.6], activity: 0.2)
