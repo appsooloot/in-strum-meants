@@ -26,7 +26,7 @@ final class LivingSkyTests: XCTestCase {
         XCTAssertEqual(advance, 0.125, accuracy: 0.01)
     }
 
-    func testNightIsDarkDayIsBright() {
+    func testNightIsDarkDayIsBright() throws {
         var s = SkySettings(); s.timeMode = .frozen; s.cityID = "melbourne"; s.weatherMode = .pick; s.weather = .clear
         s.frozenHour = 2
         let night = LivingSky(settings: s, homeZone: melbourneZone).step(now: start, dt: 0)
@@ -43,7 +43,7 @@ final class LivingSkyTests: XCTestCase {
             let st = LivingSky(settings: s, homeZone: melbourneZone).step(now: start, dt: 0)
             if abs(st.sun.altitude - 3) < 0.6 { golden = st; break }
         }
-        let g = try! XCTUnwrap(golden)
+        let g = try XCTUnwrap(golden)
         XCTAssertGreaterThan(g.horizon.x, g.horizon.z * 1.4, "warm horizon \(g.horizon)")
     }
 
@@ -129,7 +129,7 @@ final class LivingSkyTests: XCTestCase {
     func testDaylightSavingIsInvisible() {
         var s = SkySettings(); s.timeMode = .realTime; s.cityID = "melbourne"
         let sky = LivingSky(settings: s, homeZone: melbourneZone)
-        var now = Date(timeIntervalSince1970: 1_791_129_600 - 120)   // 2026-10-04T16:00Z − 2 min
+        var now = Date(timeIntervalSince1970: 1_791_043_200 - 120)   // DST starts 2026-10-03T16:00Z (2:00 → 3:00 on Sunday 4 Oct); − 2 min
         var prev = sky.step(now: now, dt: 0)
         var worst = 0.0, hourJump = 0.0
         for _ in 0..<240 {

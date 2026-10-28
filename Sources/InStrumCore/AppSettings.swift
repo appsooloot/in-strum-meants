@@ -44,7 +44,7 @@ public struct AppSettings: Codable, Equatable {
 
     public init() {}
 
-    enum CodingKeys: String, CodingKey { case instrument, themeID, masterVolume, touchCurve, bufferFrames, themeStates, quality, gentleVisuals, reaction, reactionName, qualityVersion }
+    enum CodingKeys: String, CodingKey { case instrument, themeID, masterVolume, touchCurve, bufferFrames, themeStates, quality, gentleVisuals, reaction, reactionName, qualityVersion, sky, ambience, activeSetID }
 
     public init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
@@ -61,6 +61,9 @@ public struct AppSettings: Codable, Equatable {
         gentleVisuals = (try? c.decodeIfPresent(Bool.self, forKey: .gentleVisuals)) ?? d.gentleVisuals
         reaction = try? c.decodeIfPresent(ReactionMap.self, forKey: .reaction)
         reactionName = (try? c.decodeIfPresent(String.self, forKey: .reactionName)) ?? d.reactionName
+        sky = (try? c.decodeIfPresent(SkySettings.self, forKey: .sky)) ?? d.sky
+        ambience = (try? c.decodeIfPresent(AmbienceSettings.self, forKey: .ambience)) ?? d.ambience
+        activeSetID = (try? c.decodeIfPresent(String.self, forKey: .activeSetID)) ?? nil
     }
 }
 

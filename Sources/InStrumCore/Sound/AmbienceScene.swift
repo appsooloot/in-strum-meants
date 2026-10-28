@@ -31,3 +31,24 @@ public struct AmbienceScene: Equatable {
 
     public func level(_ source: AmbienceSource) -> Double { levels[source] ?? 0 }
 }
+
+/// The user's ambience controls (persisted).
+public struct AmbienceSettings: Codable, Equatable {
+    public var enabled = true
+    /// 0…1 (default 25%).
+    public var volume: Double = 0.25
+    /// 0 distant … 1 all around you.
+    public var closeness: Double = 0.5
+
+    public init() {}
+
+    enum CodingKeys: String, CodingKey { case enabled, volume, closeness }
+
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        let d = AmbienceSettings()
+        enabled = (try? c.decodeIfPresent(Bool.self, forKey: .enabled)) ?? d.enabled
+        volume = min(1, max(0, (try? c.decodeIfPresent(Double.self, forKey: .volume)) ?? d.volume))
+        closeness = min(1, max(0, (try? c.decodeIfPresent(Double.self, forKey: .closeness)) ?? d.closeness))
+    }
+}
