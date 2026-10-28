@@ -52,8 +52,9 @@ final class HazeBellsTests: XCTestCase {
     func testHarderIsBrighter() {
         let soft = R.render(bells, seconds: 0.25, params: dry, events: [R.noteOn(0, 72, 40)])
         let hard = R.render(bells, seconds: 0.25, params: dry, events: [R.noteOn(0, 72, 120)])
-        let cs = DSPTestKit.centroid(R.slice(soft.l, 0, 0.2), sampleRate: R.sr)
-        let ch = DSPTestKit.centroid(R.slice(hard.l, 0, 0.2), sampleRate: R.sr)
+        // The strike itself (a 0.2 s Hann window would weigh its first milliseconds near zero and measure the ring).
+        let cs = DSPTestKit.centroid(R.slice(soft.l, 0, 0.08), sampleRate: R.sr)
+        let ch = DSPTestKit.centroid(R.slice(hard.l, 0, 0.08), sampleRate: R.sr)
         XCTAssertGreaterThan(ch, 1.2 * cs, "soft \(cs) Hz, hard \(ch) Hz")
     }
 
