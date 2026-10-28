@@ -10,7 +10,7 @@ public enum BuiltInCatalog {
 
     public static func description(for engine: BuiltInEngine) -> AudioComponentDescription {
         AudioComponentDescription(componentType: kAudioUnitType_MusicDevice,
-                                  componentSubType: engine == .feltGlass ? fourCC("isFG") : fourCC("isOP"),
+                                  componentSubType: fourCC(subType(engine)),
                                   componentManufacturer: manufacturer, componentFlags: 0, componentFlagsMask: 0)
     }
 
@@ -54,8 +54,20 @@ public enum BuiltInCatalog {
         BuiltInEngine.allCases.first { description(for: $0).componentSubType == subType }
     }
 
+    private static func subType(_ engine: BuiltInEngine) -> String {
+        switch engine {
+        case .feltGlass: return "isFG"
+        case .orbitPad: return "isOP"
+        case .honeyTape: return "isHT"
+        }
+    }
+
     static func isdEngine(_ engine: BuiltInEngine) -> ISDEngine {
-        engine == .feltGlass ? ISD_ENGINE_FELT_GLASS : ISD_ENGINE_ORBIT_PAD
+        switch engine {
+        case .feltGlass: return ISD_ENGINE_FELT_GLASS
+        case .orbitPad: return ISD_ENGINE_ORBIT_PAD
+        case .honeyTape: return ISD_ENGINE_HONEY_TAPE
+        }
     }
 
     static func fourCC(_ s: String) -> OSType {

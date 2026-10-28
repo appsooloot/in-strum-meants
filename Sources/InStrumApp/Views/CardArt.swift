@@ -4,31 +4,41 @@ import InStrumCore
 /// Original living art for each "Inspired by" card, drawn in code from the song's feeling (never artwork,
 /// photos or logos). The song's tempo is hidden in the motion: everything breathes at `pulsePeriod`.
 enum CardArt {
-    case comeBackToEarth, innerbloom
+    case comeBackToEarth, innerbloom, musicToWatchBoysTo
 
     static func art(for creditID: String) -> CardArt? {
         switch creditID {
         case CreditLibrary.comeBackToEarth.id: return .comeBackToEarth
         case CreditLibrary.innerbloom.id: return .innerbloom
+        case CreditLibrary.musicToWatchBoysTo.id: return .musicToWatchBoysTo
         default: return nil
         }
     }
 
-    /// How the card sets its title: an airy serif under water, a clean wide-tracked sans at dusk.
+    /// How the card sets its title: an airy serif under water, a clean wide-tracked sans at dusk, a lush
+    /// high-contrast retro serif in the golden haze.
     var titleFont: Font {
         switch self {
         case .comeBackToEarth: return .system(size: 30, weight: .light, design: .serif)
         case .innerbloom: return .system(size: 24, weight: .medium, design: .default)
+        case .musicToWatchBoysTo: return .custom("Didot", size: 30)
         }
     }
 
-    var titleTracking: CGFloat { self == .innerbloom ? 7 : 0.5 }
+    var titleTracking: CGFloat {
+        switch self {
+        case .innerbloom: return 7
+        case .musicToWatchBoysTo: return 1.5
+        case .comeBackToEarth: return 0.5
+        }
+    }
     var titleCase: Bool { self == .innerbloom }
 
     func draw(in ctx: GraphicsContext, size: CGSize, t: Double, pulse: Double) {
         switch self {
         case .comeBackToEarth: Self.underwater(ctx, size, t, pulse)
         case .innerbloom: Self.bloom(ctx, size, t, pulse)
+        case .musicToWatchBoysTo: Self.goldenHaze(ctx, size, t, pulse)
         }
     }
 
@@ -129,6 +139,76 @@ enum CardArt {
         core.fill(Path(CGRect(x: 0, y: size.height * 0.82, width: size.width, height: size.height * 0.18)),
                   with: .linearGradient(Gradient(colors: [Color(red: 1, green: 0.6, blue: 0.45).opacity(0), Color(red: 1, green: 0.6, blue: 0.45).opacity(0.18)]),
                                         startPoint: CGPoint(x: 0, y: size.height * 0.82), endPoint: CGPoint(x: 0, y: size.height)))
+    }
+
+    // MARK: - Music to Watch Boys To: a golden heat-shimmer over a soft horizon, wobbling like old tape
+
+    private static func goldenHaze(_ ctx: GraphicsContext, _ size: CGSize, _ t: Double, _ pulse: Double) {
+        let rect = CGRect(origin: .zero, size: size)
+        // The whole picture sways a little, like a tape replaying slightly unevenly: once every two beats.
+        let wobble = 2.2 * sin(2 * .pi * t / (2 * pulse)) + 0.8 * sin(2 * .pi * t / 7.3)
+        let horizon = size.height * 0.6 + wobble
+        ctx.fill(Path(rect), with: .linearGradient(
+            Gradient(stops: [.init(color: Color(red: 0.96, green: 0.78, blue: 0.74), location: 0),
+                             .init(color: Color(red: 0.99, green: 0.74, blue: 0.47), location: 0.5),
+                             .init(color: Color(red: 1.0, green: 0.83, blue: 0.52), location: 0.6),
+                             .init(color: Color(red: 0.62, green: 0.34, blue: 0.33), location: 0.62),
+                             .init(color: Color(red: 0.22, green: 0.10, blue: 0.15), location: 1)]),
+            startPoint: CGPoint(x: 0, y: wobble), endPoint: CGPoint(x: 0, y: size.height + wobble)))
+
+        // A low sun, softened by the haze.
+        let sun = CGPoint(x: size.width * 0.3, y: horizon - size.height * 0.07)
+        var glow = ctx
+        glow.blendMode = .plusLighter
+        glow.fill(Path(ellipseIn: CGRect(x: sun.x - 120, y: sun.y - 70, width: 240, height: 140)),
+                  with: .radialGradient(Gradient(colors: [Color(red: 1, green: 0.85, blue: 0.6).opacity(0.55), .clear]),
+                                        center: sun, startRadius: 0, endRadius: 120))
+        glow.fill(Path(ellipseIn: CGRect(x: sun.x - 22, y: sun.y - 20, width: 44, height: 40)),
+                  with: .color(Color(red: 1, green: 0.93, blue: 0.78).opacity(0.85)))
+
+        // Heat shimmer: thin bands above the horizon whose edges ripple slowly.
+        var shimmer = ctx
+        shimmer.blendMode = .plusLighter
+        for i in 0..<14 {
+            let y0 = horizon - 6 - Double(i) * size.height * 0.035
+            var p = Path()
+            let steps = 60
+            for s in 0...steps {
+                let x = size.width * Double(s) / Double(steps)
+                let n = noise2(x * 0.02 + t * 0.35, Double(i) * 1.7 + t * 0.15) - 0.5
+                let y = y0 + 3.5 * n + 1.2 * sin(x * 0.05 + t * 1.3 + Double(i))
+                if s == 0 { p.move(to: CGPoint(x: x, y: y)) } else { p.addLine(to: CGPoint(x: x, y: y)) }
+            }
+            let fade = 1 - Double(i) / 14
+            shimmer.stroke(p, with: .color(Color(red: 1, green: 0.9, blue: 0.75).opacity(0.10 * fade)), lineWidth: 1.4)
+        }
+
+        // Honey and rose bands drifting across the water.
+        var bands = ctx
+        bands.blendMode = .plusLighter
+        bands.addFilter(.blur(radius: 2))
+        for i in 0..<9 {
+            let depth = Double(i) / 8
+            let y = horizon + 6 + depth * depth * (size.height - horizon - 10)
+            let speed = 6 + 18 * depth
+            let span = size.width * (0.25 + 0.2 * noise2(Double(i) * 3.1, 0.5))
+            let x = (Double(i) * 97 + t * speed).truncatingRemainder(dividingBy: size.width + span) - span
+            let rose = i % 3 == 1
+            let colour = rose ? Color(red: 1, green: 0.62, blue: 0.66) : Color(red: 1, green: 0.8, blue: 0.45)
+            bands.fill(Path(roundedRect: CGRect(x: x, y: y, width: span, height: 2 + 5 * depth), cornerRadius: 3),
+                       with: .color(colour.opacity(0.28 * (1 - 0.5 * depth))))
+        }
+        // The sun's path on the water, breaking up as it nears.
+        var path = ctx
+        path.blendMode = .plusLighter
+        for k in 0..<22 {
+            let d = Double(k) / 21
+            let y = horizon + 3 + d * d * (size.height - horizon - 6)
+            let w = 10 + 70 * d
+            let jitter = 9 * (noise2(Double(k) * 0.7, t * 0.6) - 0.5) * (0.3 + d)
+            path.fill(Path(CGRect(x: sun.x - w / 2 + jitter, y: y, width: w, height: 1.5 + 2.5 * d)),
+                      with: .color(Color(red: 1, green: 0.9, blue: 0.7).opacity(0.35 * (1 - 0.6 * d))))
+        }
     }
 
     // MARK: - Noise

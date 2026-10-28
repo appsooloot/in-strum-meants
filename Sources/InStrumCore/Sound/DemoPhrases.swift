@@ -33,6 +33,23 @@ public enum DemoPhrases {
         return m.sorted
     }()
 
+    /// Slow C♯-minor colours (C♯m9, Amaj7, F♯m9, G♯sus) held under a drifting line of long flute notes,
+    /// then a soft high phrase and a last held note running into the tape's haze.
+    public static let honeyTape: Phrase = {
+        var m = Builder()
+        let chords: [[UInt8]] = [[49, 56, 61, 63, 64], [45, 52, 56, 61, 64], [42, 54, 57, 61, 64], [44, 51, 56, 61, 63]]
+        for (c, chord) in chords.enumerated() {
+            let t = 0.2 + Double(c) * 4.0
+            for (k, n) in chord.enumerated() { m.note(t + Double(k) * 0.04, n, UInt8(58 + k * 3), 3.85) }
+        }
+        let line: [(Double, UInt8, Double)] = [(1.0, 76, 1.4), (2.6, 75, 0.9), (3.6, 73, 1.8), (5.8, 71, 1.0), (7.0, 73, 1.6),
+                                               (9.0, 76, 0.8), (10.0, 78, 1.8), (12.2, 80, 1.2), (13.6, 76, 1.9)]
+        for (t, n, length) in line { m.note(t, n, 84, length) }
+        for (i, n) in [80, 83, 85, 83, 80].enumerated() { m.note(16.4 + Double(i) * 0.35, UInt8(n), UInt8(50 + i * 4), 0.4) }
+        m.note(18.3, 73, 70, 3.0)
+        return m.sorted
+    }()
+
     private struct Builder {
         var events: Phrase = []
         mutating func note(_ t: Double, _ n: UInt8, _ v: UInt8, _ length: Double) {

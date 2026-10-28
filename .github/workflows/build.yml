@@ -124,7 +124,9 @@ jobs:
 
           **Install:** download the **.dmg** below and open it, drag *In Strum Meants* onto *Applications* (choose **Replace** if asked), then right-click the app → **Open** → **Open** (first time only). The .zip is a fallback.
 
-          **New in this build — Sets 1 & 2:** open ✦ Visuals and tap a Set. **Moonlit Lake** (serene: Lake Ripples on a lake under the real sky, Felt Glass, lake ambience) and **Spaceship Lounge** (dreamy: Galaxy Warp past a window on Earth, Orbit Pad, ship ambience). The **World** section sets the time (quick day, real time for your city, or frozen), the moon, the weather and the ambience volume. Each set card's ⓘ opens its "Inspired by" card with a Listen button.
+          **New in this build — preview of Set 3's instrument: Honey Tape** (after Lana Del Rey's "Music to Watch Boys To"). Pick **Honey Tape** in the instrument list (In Strum Meants group): breathy flute voices and a soft string section, as if played back from old tape. Try the presets **Honey Tape**, **Sea Flute**, **Velvet Strings** and **Old Reel** (held notes run out after about 8 seconds, like a 1960s tape keyboard). The Golden Hour Beach world comes in a later build.
+
+          **Try:** the **play-along test** with "Music to Watch Boys To" (C♯ minor; set **Wow** to 0 if you want it dead in tune) · soft vs hard touch (soft = airy and round, hard = brighter with more overtones) · **Strings** (flute ↔ strings) · **Wow** and **Age** (the tape's sway and colour) · **Reel**.
 
           **Hear it first:** the *-demo.m4a* and *-ambience.m4a* files below are short original clips rendered on the build machine.
 
