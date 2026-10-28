@@ -124,10 +124,10 @@ jobs:
 
           **Install:** download the **.dmg** below and open it, drag *In Strum Meants* onto *Applications* (choose **Replace** if asked), then right-click the app → **Open** → **Open** (first time only). The .zip is a fallback.
 
-          **New in this build — Sound & MIDI.** The gear button at the top right is now **Sound & MIDI**:
+          **New in this build — a steadier Sound & MIDI.** Re-choosing the output you're already on no longer cuts the sound, a device that refuses to switch is never retried in a loop, a Bluetooth output that's still connecting is followed once it's ready, Rescan and switching a keyboard off release any held notes, and the output list updates while the panel is open. The gear button at the top right is **Sound & MIDI**:
 
           - **Output** — choose where the sound goes by name (speakers, headphones, an audio interface), or leave it on *Mac default output*. A green dot shows the sound is playing, and at what rate.
-          - **Restart audio** — brings the sound straight back if it cuts out. The app also checks itself every 2 seconds: if the sound stops it restarts it, and if your chosen output disappears it plays to the Mac default output until it comes back.
+          - **Restart audio** — brings the sound straight back if it cuts out. The app also checks itself every 2 seconds: if the sound stops it restarts it, and if your chosen output disappears while you play it plays to the Mac default output until it comes back. If your chosen output is missing when the app opens, it plays to the Mac default output: pick yours again here once it's connected.
           - **Test sound** — plays middle C, to check the sound without the keyboard.
           - **Audio buffer** now goes up to **1024** (safest). Crackles or dropouts? Choose 512 or 1024.
           - **MIDI keyboards** — every connected keyboard, each with an on/off switch and a dot that lights when it sends a note. **Rescan** reconnects them, and **Channel** listens to one MIDI channel only (or All channels). The on-screen keys still play whatever the channel.
