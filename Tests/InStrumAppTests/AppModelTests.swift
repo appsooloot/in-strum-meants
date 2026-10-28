@@ -427,7 +427,7 @@ final class AppModelTests: XCTestCase {
         XCTAssertEqual(visual(m), "Curtain Light")
         XCTAssertEqual(m.activeSetID, "bedroom-dawn")
         XCTAssertFalse(m.isSetModified)
-        m.applyPatch(PatchLibrary.all.first { $0.id == "lullaby" }!)
+        m.applyPatch(PatchLibrary.all.first { $0.id == "snooze" }!)   // another Morning Box preset
         XCTAssertTrue(m.isSetModified)
         await m.restoreSet()
         XCTAssertEqual(m.builtInPatch?.id, "morning-box")
