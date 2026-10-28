@@ -4,7 +4,7 @@ import InStrumCore
 /// Original living art for each "Inspired by" card, drawn in code from the song's feeling (never artwork,
 /// photos or logos). The song's tempo is hidden in the motion: everything breathes at `pulsePeriod`.
 enum CardArt {
-    case comeBackToEarth, innerbloom, musicToWatchBoysTo, highByTheBeach
+    case comeBackToEarth, innerbloom, musicToWatchBoysTo, highByTheBeach, stay
 
     static func art(for creditID: String) -> CardArt? {
         switch creditID {
@@ -12,6 +12,7 @@ enum CardArt {
         case CreditLibrary.innerbloom.id: return .innerbloom
         case CreditLibrary.musicToWatchBoysTo.id: return .musicToWatchBoysTo
         case CreditLibrary.highByTheBeach.id: return .highByTheBeach
+        case CreditLibrary.stay.id: return .stay
         default: return nil
         }
     }
@@ -24,6 +25,7 @@ enum CardArt {
         case .innerbloom: return .system(size: 24, weight: .medium, design: .default)
         case .musicToWatchBoysTo: return .custom("Didot", size: 30)
         case .highByTheBeach: return .custom("Futura-CondensedMedium", size: 28)
+        case .stay: return .system(size: 30, weight: .regular, design: .serif)
         }
     }
 
@@ -33,7 +35,14 @@ enum CardArt {
         case .musicToWatchBoysTo: return 1.5
         case .highByTheBeach: return 3
         case .comeBackToEarth: return 0.5
+        case .stay: return 1
         }
+    }
+
+    /// How long one breath of the card lasts: a beat of the song, except "Stay", which is felt in half time
+    /// (134 BPM played as 67), so its snow falls at 60/67 s.
+    func pulse(for credit: Credit) -> Double {
+        self == .stay ? 2 * credit.pulsePeriod : credit.pulsePeriod
     }
     var titleCase: Bool { self == .innerbloom }
 
@@ -43,6 +52,7 @@ enum CardArt {
         case .innerbloom: Self.bloom(ctx, size, t, pulse)
         case .musicToWatchBoysTo: Self.goldenHaze(ctx, size, t, pulse)
         case .highByTheBeach: Self.coastLine(ctx, size, t, pulse)
+        case .stay: Self.cabinWindow(ctx, size, t, pulse)
         }
     }
 
@@ -274,6 +284,90 @@ enum CardArt {
         }
         for row in stride(from: 0.0, to: h, by: 3) {
             ctx.fill(Path(CGRect(x: 0, y: row, width: w, height: 0.6)), with: .color(.black.opacity(0.12)))
+        }
+    }
+
+    // MARK: - Stay: a warm window in the snow, one golden horn line curling across it
+
+    private static func cabinWindow(_ ctx: GraphicsContext, _ size: CGSize, _ t: Double, _ pulse: Double) {
+        let rect = CGRect(origin: .zero, size: size)
+        let w = size.width, h = size.height
+        let amber = Color(red: 1, green: 0.66, blue: 0.30)
+        // Snowy night outside.
+        ctx.fill(Path(rect), with: .linearGradient(
+            Gradient(colors: [Color(red: 0.03, green: 0.04, blue: 0.10), Color(red: 0.08, green: 0.09, blue: 0.17)]),
+            startPoint: .zero, endPoint: CGPoint(x: 0, y: h)))
+        let beat = (t / pulse).truncatingRemainder(dividingBy: 1)
+        let breath = 0.85 + 0.15 * exp(-beat * 3)
+        // The window and its glow on the snow.
+        let win = CGRect(x: w * 0.30, y: h * 0.17, width: w * 0.40, height: h * 0.56)
+        var glow = ctx
+        glow.blendMode = .plusLighter
+        let centre = CGPoint(x: win.midX, y: win.midY)
+        glow.fill(Path(rect), with: .radialGradient(Gradient(colors: [amber.opacity(0.32 * breath), amber.opacity(0.08), .clear]),
+                                                    center: centre, startRadius: win.width * 0.3, endRadius: w * 0.62))
+        ctx.fill(Path(win.insetBy(dx: -6, dy: -6)), with: .color(Color(red: 0.16, green: 0.09, blue: 0.05)))
+        // Four panes: three lit, one dim.
+        let gap: CGFloat = 5
+        let pw = (win.width - gap) / 2, ph = (win.height - gap) / 2
+        for row in 0..<2 {
+            for col in 0..<2 {
+                let pane = CGRect(x: win.minX + CGFloat(col) * (pw + gap), y: win.minY + CGFloat(row) * (ph + gap), width: pw, height: ph)
+                let lit = !(row == 0 && col == 1)
+                let top = lit ? Color(red: 1, green: 0.78, blue: 0.45) : Color(red: 0.30, green: 0.20, blue: 0.14)
+                let bottom = lit ? Color(red: 0.88, green: 0.46, blue: 0.16) : Color(red: 0.18, green: 0.11, blue: 0.08)
+                ctx.fill(Path(pane), with: .linearGradient(Gradient(colors: [top.opacity(lit ? breath : 1), bottom]),
+                                                           startPoint: CGPoint(x: pane.midX, y: pane.minY),
+                                                           endPoint: CGPoint(x: pane.midX, y: pane.maxY)))
+            }
+        }
+        // Snow on the sill.
+        var sill = Path()
+        sill.move(to: CGPoint(x: win.minX - 14, y: win.maxY + 8))
+        sill.addQuadCurve(to: CGPoint(x: win.maxX + 14, y: win.maxY + 8), control: CGPoint(x: win.midX, y: win.maxY - 2))
+        sill.addLine(to: CGPoint(x: win.maxX + 14, y: win.maxY + 13)); sill.addLine(to: CGPoint(x: win.minX - 14, y: win.maxY + 13))
+        sill.closeSubpath()
+        ctx.fill(sill, with: .color(Color(red: 0.86, green: 0.88, blue: 0.95).opacity(0.85)))
+        // One golden line curling across, like a horn phrase: it flows along at the pulse and glows on each beat.
+        var line = Path()
+        line.move(to: CGPoint(x: -10, y: h * 0.62))
+        line.addCurve(to: CGPoint(x: w * 0.47, y: h * 0.40), control1: CGPoint(x: w * 0.18, y: h * 0.70), control2: CGPoint(x: w * 0.30, y: h * 0.30))
+        line.addCurve(to: CGPoint(x: w * 0.56, y: h * 0.52), control1: CGPoint(x: w * 0.62, y: h * 0.48), control2: CGPoint(x: w * 0.60, y: h * 0.62))
+        line.addCurve(to: CGPoint(x: w + 10, y: h * 0.34), control1: CGPoint(x: w * 0.50, y: h * 0.40), control2: CGPoint(x: w * 0.80, y: h * 0.26))
+        let gold = Color(red: 1, green: 0.83, blue: 0.42)
+        glow.stroke(line, with: .color(gold.opacity(0.18 * breath)), style: StrokeStyle(lineWidth: 9, lineCap: .round))
+        ctx.stroke(line, with: .color(gold.opacity(0.9)),
+                   style: StrokeStyle(lineWidth: 1.8, lineCap: .round, dash: [26, 5], dashPhase: -t / pulse * 8))
+        // Six-armed frost in the corners.
+        let frost: [(CGFloat, CGFloat, CGFloat)] = [(0.05, 0.10, 16), (0.13, 0.05, 9), (0.03, 0.24, 8), (0.95, 0.10, 14),
+                                                    (0.87, 0.05, 8), (0.06, 0.90, 12), (0.15, 0.95, 7), (0.94, 0.88, 15), (0.84, 0.95, 8)]
+        for (fx, fy, r) in frost {
+            let c = CGPoint(x: w * fx, y: h * fy)
+            var star = Path()
+            for k in 0..<6 {
+                let a = Double(k) * .pi / 3 + 0.2
+                let tip = CGPoint(x: c.x + r * cos(a), y: c.y + r * sin(a))
+                star.move(to: c); star.addLine(to: tip)
+                for s in [0.45, 0.7] {
+                    let p = CGPoint(x: c.x + r * s * cos(a), y: c.y + r * s * sin(a))
+                    let len = r * 0.28 * (1.1 - s)
+                    for side in [-1.0, 1.0] {
+                        star.move(to: p)
+                        star.addLine(to: CGPoint(x: p.x + len * cos(a + side * .pi / 3), y: p.y + len * sin(a + side * .pi / 3)))
+                    }
+                }
+            }
+            ctx.stroke(star, with: .color(Color(red: 0.85, green: 0.92, blue: 1).opacity(0.45)), lineWidth: 0.8)
+        }
+        // Snow falling at the pulse: each flake crosses the card in eight beats.
+        for i in 0..<70 {
+            let speed = 0.8 + 0.4 * hash(i, 7)
+            let u = (t / (8 * pulse) * speed + hash(i, 3)).truncatingRemainder(dividingBy: 1)
+            let x = w * hash(i, 1) + 10 * sin(t * 0.9 + Double(i))
+            let y = -6 + u * (h + 12)
+            let r = 0.8 + 1.4 * hash(i, 5)
+            ctx.fill(Path(ellipseIn: CGRect(x: x - r, y: y - r, width: 2 * r, height: 2 * r)),
+                     with: .color(.white.opacity(0.35 + 0.4 * hash(i, 9))))
         }
     }
 

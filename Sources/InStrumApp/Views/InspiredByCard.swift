@@ -61,11 +61,11 @@ struct InspiredByCard: View {
     @ViewBuilder
     private var canvas: some View {
         if let t = fixedTime {
-            Canvas { ctx, size in art?.draw(in: ctx, size: size, t: t, pulse: credit.pulsePeriod) }
+            Canvas { ctx, size in art?.draw(in: ctx, size: size, t: t, pulse: art?.pulse(for: credit) ?? credit.pulsePeriod) }
         } else {
             TimelineView(.animation(minimumInterval: 1.0 / 30, paused: !visible)) { tl in
                 Canvas { ctx, size in
-                    art?.draw(in: ctx, size: size, t: tl.date.timeIntervalSinceReferenceDate, pulse: credit.pulsePeriod)
+                    art?.draw(in: ctx, size: size, t: tl.date.timeIntervalSinceReferenceDate, pulse: art?.pulse(for: credit) ?? credit.pulsePeriod)
                 }
             }
         }

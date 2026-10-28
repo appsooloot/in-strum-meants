@@ -73,6 +73,36 @@ public enum DemoPhrases {
         return m.sorted
     }()
 
+    /// F♯-major colours at the half-time pocket of 134 (67): F♯maj9, Bmaj9, D♯m9, C♯sus4 to C♯7, F♯6/9. Chords
+    /// held under the pedal with a melody on top, so the horn takes the top line: it scoops into fresh phrases and
+    /// slurs where the melody is legato (and is held over the chord changes so the chords never steal it).
+    public static let cabinFelt: Phrase = {
+        var m = Builder()
+        let beat = 60.0 / 67
+        func at(_ b: Double) -> Double { 0.2 + b * beat }
+        /// Chord tones listed top first and pressed top first, a few ms apart.
+        func chord(_ b: Double, _ notes: [UInt8], _ v: UInt8, _ beats: Double) {
+            m.pedal(at(b) - 0.03, down: false); m.pedal(at(b) + 0.02, down: true)
+            for (k, n) in notes.enumerated() { m.note(at(b) + Double(k) * 0.008, n, v, beats * beat) }
+        }
+        func tune(_ notes: [(b: Double, n: UInt8, beats: Double, v: UInt8)]) {
+            for x in notes { m.note(at(x.b), x.n, x.v, x.beats * beat) }
+        }
+        chord(0, [68, 65, 61, 54, 42], 62, 3.95)                  // F♯maj9
+        tune([(1.0, 70, 1.05, 76), (2.0, 73, 1.6, 84), (3.5, 75, 0.9, 80)])
+        chord(4, [70, 66, 63, 59, 47], 60, 3.95)                  // Bmaj9, under the held D♯
+        tune([(4.35, 78, 1.2, 88), (5.5, 77, 0.55, 78), (6.0, 75, 1.4, 80), (7.6, 73, 0.6, 72)])
+        chord(8, [66, 65, 61, 58, 51, 39], 58, 3.95)              // D♯m9, under the held C♯
+        tune([(8.15, 75, 0.9, 80), (9.0, 73, 1.05, 76), (10.0, 70, 1.6, 74), (11.75, 68, 0.4, 70)])
+        chord(12, [66, 59, 56, 49, 37], 60, 1.95)                 // C♯sus4
+        tune([(12.1, 73, 1.0, 84), (13.0, 75, 0.55, 86), (13.5, 77, 1.6, 90), (15.0, 78, 0.6, 80)])
+        chord(14, [65, 59, 56, 49, 37], 60, 1.95)                 // C♯7, under the held E♯
+        chord(16, [70, 68, 63, 61, 54, 42], 58, 4.5)              // F♯6/9: its top note starts a fresh horn phrase
+        tune([(16.6, 73, 0.9, 70), (17.4, 78, 2.8, 66)])
+        m.pedal(at(20.6), down: false)
+        return m.sorted
+    }()
+
     private struct Builder {
         var events: Phrase = []
         mutating func note(_ t: Double, _ n: UInt8, _ v: UInt8, _ length: Double) {

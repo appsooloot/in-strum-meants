@@ -60,6 +60,7 @@ public enum BuiltInCatalog {
         case .orbitPad: return "isOP"
         case .honeyTape: return "isHT"
         case .hazeBells: return "isHB"
+        case .cabinFelt: return "isCF"
         }
     }
 
@@ -69,6 +70,7 @@ public enum BuiltInCatalog {
         case .orbitPad: return ISD_ENGINE_ORBIT_PAD
         case .honeyTape: return ISD_ENGINE_HONEY_TAPE
         case .hazeBells: return ISD_ENGINE_HAZE_BELLS
+        case .cabinFelt: return ISD_ENGINE_CABIN_FELT
         }
     }
 
