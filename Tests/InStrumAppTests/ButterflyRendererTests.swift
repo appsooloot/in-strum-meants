@@ -77,4 +77,15 @@ final class PreviewRenderTests: XCTestCase {
             }
         }
     }
+
+    /// The "Inspired by" cards (PREVIEW_DIR).
+    func testWriteCardPreviews() throws {
+        guard let dir = ProcessInfo.processInfo.environment["PREVIEW_DIR"] else { throw XCTSkip("PREVIEW_DIR not set") }
+        let url = URL(fileURLWithPath: dir, isDirectory: true)
+        try FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
+        for c in CreditLibrary.all {
+            let image = try XCTUnwrap(InspiredByCardTests.render(c, at: 2.4))
+            try PreviewRenderer.writePNG(image, to: url.appendingPathComponent("card-\(c.id).png"))
+        }
+    }
 }

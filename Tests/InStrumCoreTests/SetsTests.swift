@@ -30,4 +30,26 @@ final class SetsTests: XCTestCase {
         // Each set's built-in preset carries the same credit as the set.
         for s in SetLibrary.all { XCTAssertEqual(PatchLibrary.all.first { $0.id == s.patchID }?.creditID, s.creditID) }
     }
+
+    // MARK: - Inspired-by cards
+
+    func testListenLinks() throws {
+        let c = CreditLibrary.comeBackToEarth
+        let app = ListenLink.spotifyApp(for: c)
+        XCTAssertEqual(app.scheme, "spotify")
+        XCTAssertTrue(app.absoluteString.contains("Mac%20Miller"), app.absoluteString)
+        XCTAssertTrue(app.absoluteString.contains("Come%20Back%20to%20Earth"), app.absoluteString)
+        let web = ListenLink.spotifyWeb(for: c)
+        XCTAssertEqual(web.host, "open.spotify.com")
+        XCTAssertEqual(web.scheme, "https")
+        XCTAssertTrue(web.path.hasPrefix("/search/"))
+        // Accented names survive the trip.
+        let bloom = ListenLink.spotifyWeb(for: CreditLibrary.innerbloom)
+        XCTAssertEqual(bloom.path, "/search/RÜFÜS DU SOL Innerbloom")
+    }
+
+    func testPulseFollowsTempo() {
+        for c in CreditLibrary.all { XCTAssertEqual(c.pulsePeriod, 60 / c.tempoBPM, accuracy: 1e-12) }
+        XCTAssertEqual(CreditLibrary.comeBackToEarth.pulsePeriod, 60.0 / 84, accuracy: 1e-12)
+    }
 }
