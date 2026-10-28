@@ -85,6 +85,18 @@ struct SkyControls: View {
                     labelled("The ground dries over \(Int(sky.dryingMinutes.rounded())) min") {
                         Slider(value: Binding(get: { sky.dryingMinutes }, set: { v in update { $0.dryingMinutes = v } }), in: 2...60, step: 1)
                     }
+                    labelled("Wind \(Int((sky.windScale * 100).rounded()))%") {
+                        Slider(value: Binding(get: { sky.windScale }, set: { v in update { $0.windScale = v } }), in: 0...2)
+                    }
+                    labelled("Mist and haze \(Int((sky.mistScale * 100).rounded()))%") {
+                        Slider(value: Binding(get: { sky.mistScale }, set: { v in update { $0.mistScale = v } }), in: 0...2)
+                    }
+                    labelled("Halos \(Int((sky.haloScale * 100).rounded()))%") {
+                        Slider(value: Binding(get: { sky.haloScale }, set: { v in update { $0.haloScale = v } }), in: 0...1.5)
+                    }
+                    labelled("Frost \(Int((sky.frostScale * 100).rounded()))%") {
+                        Slider(value: Binding(get: { sky.frostScale }, set: { v in update { $0.frostScale = v } }), in: 0...1.5)
+                    }
                     labelled("Rainbows \(Int((sky.rainbowStrength * 100).rounded()))% bright") {
                         Slider(value: Binding(get: { sky.rainbowStrength }, set: { v in update { $0.rainbowStrength = v } }), in: 0...1)
                     }

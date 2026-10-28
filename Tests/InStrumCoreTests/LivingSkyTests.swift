@@ -328,6 +328,19 @@ extension LivingSkyTests {
         XCTAssertEqual(dim, best * 0.5, accuracy: 1e-4, "half strength halves the bow")
     }
 
+    func testAdvancedScalesChangeTheSky() {
+        var s = SkySettings(); s.timeMode = .frozen; s.frozenHour = 13; s.cityID = "melbourne"; s.weatherMode = .pick; s.weather = .mist
+        let base = LivingSky(settings: s, homeZone: melbourneZone).step(now: start, dt: 0)
+        s.mistScale = 0.5; s.windScale = 0; s.haloScale = 0; s.frostScale = 0
+        let low = LivingSky(settings: s, homeZone: melbourneZone).step(now: start, dt: 0)
+        XCTAssertEqual(low.mist, base.mist * 0.5, accuracy: 1e-4)
+        XCTAssertEqual(low.wind, 0); XCTAssertEqual(low.halo, 0); XCTAssertEqual(low.frost, 0)
+        s.mistScale = 2
+        XCTAssertLessThanOrEqual(LivingSky(settings: s, homeZone: melbourneZone).step(now: start, dt: 0).mist, 1)
+        let d = SkySettings()
+        XCTAssertEqual([d.windScale, d.mistScale, d.haloScale, d.frostScale, d.dryingMinutes, d.rainbowStrength], [1, 1, 1, 1, 8, 1])
+    }
+
     func testRainMeltsFrost() {
         let s = sky(.snow)
         XCTAssertEqual(s.step(now: start, dt: 0).frost, 0.6, accuracy: 0.01)

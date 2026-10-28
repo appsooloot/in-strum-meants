@@ -23,10 +23,15 @@ public struct SkySettings: Codable, Equatable {
     public var rainbowStrength: Double = 1
     /// Advanced: how long the ground takes to dry after rain (2…60 min).
     public var dryingMinutes: Double = 8
+    /// Advanced: scale the wind and the mist/haze (0…2), halo strength and frost (0…1.5); 1 is as designed.
+    public var windScale: Double = 1
+    public var mistScale: Double = 1
+    public var haloScale: Double = 1
+    public var frostScale: Double = 1
 
     public init() {}
 
-    enum CodingKeys: String, CodingKey { case timeMode, dayMinutes, frozenHour, frozenPhase, cityID, weatherMode, weather, pickBlendSeconds, randomBlendSeconds, spellMinutes, rainbowStrength, dryingMinutes }
+    enum CodingKeys: String, CodingKey { case timeMode, dayMinutes, frozenHour, frozenPhase, cityID, weatherMode, weather, pickBlendSeconds, randomBlendSeconds, spellMinutes, rainbowStrength, dryingMinutes, windScale, mistScale, haloScale, frostScale }
 
     /// Each field falls back on its own, and numbers are clamped, so one bad value never loses the rest.
     public init(from decoder: Decoder) throws {
@@ -43,6 +48,10 @@ public struct SkySettings: Codable, Equatable {
         randomBlendSeconds = min(300, max(10, (try? c.decodeIfPresent(Double.self, forKey: .randomBlendSeconds)) ?? d.randomBlendSeconds))
         rainbowStrength = min(1, max(0, (try? c.decodeIfPresent(Double.self, forKey: .rainbowStrength)) ?? d.rainbowStrength))
         dryingMinutes = min(60, max(2, (try? c.decodeIfPresent(Double.self, forKey: .dryingMinutes)) ?? d.dryingMinutes))
+        windScale = min(2, max(0, (try? c.decodeIfPresent(Double.self, forKey: .windScale)) ?? d.windScale))
+        mistScale = min(2, max(0, (try? c.decodeIfPresent(Double.self, forKey: .mistScale)) ?? d.mistScale))
+        haloScale = min(1.5, max(0, (try? c.decodeIfPresent(Double.self, forKey: .haloScale)) ?? d.haloScale))
+        frostScale = min(1.5, max(0, (try? c.decodeIfPresent(Double.self, forKey: .frostScale)) ?? d.frostScale))
         spellMinutes = min(60, max(2, (try? c.decodeIfPresent(Double.self, forKey: .spellMinutes)) ?? d.spellMinutes))
     }
 }

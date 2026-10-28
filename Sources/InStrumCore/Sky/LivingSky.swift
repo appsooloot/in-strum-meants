@@ -163,6 +163,12 @@ public final class LivingSky {
         s.zenith = colours.zenith; s.horizon = colours.horizon
         let night = 1 - SkyPalette.smoothstep(-15, -4, Float(s.sun.altitude))
         s.starVisibility = night * (1 - 0.9 * w.cloud) * (1 - 0.6 * w.mist) * (1 - 0.3 * moonUp)
+        // Advanced scales (1 = as designed).
+        func scaled(_ v: Float, _ k: Double, _ hi: Double) -> Float { min(Float(hi), v * Float(min(hi, max(0, k)))) }
+        s.wind = scaled(s.wind, settings.windScale, 1)
+        s.mist = scaled(s.mist, settings.mistScale, 1)
+        s.halo = scaled(s.halo, settings.haloScale, 1)
+        s.frost = scaled(s.frost, settings.frostScale, 1)
         return s
     }
 
