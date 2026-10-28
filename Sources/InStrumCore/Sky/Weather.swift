@@ -1,6 +1,6 @@
 import Foundation
 
-public enum WeatherKind: String, Codable, CaseIterable { case clear, lightCloud, overcast, mist, drizzle, rain, storm, snow, blizzard, afterRain, sunShower }
+public enum WeatherKind: String, Codable, CaseIterable { case clear, lightCloud, overcast, mist, drizzle, rain, storm, snow, blizzard, afterRain, sunShower, fogBank, sleet, monsoon }
 
 /// Pick one yourself, or let the sky wander through beautiful weathers. (`.real` comes later.)
 public enum WeatherMode: String, Codable, CaseIterable { case pick, randomBeautiful }
@@ -31,6 +31,9 @@ public extension WeatherKind {
         case .snow: return WeatherValues(cloud: 0.85, rain: 0, snow: 0.8, mist: 0.3, wind: 0.25, halo: 0.2, frost: 0.6, gust: 0.2)
         case .blizzard: return WeatherValues(cloud: 1, rain: 0, snow: 1, mist: 0.6, wind: 1, frost: 0.9, gust: 1)
         case .afterRain: return WeatherValues(cloud: 0.45, rain: 0, snow: 0, mist: 0.55, wind: 0.1)
+        case .fogBank: return WeatherValues(cloud: 0.6, rain: 0, snow: 0, mist: 1, wind: 0.05, halo: 0, frost: 0.1)
+        case .sleet: return WeatherValues(cloud: 0.95, rain: 0.5, snow: 0.5, mist: 0.4, wind: 0.35, frost: 0.2, gust: 0.2)
+        case .monsoon: return WeatherValues(cloud: 1, rain: 1, snow: 0, mist: 0.45, wind: 0.6, gust: 0.4)
         case .sunShower: return WeatherValues(cloud: 0.5, rain: 0.3, snow: 0, mist: 0.25, wind: 0.2, gust: 0.1)
         }
     }
@@ -38,13 +41,13 @@ public extension WeatherKind {
     /// Clear, light-cloud, overcast and misty frost forms only at night (scaled by darkness); snow's any time.
     var frostFormsOnlyAtNight: Bool {
         switch self {
-        case .clear, .lightCloud, .overcast, .mist: return true
+        case .clear, .lightCloud, .overcast, .mist, .fogBank: return true
         default: return false
         }
     }
 
     /// Drizzle, rain and storms: what "after the rain" follows.
-    var isWet: Bool { self == .drizzle || self == .rain || self == .storm }
+    var isWet: Bool { self == .drizzle || self == .rain || self == .storm || self == .sleet || self == .monsoon }
 
     /// How often "random beautiful" picks it (overcast only when chosen).
     var beautyWeight: Float {
@@ -56,6 +59,9 @@ public extension WeatherKind {
         case .blizzard: return 0.3
         case .afterRain: return 1.5
         case .sunShower: return 1
+        case .fogBank: return 1
+        case .sleet: return 0.6
+        case .monsoon: return 0.4
         case .overcast: return 0
         }
     }

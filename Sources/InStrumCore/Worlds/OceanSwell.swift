@@ -63,6 +63,9 @@ public struct OceanSwell {
             case .mist: return 0.8
             case .afterRain: return 0.9
             case .sunShower: return 1.1
+            case .fogBank: return 0.8
+            case .sleet: return 1.3
+            case .monsoon: return 1.7
             }
         }
         let b = min(1, max(0, s.weatherBlend))

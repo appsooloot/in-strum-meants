@@ -69,7 +69,9 @@ public struct SnowboundCabinModel: ThemeModel, MoodAware, SkyAware {
         s.rainbow = 0                                           // it snows here; no rainbows
         func cold(_ k: WeatherKind) -> WeatherKind {
             switch k {
-            case .drizzle, .rain, .sunShower: return .snow
+            case .drizzle, .rain, .sunShower, .sleet: return .snow
+            case .monsoon: return .blizzard
+            case .fogBank: return .mist
             case .storm: return .blizzard
             case .afterRain: return .lightCloud
             default: return k

@@ -24,6 +24,9 @@ final class SkyControlsTests: XCTestCase {
         XCTAssertEqual(Set(names).count, names.count)
         XCTAssertEqual(SkyControls.weatherName(.blizzard), "Blizzard")
         XCTAssertEqual(SkyControls.weatherName(.sunShower), "Sun-shower")
+        XCTAssertEqual(SkyControls.weatherName(.fogBank), "Fog bank")
+        XCTAssertEqual(SkyControls.weatherName(.sleet), "Sleet")
+        XCTAssertEqual(SkyControls.weatherName(.monsoon), "Monsoon")
         XCTAssertEqual(SkyControls.weatherName(.afterRain), "After the rain")
     }
 }
