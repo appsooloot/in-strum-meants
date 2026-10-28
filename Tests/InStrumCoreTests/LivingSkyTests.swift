@@ -113,7 +113,8 @@ final class LivingSkyTests: XCTestCase {
     }
 
     func testResetStartsSettled() {
-        let sky = LivingSky(settings: SkySettings(), seed: 3, homeZone: melbourneZone)   // random weather
+        var raining = SkySettings(); raining.weatherMode = .pick; raining.weather = .rain
+        let sky = LivingSky(settings: raining, seed: 3, homeZone: melbourneZone)
         var s = SkySettings(); s.timeMode = .frozen; s.cityID = "melbourne"; s.weatherMode = .pick; s.weather = .clear
         sky.reset(settings: s)
         let state = sky.step(now: start, dt: 1.0 / 30)
