@@ -81,13 +81,18 @@ enum GoldenHourBeachShaders {
             float2 p2 = top + dir * len * 0.75 - float2(0, droop * 0.45);
             float2 p3 = top + dir * len - float2(0, droop);
             float2 d1 = segDistH(q, p0, p1), d2 = segDistH(q, p1, p2), d3 = segDistH(q, p2, p3);
-            float2 best = d1; float base = 0.0;
-            if (d2.x < best.x) { best = d2; base = 1.0; }
-            if (d3.x < best.x) { best = d3; base = 2.0; }
+            float2 best = d1; float base = 0.0; float2 sa = p0, sb = p1;
+            if (d2.x < best.x) { best = d2; base = 1.0; sa = p1; sb = p2; }
+            if (d3.x < best.x) { best = d3; base = 2.0; sa = p2; sb = p3; }
             float t = (base + best.y) / 3.0;
-            // Leaflets: wide in the middle, a comb of points along the edge.
-            float w = 0.04 * scale * sin(3.14159 * min(1.0, t * 1.08)) * (0.62 + 0.38 * abs(sin(t * 24.0 + h * 9.0)));
-            cover = max(cover, smoothstep(w + 0.002, w * 0.5, best.x) * step(0.04, t));
+            // Leaflets: thin blades slanting back from the midrib, hanging lower on the underside.
+            float2 sd = normalize(sb - sa);
+            float side = sd.x * (q.y - sa.y) - sd.y * (q.x - sa.x);      // > 0 above the midrib
+            float reach = 0.045 * scale * sin(3.14159 * min(1.0, t * 1.05)) * (side > 0.0 ? 0.6 : 1.0);
+            float across = best.x / max(reach, 1e-4);
+            float blades = abs(fract(t * 22.0 + across * 0.9 + h * 3.0) - 0.5);
+            float leaf = smoothstep(0.32, 0.16, blades) * smoothstep(1.0, 0.75, across) * step(0.05, t);
+            cover = max(cover, leaf);
             cover = max(cover, smoothstep(0.006 * scale, 0.003 * scale, best.x));   // the midrib
         }
         return cover;
