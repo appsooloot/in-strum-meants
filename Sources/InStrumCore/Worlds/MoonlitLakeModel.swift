@@ -15,6 +15,7 @@ public struct LakeFrame: AmbienceProviding {
     public var ambience: AmbienceScene
     public var mood: Mood
     public var time: Double
+    public var warp: WarpFrame? = nil
 }
 
 /// Set 1's world: a still lake under the Living Sky, ridges and pines, reeds and mist.

@@ -1,4 +1,5 @@
 import XCTest
+import simd
 @testable import InStrumCore
 
 final class WorldTests: XCTestCase {
@@ -122,5 +123,140 @@ final class WorldTests: XCTestCase {
         XCTAssertEqual(f.keys.count, 88)
         XCTAssertTrue(f.keys.contains { $0.key.note == 60 && $0.pressed })
         XCTAssertLessThan(f.sky.sun.altitude, -6)
+    }
+
+    // MARK: - Galaxy Warp
+
+    private func roles(energy: Double) -> RoleValues { var r = RoleValues(); r[.energy] = energy; return r }
+
+    func testNotesLaunchStreaks() {
+        var warp = GalaxyWarp()
+        warp.noteOn(60, velocity: 120, at: 0)
+        let f = warp.step(dt: 1.0 / 60, roles: RoleValues(), inputs: InputFrame())
+        XCTAssertGreaterThanOrEqual(f.streaks.count, 3)
+        XCTAssertGreaterThan(f.streaks[0].brightness, 0.8)
+        var low = GalaxyWarp(), high = GalaxyWarp()
+        low.noteOn(21, velocity: 100, at: 0)
+        high.noteOn(108, velocity: 100, at: 0)
+        let a = low.step(dt: 0.001, roles: RoleValues(), inputs: InputFrame()).streaks[0].direction
+        let b = high.step(dt: 0.001, roles: RoleValues(), inputs: InputFrame()).streaks[0].direction
+        XCTAssertGreaterThan(acos(min(1, max(-1, simd_dot(a, b)))), 1.5, "lowest and highest notes fly different ways")
+        var soft = GalaxyWarp()
+        soft.noteOn(60, velocity: 30, at: 0)
+        let s = soft.step(dt: 0.001, roles: RoleValues(), inputs: InputFrame())
+        XCTAssertLessThan(s.streaks[0].brightness, f.streaks[0].brightness, "velocity sets brightness")
+    }
+
+    func testIntensitySetsWarpSpeed() {
+        var warp = GalaxyWarp()
+        var f = warp.step(dt: 0, roles: RoleValues(), inputs: InputFrame())
+        for _ in 0..<60 { f = warp.step(dt: 1.0 / 60, roles: roles(energy: 1), inputs: InputFrame()) }
+        XCTAssertGreaterThan(f.warpSpeed, 0.8)
+        for _ in 0..<(6 * 60) { f = warp.step(dt: 1.0 / 60, roles: roles(energy: 0), inputs: InputFrame()) }
+        XCTAssertLessThan(f.warpSpeed, 0.15)
+    }
+
+    private func nebula(after notes: [UInt8]) -> WarpFrame {
+        var warp = GalaxyWarp()
+        for n in notes { warp.noteOn(n, velocity: 90, at: 0) }
+        var f = warp.step(dt: 0, roles: RoleValues(), inputs: InputFrame())
+        for _ in 0..<60 { f = warp.step(dt: 1.0 / 60, roles: RoleValues(), inputs: InputFrame()) }
+        return f
+    }
+
+    func testChordBloomsNebula() {
+        let major = nebula(after: [60, 64, 67])
+        XCTAssertGreaterThan(major.nebula, 0.5)
+        XCTAssertTrue((0.72...0.84).contains(major.nebulaHue), "major is warm violet: \(major.nebulaHue)")
+        let minor = nebula(after: [57, 60, 64])
+        XCTAssertTrue((0.58...0.68).contains(minor.nebulaHue), "minor is deep blue: \(minor.nebulaHue)")
+        let tense = nebula(after: [60, 66, 71])
+        XCTAssertTrue((0.85...0.95).contains(tense.nebulaHue), "tense is magenta: \(tense.nebulaHue)")
+        XCTAssertLessThan(nebula(after: [60]).nebula, 0.05, "one note is not a chord")
+    }
+
+    func testSilenceSettles() {
+        var warp = GalaxyWarp()
+        for i in 0..<20 { warp.noteOn(UInt8(40 + i), velocity: 110, at: Double(i) * 0.05) }
+        var f = warp.step(dt: 1.0 / 60, roles: roles(energy: 1), inputs: InputFrame())
+        for i in 0..<20 { warp.noteOff(UInt8(40 + i)) }
+        for _ in 0..<(8 * 60) { f = warp.step(dt: 1.0 / 60, roles: roles(energy: 0), inputs: InputFrame()) }
+        XCTAssertEqual(f.streaks.count, 0)
+        XCTAssertLessThan(f.warpSpeed, 0.15)
+        XCTAssertLessThan(f.nebula, 0.1)
+    }
+
+    func testWarpCapAndBudget() {
+        var warp = GalaxyWarp()
+        for i in 0..<2000 { warp.noteOn(UInt8(21 + i % 88), velocity: 127, at: Double(i) * 0.001) }
+        let t0 = CFAbsoluteTimeGetCurrent()
+        let f = warp.step(dt: 1.0 / 60, roles: roles(energy: 1), inputs: InputFrame())
+        XCTAssertLessThan(CFAbsoluteTimeGetCurrent() - t0, 0.008)
+        XCTAssertLessThanOrEqual(f.streaks.count, GalaxyWarp.cap)
+    }
+
+    // MARK: - Spaceship Lounge
+
+    private func loungeFrame(_ s: SkySettings, at now: Date = Date(timeIntervalSince1970: 1_793_000_000)) -> LoungeFrame? {
+        let d = SceneDirector(themeID: SpaceshipLoungeModel.id, state: ThemeState(), reaction: ReactionPresets.expressivePianist)
+        d.sky.reset(settings: s)
+        d.clock = { now }
+        d.mood = .dreamy
+        var frame: LoungeFrame?
+        for i in 0..<30 { frame = d.step(dt: 1.0 / 30, t: Double(i) / 30, quality: .high) as? LoungeFrame }
+        return frame
+    }
+
+    func testLoungeIsRegistered() {
+        XCTAssertEqual(ThemeRegistry.resolve(SpaceshipLoungeModel.id), SpaceshipLoungeModel.id)
+        XCTAssertTrue(ThemeRegistry.all.contains { $0.id == SpaceshipLoungeModel.id && $0.name == "Spaceship Lounge" })
+        assertValidParameters(SpaceshipLoungeModel.parameters)
+    }
+
+    func testEarthFollowsRealSun() throws {
+        var s = SkySettings(); s.timeMode = .realTime; s.cityID = "london"; s.weatherMode = .pick; s.weather = .clear
+        let noon = try XCTUnwrap(ISO8601DateFormatter().date(from: "2026-10-28T12:00:00Z"))
+        let f = try XCTUnwrap(loungeFrame(s, at: noon))
+        XCTAssertEqual(f.sky.subsolar.longitude, -4, accuracy: 1.5)
+        // London at noon: the lounge floats over the day side.
+        let below = Double(f.earthRotation) * 180 / .pi
+        var gap = abs(below - f.sky.subsolar.longitude).truncatingRemainder(dividingBy: 360)
+        if gap > 180 { gap = 360 - gap }
+        XCTAssertLessThan(gap, 20)
+    }
+
+    func testLoungeHasNoWeather() throws {
+        var s = SkySettings(); s.timeMode = .frozen; s.frozenHour = 22; s.cityID = "melbourne"; s.weatherMode = .pick; s.weather = .rain
+        let f = try XCTUnwrap(loungeFrame(s))
+        XCTAssertEqual(f.ambience.level(.rainOnGlass), 0)
+        XCTAssertEqual(f.ambience.level(.rainOnWater), 0)
+        XCTAssertNil(f.ambience.thunder)
+        XCTAssertEqual(f.sky.rain, 0)
+        XCTAssertEqual(f.sky.cloudCover, 0)
+        XCTAssertEqual(f.sky.starVisibility, 1)
+        XCTAssertEqual(f.ambience.level(.shipHum), 0.8, accuracy: 1e-9)
+        XCTAssertEqual(f.ambience.level(.airFlow), 0.5, accuracy: 1e-9)
+        XCTAssertEqual(f.ambience.level(.chime), 0.25, accuracy: 1e-9)
+        XCTAssertEqual(f.ambience.level(.hullTicks), 0.25, accuracy: 1e-9)
+        XCTAssertEqual(f.mood, .dreamy)
+    }
+
+    func testGalaxyWarpCanRunOnLake() throws {
+        XCTAssertTrue(MoonlitLakeModel.visuals.contains("Galaxy Warp"))
+        let d = SceneDirector(themeID: MoonlitLakeModel.id, state: ThemeState(values: ["visual": .choice("Galaxy Warp")]),
+                              reaction: ReactionPresets.expressivePianist)
+        var s = SkySettings(); s.timeMode = .frozen; s.frozenHour = 22; s.cityID = "melbourne"; s.weatherMode = .pick; s.weather = .clear
+        d.sky.reset(settings: s)
+        d.handle([.noteOn(note: 60, velocity: 0.9), .noteOn(note: 72, velocity: 0.9)], at: 0)
+        let f = try XCTUnwrap(d.step(dt: 1.0 / 30, t: 0, quality: .high) as? LakeFrame)
+        let warp = try XCTUnwrap(f.warp)
+        XCTAssertGreaterThan(warp.streaks.count, 0)
+        XCTAssertTrue(f.ripples.isEmpty, "Galaxy Warp replaces the ripples")
+        // Lake Ripples (the default) has no warp.
+        let r = SceneDirector(themeID: MoonlitLakeModel.id, state: ThemeState(), reaction: ReactionPresets.expressivePianist)
+        r.handle([.noteOn(note: 60, velocity: 0.9)], at: 0)
+        let rf = try XCTUnwrap(r.step(dt: 1.0 / 30, t: 0, quality: .high) as? LakeFrame)
+        XCTAssertNil(rf.warp)
+        XCTAssertEqual(rf.ripples.count, 1)
     }
 }

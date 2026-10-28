@@ -119,6 +119,48 @@ final class MoonlitLakeRendererTests: XCTestCase {
     }
 }
 
+/// Spaceship Lounge (Set 2's world) with Galaxy Warp.
+@MainActor
+final class SpaceshipLoungeRendererTests: XCTestCase {
+    func testLoungeShadersCompile() throws {
+        guard let device = MTLCreateSystemDefaultDevice() else { throw XCTSkip("No Metal device") }
+        let lib = try device.makeLibrary(source: SpaceshipLoungeShaders.source, options: nil)
+        for name in ["lounge_vertex", "lounge_space_fragment", "lounge_frame_fragment", "lounge_keys_vertex", "lounge_keys_fragment"] {
+            XCTAssertNotNil(lib.makeFunction(name: name), name)
+        }
+        let warp = try device.makeLibrary(source: WarpShaders.source, options: nil)
+        for name in ["warp_streak_vertex", "warp_streak_fragment", "warp_nebula_vertex", "warp_nebula_fragment"] {
+            XCTAssertNotNil(warp.makeFunction(name: name), name)
+        }
+    }
+
+    func testLoungeHasNoWeatherSurface() {
+        if case .none = SpaceshipLoungeRenderer.weatherSurface {} else { XCTFail("the lounge is in space: no weather") }
+    }
+
+    func testLoungePreviewIsStructured() throws {
+        guard MTLCreateSystemDefaultDevice() != nil else { throw XCTSkip("No Metal device") }
+        let preview = try XCTUnwrap(PreviewRenderer(width: 640, height: 360))
+        for q in [QualityLevel.lite, .high] {
+            let image = try XCTUnwrap(preview.render(themeID: SpaceshipLoungeModel.id, at: [5], quality: q,
+                                                     sky: MoonlitLakeRendererTests.night, mood: .dreamy).first)
+            let s = PreviewRenderer.stats(image)
+            XCTAssertGreaterThan(s.meanLuminance, 0.03, "\(q)")
+            XCTAssertGreaterThan(s.variance, 0.001, "\(q)")
+        }
+        // The demo's hard low note lands at 2.0 s: stars streak past the window.
+        let frames = preview.render(themeID: SpaceshipLoungeModel.id, at: [1.95, 2.35], quality: .high,
+                                    sky: MoonlitLakeRendererTests.night, mood: .dreamy)
+        XCTAssertEqual(frames.count, 2)
+        XCTAssertGreaterThan(PreviewRenderer.difference(frames[0], frames[1]), 0.005)
+    }
+
+    func testWarpFieldFollowsQuality() {
+        XCTAssertLessThan(WarpLayer.fieldCount(.lite), WarpLayer.fieldCount(.high))
+        XCTAssertLessThanOrEqual(WarpLayer.fieldCount(.lite) + GalaxyWarp.cap, 600, "Smooth stays light")
+    }
+}
+
 /// World preview frames for the CI previews branch (PREVIEW_DIR).
 @MainActor
 final class WorldPreviewTests: XCTestCase {
