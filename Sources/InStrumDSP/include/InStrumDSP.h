@@ -19,7 +19,7 @@ void isd_reverb_configure(ISDReverb *reverb, float size, float damping, float pr
 void isd_reverb_process(ISDReverb *reverb, const float *inL, const float *inR, float *outL, float *outR, int frames);
 
 // ---------- Built-in instruments ----------
-typedef enum { ISD_ENGINE_FELT_GLASS = 0, ISD_ENGINE_ORBIT_PAD = 1, ISD_ENGINE_HONEY_TAPE = 2, ISD_ENGINE_HAZE_BELLS = 3 } ISDEngine;
+typedef enum { ISD_ENGINE_FELT_GLASS = 0, ISD_ENGINE_ORBIT_PAD = 1, ISD_ENGINE_HONEY_TAPE = 2, ISD_ENGINE_HAZE_BELLS = 3, ISD_ENGINE_CABIN_FELT = 4 } ISDEngine;
 
 /// Parameter addresses (stable: saved in presets and instrument state).
 enum {
@@ -28,11 +28,14 @@ enum {
     ISD_P_BLOOM = 20, ISD_P_DRIFT = 21, ISD_P_MOTION = 22, ISD_P_SHIMMER = 23, ISD_P_BRIGHTNESS = 24,
     ISD_P_BREATH = 30, ISD_P_STRINGS = 31, ISD_P_WOW = 32, ISD_P_AGE = 33, ISD_P_REEL = 34,
     ISD_P_BELLS = 40, ISD_P_ORGAN = 41, ISD_P_ECHO = 42, ISD_P_CRUSH = 43,
+    ISD_P_HORN = 50, ISD_P_FIRE = 51, ISD_P_WOOD = 52,
     ISD_P_MOOD_ENERGY = 100, ISD_P_MOOD_WARMTH = 101, ISD_P_MOOD_BRIGHTNESS = 102, ISD_P_MOOD_SPACE = 103, ISD_P_MOOD_MOTION = 104,
     /// Test hook (unit 3, never shown): Orbit Pad plays one plain saw, no detune, drift, motion or chorus.
     ISD_P_DEBUG_LAYER_A_ONLY = 200,
     /// Test hook (unit 3, never shown): Honey Tape's flute plays without vibrato.
-    ISD_P_DEBUG_NO_VIBRATO = 201
+    ISD_P_DEBUG_NO_VIBRATO = 201,
+    /// Test hooks (unit 3, never shown): Cabin Felt without its key and damper noises; Cabin Felt's horn alone.
+    ISD_P_DEBUG_NO_MECHANICS = 202, ISD_P_DEBUG_HORN_ONLY = 203
 };
 
 /// unit: 0 generic 0…1, 1 cents, 2 semitones, 3 internal (test hooks: hosts never show or save these).
@@ -61,7 +64,9 @@ void isd_synth_render(ISDSynth *synth, float *left, float *right, int frames);
 void isd_synth_all_notes_off(ISDSynth *synth);
 int isd_synth_active_voices(const ISDSynth *synth);
 /// Internal counters for tests. Not real-time safe to rely on; read between renders.
-typedef enum { ISD_DEBUG_RETUNES = 0 } ISDDebugCount;
+/// RETUNES: Felt Glass retunes. HORN_NOTE: Cabin Felt's horn note (folded into its range), or -1.
+/// BUILD_PERMILLE and WALL_UNISON: Morning Box's build level × 1000 and its wall's unison count.
+typedef enum { ISD_DEBUG_RETUNES = 0, ISD_DEBUG_HORN_NOTE = 1, ISD_DEBUG_BUILD_PERMILLE = 2, ISD_DEBUG_WALL_UNISON = 3 } ISDDebugCount;
 int isd_synth_debug_count(const ISDSynth *synth, ISDDebugCount which);
 
 // ---------- Ambience (generated live, never loops) ----------
