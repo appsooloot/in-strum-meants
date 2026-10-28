@@ -69,7 +69,10 @@ enum SpaceshipLoungeShaders {
 
         // Night: city lights on the land, softened by cloud; moonlight greys the clouds.
         float dark = smoothstep(0.05, -0.12, ndl);
-        float cities = land * (1.0 - ice) * (pow(vnoise3(n * 45.0), 6.0) * 2.5 + pow(vnoise3(n * 140.0), 12.0) * 6.0);
+        // Lights gather in clusters along settled land, sparse elsewhere.
+        float settled = smoothstep(0.45, 0.72, vnoise3(n * 6.0 + 3.0)) * smoothstep(0.53, 0.6, c);
+        float cities = land * (1.0 - ice) * settled
+                     * (pow(vnoise3(n * 70.0), 9.0) * 3.0 + pow(vnoise3(n * 190.0), 14.0) * 8.0);
         float3 night = float3(1.0, 0.66, 0.3) * cities * 0.35 * (1.0 - 0.75 * cloud)
                      + mix(surface * 0.12, float3(0.16, 0.18, 0.24), cloud) * moonlit * 0.6;
         return day + night * dark;
@@ -88,7 +91,7 @@ enum SpaceshipLoungeShaders {
         float3 ray = normalize(float3(ndc.x * aspect * tanV, ndc.y * tanV, 1.0));
         float3 v = float3x3(u.eq0.xyz, u.eq1.xyz, u.eq2.xyz) * ray;
         float3 col = float3(0.0012, 0.0015, 0.0028);
-        col += starField(v, u.east.w, time, 1.0) * 1.2 + milkyWay(v, octaves, 1.0) * 2.0;
+        col += starField(v, u.east.w, time, 1.0) + milkyWay(v, octaves, 1.0) * 0.9;
 
         // The Moon in its phase, lit from the sun's side.
         float2 mq = (p - u.moon.xy) / u.moon.z;
@@ -159,7 +162,7 @@ enum SpaceshipLoungeShaders {
         if (cover < 0.004) discard_fragment();
         float glow = u.a.w, keysTop = u.a.z;
         float3 wall = float3(0.016, 0.011, 0.008);
-        wall += float3(0.22, 0.12, 0.065) * glow * exp(-max(ndc.y - keysTop, 0.0) / 0.55);
+        wall += float3(0.3, 0.16, 0.085) * glow * exp(-max(ndc.y - keysTop, 0.0) / 0.55);
         wall += float3(0.03, 0.02, 0.014) * glow * exp(-abs(ndc.x) * 0.8);
         // The bevel just outside the glass catches warm light below and cool earthlight above.
         float bevel = exp(-max(d, 0.0) / 0.012);
