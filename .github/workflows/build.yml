@@ -124,17 +124,16 @@ jobs:
 
           **Install:** download the **.dmg** below and open it, drag *In Strum Meants* onto *Applications* (choose **Replace** if asked), then right-click the app → **Open** → **Open** (first time only). The .zip is a fallback.
 
-          **New in this build — Sound & MIDI.** The gear button at the top right is now **Sound & MIDI**:
+          **Preview build — Cabin Felt (after Mac Miller's "Stay").** A new instrument to try before its world arrives: press **Choose Instrument** and pick **Cabin Felt** (presets: Cabin Felt, Fireside, Snow Horn, Late Night). An upright felt piano played close in a small log cabin, with the soft key thump and damper "chuff" and warm wood around it, plus a mellow **horn** that follows your top line by itself: it slurs when you play legato and scoops up into fresh phrases.
 
-          - **Output** — choose where the sound goes by name (speakers, headphones, an audio interface), or leave it on *Mac default output*. A green dot shows the sound is playing, and at what rate.
-          - **Restart audio** — brings the sound straight back if it cuts out. The app also checks itself every 2 seconds: if the sound stops it restarts it, and if your chosen output disappears it plays to the Mac default output until it comes back.
-          - **Test sound** — plays middle C, to check the sound without the keyboard.
-          - **Audio buffer** now goes up to **1024** (safest). Crackles or dropouts? Choose 512 or 1024.
-          - **MIDI keyboards** — every connected keyboard, each with an on/off switch and a dot that lights when it sends a note. **Rescan** reconnects them, and **Channel** listens to one MIDI channel only (or All channels). The on-screen keys still play whatever the channel.
+          **What to try:**
+          - **Play-along test** with "Stay" in **F♯ major**, at its slow half-time pocket (about 67). It should blend, never clash. If it sits off-pitch, use Fine tune under **Open Instrument**.
+          - **The horn:** play chords with a melody on top. Hold one melody note into the next for a slur; lift between phrases for a fresh scoop. **Horn** sets its level (0 is piano only, as in Fireside).
+          - **Felt** (hushed and soft, or a clearer strike) and **Fire** (warmth).
 
-          **If the sound cuts in and out:** open Sound & MIDI, choose 512 or 1024, pick your output by name, then press Restart audio. Wired speakers or headphones are steadier than Bluetooth.
+          **Hear it first:** the *cabin-felt-demo.m4a* below is a short original clip rendered on the build machine (never the song's melody).
 
-          Sets 1 to 4 (Moonlit Lake, Spaceship Lounge, Golden Hour Beach, Coast Road) are unchanged.
+          **Sound & MIDI** (from the last build): the gear button at the top right picks the output, restarts the audio, switches MIDI keyboards on or off and sets the channel. If the sound cuts in and out, choose 512 or 1024 there and press Restart audio.
 
           **Check each build:** instant key response · soft vs hard feels right · pedal (optional) lingers · visuals land with notes · unplugging stops all sound · reopening restores your instrument and set.
           NOTES
