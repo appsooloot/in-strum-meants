@@ -148,13 +148,16 @@ enum SnowboundCabinShaders {
             float ph = (win.y - pane.y) / max(pane.w - pane.y, 1e-4);
             float corner = max(max(0.0, 1.0 - pu / 0.32), max(0.0, 1.0 - (1.0 - pu) / 0.32));
             bool lowest = pane.y < 0.01;
-            float profile = lowest ? 0.045 + 0.2 * corner * corner + 0.03 * cvn1(pu * 9.0 + pane.x * 31.0)
-                                   : 0.012 + 0.07 * corner * corner + 0.01 * cvn1(pu * 11.0 + pane.y * 17.0);
-            if (!onBar && ph < profile) {
-                float top = saturate((profile - ph) / 0.05);
-                float3 snowLit = skyAmb * 1.05 + sunCol * 0.5 * saturate(Ls.y + 0.3) + moonCol * 0.8 + fireCol * fire * 0.22 * night;
-                float3 col = float3(0.92, 0.95, 1.0) * snowLit * mix(1.15, 0.78, top);
-                col = mix(col, col * float3(0.75, 0.85, 1.1), smoothstep(0.4, 1.0, top) * 0.5);
+            float lumpy = cvn1(pu * 9.0 + pane.x * 31.0) * 0.7 + cvn1(pu * 23.0 + pane.x * 7.0) * 0.3;
+            float profile = lowest ? 0.03 + 0.15 * corner * corner + 0.035 * lumpy
+                                   : 0.008 + 0.045 * corner * corner + 0.008 * lumpy;
+            float edgeNoise = (cvn2(float2(pu * 60.0, ph * 60.0)) - 0.5) * 0.012;
+            if (!onBar && ph < profile + edgeNoise) {
+                float top = saturate((profile - ph) / 0.06);
+                float3 snowLit = skyAmb * 1.0 + sunCol * 0.45 * saturate(Ls.y + 0.3) + moonCol * 0.8 + fireCol * fire * 0.22 * night;
+                float grain = 0.94 + 0.06 * cvn2(float2(pu * 140.0, ph * 140.0));
+                float3 col = float3(0.92, 0.95, 1.0) * snowLit * mix(1.0, 0.8, top) * grain;
+                col = mix(col, col * float3(0.72, 0.84, 1.12), smoothstep(0.3, 1.0, top) * 0.55);
                 ColorDepth o; o.color = float4(col, 1); o.depth = float4(0.1, 0, 0, 1); return o;
             }
         }
@@ -218,7 +221,7 @@ enum SnowboundCabinShaders {
                 float pu = 0.5 + (win.x - 0.5) / (0.85 + 0.5 * pw);
                 bool poolBar;
                 cabinPane(float2(pu, 0.08 + 0.9 * pw), c, poolBar);
-                float inside = (poolBar ? 0.25 : 1.0) * smoothstep(0.0, 0.08, pu) * smoothstep(1.0, 0.92, pu) * smoothstep(1.0, 0.7, pw);
+                float inside = (poolBar ? 0.08 : 1.0) * smoothstep(0.0, 0.05, pu) * smoothstep(1.0, 0.95, pu) * smoothstep(1.0, 0.8, pw);
                 col += fireCol * fire * 0.9 * night * inside * (1.0 - 0.5 * pw) * float3(1.0, 0.88, 0.75);
             }
             col = mix(col, haze * 1.02, (1.0 - t) * (0.1 + 0.4 * mist));
@@ -289,27 +292,37 @@ enum SnowboundCabinShaders {
                 float amp = k == 0 ? 0.17 : 0.33;
                 float top = horizon + h0 + amp * ridge(sx * freq, seed);
                 if (sy < top) {
-                    float slope = (ridge((sx + 0.006) * freq, seed) - ridge((sx - 0.006) * freq, seed)) / 0.012 * amp;
-                    float3 n = normalize(float3(-slope * 1.4, 1.0, 0.5));
-                    float heightFrac = saturate((sy - horizon) / max(top - horizon, 1e-3));
+                    float below = top - sy;
+                    float frac = saturate(below / max(top - horizon, 1e-3));     // 0 at the crest … 1 at the foot
+                    // Faces follow the crest near the top and the range's broad shape lower down; spurs and gullies
+                    // run diagonally down from the crest.
+                    float e = 0.006;
+                    float fine = (ridge((sx + e) * freq, seed) - ridge((sx - e) * freq, seed)) / (2.0 * e) * amp;
+                    float b1 = 1.0 - abs(2.0 * cvn1((sx + 0.03) * freq + seed) - 1.0);
+                    float b0 = 1.0 - abs(2.0 * cvn1((sx - 0.03) * freq + seed) - 1.0);
+                    float broad = (b1 - b0) / 0.06 * amp * 0.62;
+                    float slope = mix(fine, broad, smoothstep(0.08, 0.55, frac));
+                    float spur = cvn2(float2((sx * freq + below * 1.4) * 7.0, below * 10.0 + seed));
+                    slope += (spur - 0.5) * 1.1 * smoothstep(0.05, 0.4, frac);
+                    float3 n = normalize(float3(-slope * 1.3, 1.0, 0.45));
                     float sunFace = dot(n, Ls), moonFace = dot(n, Lm);
-                    float gully = smoothstep(0.6, 0.8, cvn2(float2(sx * 7.0 * freq, sy * 1.6 + seed))) * smoothstep(0.3, 0.6, heightFrac);
-                    float rock = saturate(gully * 0.75 + smoothstep(0.9, 1.4, abs(slope)) * 0.5);
-                    float3 albedo = mix(float3(0.9, 0.93, 1.0), float3(0.2, 0.19, 0.2), rock);
-                    float3 col = albedo * (skyAmb * 0.8 + sunCol * 0.85 * saturate(sunFace) + moonCol * 1.3 * saturate(moonFace));
-                    col *= mix(float3(0.72, 0.82, 1.05), float3(1.0), saturate(max(sunFace * sunUp, moonFace * moonUp) * 2.0 + 0.4));
+                    float rock = smoothstep(0.6, 0.72, cvn2(float2(sx * 12.0, sy * 12.0) + seed)) * (1.0 - smoothstep(0.35, 0.7, frac))
+                               + smoothstep(1.0, 1.6, abs(slope)) * 0.6;
+                    float3 albedo = mix(float3(0.9, 0.93, 1.0), float3(0.17, 0.16, 0.18), saturate(rock));
+                    float3 col = albedo * (skyAmb * 0.65 + sunCol * 1.0 * saturate(sunFace) + moonCol * 1.6 * saturate(moonFace));
+                    col *= mix(float3(0.62, 0.74, 1.05), float3(1.0), saturate(max(sunFace * sunUp, moonFace * moonUp) * 2.5 + 0.3));
                     // Alpenglow: the peaks catch the low sun pink-orange, from just before sunrise to a little after.
                     float alpen = smoothstep(-2.5, -0.5, sunAlt) * (1.0 - smoothstep(5.0, 8.0, sunAlt)) * (1.0 - 0.6 * cloud);
-                    col += float3(1.0, 0.42, 0.32) * alpen * 0.8 * smoothstep(0.3, 0.9, heightFrac) * saturate(sunFace + 0.6);
+                    col += float3(1.0, 0.42, 0.32) * alpen * 0.85 * (1.0 - smoothstep(0.1, 0.7, frac)) * saturate(sunFace + 0.6);
                     if (k == 0) {
                         // Forest on the near ridge's lower slopes, with a ragged tree line.
-                        float line = 0.36 + 0.1 * (cvn1(sx * 9.0 + 2.0) - 0.5) + 0.05 * (cvn1(sx * 31.0) - 0.5);
-                        float forest = 1.0 - smoothstep(line - 0.02, line + 0.02, heightFrac);
+                        float line = 0.62 + 0.1 * (cvn1(sx * 9.0 + 2.0) - 0.5) + 0.05 * (cvn1(sx * 31.0) - 0.5);
+                        float forest = smoothstep(line - 0.02, line + 0.02, frac);
                         float specks = smoothstep(0.55, 0.8, cvn2(float2(sx * 90.0, sy * 160.0)));
                         float3 trees = mix(float3(0.03, 0.045, 0.045) * skyAmb * 1.3, float3(0.85, 0.9, 1.0) * snowAmb * 0.8, specks * 0.6);
                         col = mix(col, trees, forest * 0.9);
                     }
-                    col = mix(col, haze, (k == 0 ? 0.22 : 0.42) + 0.35 * mist);
+                    col = mix(col, haze, (k == 0 ? 0.14 : 0.3) + 0.35 * mist);
                     behind = col; behindA = 1.0; behindDepth = k == 0 ? 0.85 : 0.92;
                     break;
                 }
