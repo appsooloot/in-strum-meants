@@ -1,5 +1,5 @@
 /// Metal source for Snowbound Cabin Window: the view from inside a log cabin through a three-by-two window.
-/// Outside: two snowy ridges in aerial haze with alpenglow, three rows of snow-laden pines, a far cabin whose
+/// Outside: two ranges of snowy peaks (arêtes and couloirs) in aerial haze with alpenglow, three rows of snow-laden pines, a far cabin whose
 /// window lights at dusk with a ribbon of chimney smoke, a snow field that glints by the sun or moon, a frozen
 /// creek mirroring the sky, the window's light on the snow at night, and drifts banked against the panes.
 /// Inside: log walls and a thick sill lit by the fire (with a candle in a jar and a mug), and ember-amber keys.
@@ -36,12 +36,44 @@ enum SnowboundCabinShaders {
         float2 u = f * f * (3.0 - 2.0 * f);
         return mix(mix(ch21(i), ch21(i + float2(1, 0)), u.x), mix(ch21(i + float2(0, 1)), ch21(i + float2(1, 1)), u.x), u.y);
     }
-    // Sharp-crested ridges: folded value noise, three octaves.
-    float ridge(float x, float seed) {
-        float a = 1.0 - abs(2.0 * cvn1(x + seed) - 1.0);
-        float b = 1.0 - abs(2.0 * cvn1(x * 2.3 + seed * 1.7) - 1.0);
-        float c = 1.0 - abs(2.0 * cvn1(x * 5.9 + seed * 2.9) - 1.0);
-        return a * 0.62 + b * 0.26 + c * 0.12;
+    // A range of alpine peaks: in each cell a summit (random place and height, a steeper and a gentler flank); the
+    // cones of the cell and its two neighbours meet in a smooth maximum, so valleys crease without seams. Returns the
+    // height above the horizon and, through `nx` and `arete`, the face's sideways normal (arêtes and couloirs fanning
+    // down from each summit, softening lower down) and how close the point is to a rocky arête near the top.
+    float peaks(float sx, float sy, float horizon, float freq, float h0, float amp, float seed, float bands,
+                thread float& nx, thread float& arete) {
+        float cell0 = floor(sx * freq);
+        float hs[3], nxs[3], ars[3];
+        float hmax = -9.0;
+        for (int j = 0; j < 3; j++) {
+            float cell = cell0 + float(j - 1);
+            float cx = (cell + 0.15 + 0.7 * ch11(cell + seed)) / freq;
+            float pk = h0 + amp * (0.3 + 0.7 * ch11(cell * 1.7 + seed + 17.0));
+            float dx = sx - cx;
+            float side = dx < 0.0 ? -1.0 : 1.0;
+            float s = amp * freq * (1.0 + 1.5 * ch11(cell + seed + (dx < 0.0 ? 31.0 : 47.0)));
+            float dy = max(horizon + pk - sy, 1e-4);
+            float a = saturate(atan(abs(dx) / dy) / atan(1.0 / s));       // 0 straight below the summit … 1 the crest
+            float f = a * bands + (cvn1(dy * 7.0 + cell * 3.3 + side * 5.0) - 0.5) + ch11(cell + side * 9.0) * 0.8;
+            float t = fract(f);
+            float tilt = (ch11(floor(f) * 7.1 + cell * 13.0 + side) - 0.5) * 0.4;
+            float depthK = dy / max(pk, 1e-3);
+            float gully = (t < 0.5 ? 1.0 : -1.0) * 0.6 * sin(t * M_PI_F) * (1.0 - 0.5 * smoothstep(0.05, 0.3, depthK));
+            nxs[j] = side * (0.2 + 0.9 * a) + gully * side + tilt;
+            ars[j] = (1.0 - smoothstep(0.0, 0.06, abs(t - 0.5))) * (1.0 - smoothstep(0.1, 0.45, depthK));
+            hs[j] = pk - abs(dx) * s;
+            hmax = max(hmax, hs[j]);
+        }
+        const float K = 0.012;
+        float total = 0.0;
+        for (int j = 0; j < 3; j++) total += exp((hs[j] - hmax) / K);
+        float H = hmax + K * log(total);
+        nx = 0.0; arete = 0.0;
+        for (int j = 0; j < 3; j++) {
+            float w = exp((hs[j] - H) / K);
+            nx += w * nxs[j]; arete += w * ars[j];
+        }
+        return H;
     }
 
     // The pane around a window point and whether it's on a bar (as the Window Kit lays them out).
@@ -287,28 +319,23 @@ enum SnowboundCabinShaders {
             // ---- the mountains: a near ridge with forest on its lower slopes, then a high far range in deeper haze
             for (int k = 0; k < 2; k++) {
                 float seed = k == 0 ? 7.7 : 3.1;
-                float freq = k == 0 ? 1.6 : 0.85;
-                float h0 = k == 0 ? 0.035 : 0.09;
-                float amp = k == 0 ? 0.17 : 0.33;
-                float top = horizon + h0 + amp * ridge(sx * freq, seed);
+                float freq = k == 0 ? 1.5 : 0.9;
+                float h0 = k == 0 ? 0.03 : 0.07;
+                float amp = k == 0 ? 0.16 : 0.3;
+                float nx, arete;
+                float peak = peaks(sx, sy, horizon, freq, h0, amp, seed, k == 0 ? 3.0 : 2.0, nx, arete);
+                // A ragged crest: two folded octaves of fine roughness on the cones.
+                float rough = (1.0 - abs(2.0 * cvn1(sx * freq * 11.0 + seed) - 1.0)) * 0.6
+                            + (1.0 - abs(2.0 * cvn1(sx * freq * 29.0 + seed * 2.0) - 1.0)) * 0.4;
+                float top = horizon + max(peak, h0 * 0.4) + amp * 0.04 * rough;
                 if (sy < top) {
                     float below = top - sy;
                     float frac = saturate(below / max(top - horizon, 1e-3));     // 0 at the crest … 1 at the foot
-                    // Faces follow the crest near the top and the range's broad shape lower down; spurs and gullies
-                    // run diagonally down from the crest.
-                    float e = 0.006;
-                    float fine = (ridge((sx + e) * freq, seed) - ridge((sx - e) * freq, seed)) / (2.0 * e) * amp;
-                    float b1 = 1.0 - abs(2.0 * cvn1((sx + 0.03) * freq + seed) - 1.0);
-                    float b0 = 1.0 - abs(2.0 * cvn1((sx - 0.03) * freq + seed) - 1.0);
-                    float broad = (b1 - b0) / 0.06 * amp * 0.62;
-                    float slope = mix(fine, broad, smoothstep(0.08, 0.55, frac));
-                    float spur = cvn2(float2((sx * freq + below * 1.4) * 7.0, below * 10.0 + seed));
-                    slope += (spur - 0.5) * 1.1 * smoothstep(0.05, 0.4, frac);
-                    float3 n = normalize(float3(-slope * 1.3, 1.0, 0.45));
+                    // Faces turn with the flanks of each summit, creased by the arêtes and couloirs fanning down.
+                    float3 n = normalize(float3(nx, 0.75, 0.6));
                     float sunFace = dot(n, Ls), moonFace = dot(n, Lm);
-                    float rock = smoothstep(0.6, 0.72, cvn2(float2(sx * 12.0, sy * 12.0) + seed)) * (1.0 - smoothstep(0.35, 0.7, frac))
-                               + smoothstep(1.0, 1.6, abs(slope)) * 0.6;
-                    float3 albedo = mix(float3(0.9, 0.93, 1.0), float3(0.17, 0.16, 0.18), saturate(rock));
+                    float rock = saturate(arete * 0.85);
+                    float3 albedo = mix(float3(0.9, 0.93, 1.0), float3(0.28, 0.26, 0.27), rock);
                     float3 col = albedo * (skyAmb * 0.65 + sunCol * 1.0 * saturate(sunFace) + moonCol * 1.6 * saturate(moonFace));
                     col *= mix(float3(0.62, 0.74, 1.05), float3(1.0), saturate(max(sunFace * sunUp, moonFace * moonUp) * 2.5 + 0.3));
                     // Alpenglow: the peaks catch the low sun pink-orange, from just before sunrise to a little after.
