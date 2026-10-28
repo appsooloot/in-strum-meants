@@ -50,11 +50,11 @@ public struct FrostField: Sendable {
         return top + (bottom - top) * ty
     }
 
-    /// One pane's cells, inclusive.
-    struct PaneRect: Equatable { var x0, y0, x1, y1: Int }
+    /// One pane's cells, inclusive (rows count down from the top of the glass).
+    public struct PaneRect: Equatable, Sendable { public var x0, y0, x1, y1: Int }
 
     /// Panes filling the glass, separated by bars `bar` wide (a fraction of the width; cells are square).
-    static func paneRects(columns: Int, rows: Int, bar: Float) -> [PaneRect] {
+    public static func paneRects(columns: Int, rows: Int, bar: Float) -> [PaneRect] {
         let cols = min(max(columns, 1), 12), rws = min(max(rows, 1), 8)
         var barCells = 0
         if cols * rws > 1 {
