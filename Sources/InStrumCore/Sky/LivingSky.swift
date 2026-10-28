@@ -51,6 +51,12 @@ public final class LivingSky {
         clock.place(cityID: settings.cityID, homeZone: homeZone)
     }
 
+    /// Starts over with these settings: the weather begins settled instead of blending from the old one
+    /// (launch and previews; setting `settings` later blends as usual).
+    public func reset(settings: SkySettings) {
+        self.settings = settings
+    }
+
     public func step(now: Date, dt rawDt: Double) -> SkyState {
         let dt = min(1, max(0, rawDt))
         let reading = clock.read(now: now, dt: dt, settings: settings)

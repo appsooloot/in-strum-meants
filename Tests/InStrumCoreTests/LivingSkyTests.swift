@@ -112,6 +112,22 @@ final class LivingSkyTests: XCTestCase {
         XCTAssertNotEqual(weatherRun(seed: 8, hours: 2).map(\.1), weatherRun(seed: 7, hours: 2).map(\.1))
     }
 
+    func testResetStartsSettled() {
+        let sky = LivingSky(settings: SkySettings(), seed: 3, homeZone: melbourneZone)   // random weather
+        var s = SkySettings(); s.timeMode = .frozen; s.cityID = "melbourne"; s.weatherMode = .pick; s.weather = .clear
+        sky.reset(settings: s)
+        let state = sky.step(now: start, dt: 1.0 / 30)
+        XCTAssertEqual(state.weather, .clear)
+        XCTAssertEqual(state.weatherBlend, 0)
+        XCTAssertEqual(state.rain, 0)
+        XCTAssertEqual(sky.settings, s)
+        // Changing the settings (not resetting) still blends.
+        s.weather = .rain
+        sky.settings = s
+        let blending = sky.step(now: start.addingTimeInterval(1), dt: 1)
+        XCTAssertLessThan(blending.rain, 0.2)
+    }
+
     func testStormsFlashLightning() {
         var s = SkySettings(); s.timeMode = .frozen; s.weatherMode = .pick; s.weather = .storm
         let sky = LivingSky(settings: s, homeZone: melbourneZone)
