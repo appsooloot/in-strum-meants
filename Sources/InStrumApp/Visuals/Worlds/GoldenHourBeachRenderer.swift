@@ -126,15 +126,20 @@ final class GoldenHourBeachRenderer: ThemeRenderer {
             let ahead = Float(w.breakTime - frame.swellTime) * Self.waveSpeed
             crests[i] = SIMD4(ahead, w.strength, 0, 0)
         }
-        // The last break: how long ago and how strong (the shader rolls its white water in from the break line).
-        var since: Float = -1, lastStrength: Float = 0
-        if let last = frame.recent.last, frame.swellTime >= last.breakTime {
-            since = Float(min(60, frame.swellTime - last.breakTime)); lastStrength = last.strength
+        // The last two breaks: how long ago and how strong (the shader rolls their white water in from the break
+        // line, the older one still fading as the newer arrives).
+        var since: Float = -1, lastStrength: Float = 0, since2: Float = -1, strength2: Float = 0
+        let broken = frame.recent.filter { frame.swellTime >= $0.breakTime }
+        if let last = broken.last { since = Float(min(60, frame.swellTime - last.breakTime)); lastStrength = last.strength }
+        if broken.count >= 2 {
+            let before = broken[broken.count - 2]
+            since2 = Float(min(60, frame.swellTime - before.breakTime)); strength2 = before.strength
         }
-        beachU[0] = SIMD4(keyTop, 0, limited.sparkle, haze)
+        sprayOut = sparkleScale
+        beachU[0] = SIMD4(keyTop, sprayOut, limited.sparkle, haze)
         beachU[1] = SIMD4(Float(p.number("palms")), s.wind, Float(lines.count), night)
         beachU[2] = SIMD4(aspect, Self.cameraHeight, since, lastStrength)
-        beachU[3] = SIMD4(frame.washFront, frame.foam * sparkleScale, quality == .lite ? 1 : 0, 0)
+        beachU[3] = SIMD4(frame.washFront, frame.foam * sparkleScale, since2, strength2)
         beachU[4] = crests[0]; beachU[5] = crests[1]; beachU[6] = crests[2]
 
         oceanU[0] = frame.swellPhases

@@ -49,6 +49,10 @@ public struct TideLines {
     private var recent: [Double] = []
     private var lastChord = -1.0
     private var pendingStrength: Float = 0
+    /// The golden foam the last break called for (foam swells toward it, then both fade).
+    private var foamTarget: Float = 0
+    /// Where the wash was at the last step (a line written under it waits for the next wash).
+    private var lastFront: Float = 0
     private var hue: Float = TideLines.majorHue
     private var rng = SeededRandom(seed: 0x71DE)
 
@@ -65,9 +69,10 @@ public struct TideLines {
         held.insert(note)
         guard (21...108).contains(note) else { return }
         let v = Float(min(127, velocity)) / 127
-        let line = TideLine(note: note, x: Self.x(for: note), y: rng.range(0.25, 0.65), length: 0.04 + 0.12 * v,
+        var line = TideLine(note: note, x: Self.x(for: note), y: rng.range(0.25, 0.65), length: 0.04 + 0.12 * v,
                             strength: v * (0.5 + glow) * reactionScale, hue: hue, age: 0, drawn: 0, deep: pedal,
                             washed: 0, held: true)
+        line.wet = lastFront >= line.y
         if lines.count >= Self.cap {
             // Make room: the faintest line goes.
             var worst = 0, worstScore = Float.infinity
@@ -112,14 +117,17 @@ public struct TideLines {
         case .tense: hue = Self.tenseHue
         default: break
         }
-        // A chord's foam rides the next wave.
+        // A chord's own lines take its colour (they were written a moment before it could be heard as one).
+        for i in lines.indices where Double(lines[i].age) < Self.chordWindow { lines[i].hue = hue }
+        // A chord's foam rides the next wave, swelling in over a fifth of a second (never a flash).
         if !breaks.isEmpty, chordPending {
             let s = breaks.map(\.strength).max() ?? 0.5
-            foam = max(foam, foamAmount * (0.5 + 0.5 * max(s, pendingStrength)))
+            foamTarget = max(foamTarget, foamAmount * (0.5 + 0.5 * max(s, pendingStrength)))
             chordPending = false
             pendingStrength = 0
         }
-        foam *= exp(-fdt / 1.5)
+        foamTarget *= exp(-fdt / 1.5)
+        foam += (foamTarget - foam) * (1 - exp(-fdt / 0.08))
         let fade = 6 * (0.5 + linger) * lingerScale
         for i in lines.indices {
             var l = lines[i]
@@ -135,6 +143,7 @@ public struct TideLines {
             if l.washed > 0 { l.washed = min(1, l.washed + fdt / 0.5) }
             lines[i] = l
         }
+        lastFront = washFront
         lines.removeAll { $0.washed >= 1 || $0.strength < 0.005 }
     }
 }

@@ -405,13 +405,15 @@ public final class AppModel: ObservableObject {
     /// From the render loop (any thread): hands the world's soundscape to the engine at most ten times a second,
     /// and only when it has really changed (a level by > 0.01, the activity by > 0.05, the speed by > 0.02) or
     /// thunder or a wave is due. The user's closeness leans the world's own closeness; a thunderclap or a wave held
-    /// back by the throttle goes next time (two waves inside one tenth of a second go as the bigger one).
+    /// back by the throttle goes next time (two waves inside one tenth of a second go as the bigger one), unless the
+    /// next scene has no surf (a new world): a beach's wave never crashes in the next world.
     public nonisolated func updateAmbience(_ s: AmbienceScene, at t: Double = ProcessInfo.processInfo.systemUptime) {
         let out: AmbienceScene? = ambienceLive.withLockUnchecked { a in
             var scene = s
             scene.closeness = min(1, max(0, s.closeness + (a.closeness - 0.5)))
             if let thunder = s.thunder { a.pendingThunder = thunder }
             if let wave = s.wave { a.pendingWave = max(wave, a.pendingWave ?? 0) }
+            if s.level(.surf) <= 0 { a.pendingWave = nil }   // the world changed: its waves stay behind
             scene.thunder = a.pendingThunder
             scene.wave = a.pendingWave
             guard t - a.lastSend >= Self.ambienceInterval - 1e-9 else { return nil }

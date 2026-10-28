@@ -21,10 +21,14 @@ final class CoastRoadRenderer: ThemeRenderer {
     let weather: WeatherLayer
     let warp: WarpLayer
     private var showWarp = false
-    private let road, lights, frame, keys: MTLRenderPipelineState
+    private let road, lights, frame, keys, posts: MTLRenderPipelineState
     private var roadU = [SIMD4<Float>](repeating: .zero, count: 5)
     private var oceanU = [SIMD4<Float>](repeating: .zero, count: 7)
     private var lightInstances: [SIMD4<Float>] = []
+    private var postInstances: [SIMD4<Float>] = []
+    private var postColour = SIMD4<Float>(0, 0, 0, 1)
+    /// The chord bloom's colour, gliding in RGB toward each new chord's (never sweeping through other hues).
+    private var bloomColour: SIMD3<Float>?
     private var keyInstances: [KeyInstance] = []
     private var viewAzimuth: Double?
     private var limiter = FlashLimiter()
@@ -68,8 +72,9 @@ final class CoastRoadRenderer: ThemeRenderer {
         guard let r = make("road_vertex", "road_fragment", .premultiplied),
               let l = make("road_lights_vertex", "road_lights_fragment", .additive, writesDepth: false),
               let f = make("road_vertex", "road_frame_fragment", .premultiplied, writesDepth: false),
-              let k = make("road_keys_vertex", "road_keys_fragment", .opaque) else { return nil }
-        sky = s; weather = w; warp = gw; road = r; lights = l; frame = f; keys = k
+              let k = make("road_keys_vertex", "road_keys_fragment", .opaque),
+              let pp = make("road_post_vertex", "road_post_fragment", .premultiplied, writesDepth: false) else { return nil }
+        sky = s; weather = w; warp = gw; road = r; lights = l; frame = f; keys = k; posts = pp
         sky.verticalFOV = 50
     }
 
@@ -153,13 +158,15 @@ final class CoastRoadRenderer: ThemeRenderer {
         // The sea passes by the distance travelled, wrapped to its tile (every swell component and noise repeats
         // over the tile, so there's no seam); the chord bloom tints and brightens the glitter path.
         let tile = OceanTile.wrap(dist)
-        let bloomColour = Self.colour(hue: frame.bloomHue, softness: 0.3)
+        let bloomTarget = Self.colour(hue: frame.bloomHue, softness: 0.3)
+        let glided = bloomColour.map { $0 + (bloomTarget - $0) * Float(1 - exp(-min(dt, 0.1) / 0.4)) } ?? bloomTarget
+        bloomColour = glided
         let b = bloomOut
         oceanU[0] = frame.swellPhases
         oceanU[1] = lights.sun
-        oceanU[2] = SIMD4(lights.sunColor + (bloomColour * 1.4 - lights.sunColor) * (0.6 * b), 0)
+        oceanU[2] = SIMD4(lights.sunColor + (glided * 1.4 - lights.sunColor) * (0.6 * b), 0)
         oceanU[3] = lights.moon
-        oceanU[4] = SIMD4(lights.moonColor + (bloomColour * 1.2 - lights.moonColor) * (0.6 * b), min(1, limited.sparkle))
+        oceanU[4] = SIMD4(lights.moonColor + (glided * 1.2 - lights.moonColor) * (0.6 * b), min(1, limited.sparkle))
         oceanU[5] = SIMD4(frame.swellScale, 0.06 + 0.25 * s.wind, haze, quality == .lite ? 2 : 3)
         oceanU[6] = SIMD4(tile, 0, 0, 0)
 
@@ -167,6 +174,8 @@ final class CoastRoadRenderer: ThemeRenderer {
         let visible = CoastLights.visible(frame.lights, limit: Self.lightBudget(quality))
         lightCount = visible.count
         lightInstances.removeAll(keepingCapacity: true)
+        postInstances.removeAll(keepingCapacity: true)
+        lampPosts.removeAll(keepingCapacity: true)
         let railY = bottom + 0.2, headY = top - 0.2
         let lightScale = sparkleScale
         for l in visible {
@@ -176,7 +185,14 @@ final class CoastRoadRenderer: ThemeRenderer {
             case .rail: y = railY - 0.025 + 0.07 * l.height
             case .lamp: y = headY - 0.16 + 0.2 * l.height
             }
-            let x = 1.04 - 2.08 * l.x
+            var x = 1.04 - 2.08 * l.x
+            if l.lane == .lamp {
+                // High notes light lamps of their own, standing on posts and passing with the lamps' layer.
+                let postX = aspect + 0.12 - Float(dist - l.spawnDistance) * Self.lampLayerRate
+                lampPosts.append(SIMD2(postX, y))
+                postInstances.append(SIMD4(postX, y, bottom + 0.3, 0))
+                x = (postX + 0.16) / aspect
+            }
             // Lamp-head lights glow round; road and rail lights streak with speed.
             let trail = l.trail * (0.08 + 0.5 * frame.speed) * (l.lane == .lamp ? 0.35 : 1)
             let radius: Float = l.lane == .road ? 0.008 : (l.lane == .rail ? 0.011 : 0.014)
@@ -184,6 +200,9 @@ final class CoastRoadRenderer: ThemeRenderer {
             lightInstances.append(SIMD4(x, y, trail, radius))
             lightInstances.append(SIMD4(c, min(1.5, l.brightness) * lightScale))
         }
+
+        let lampGlow = SIMD3<Float>(1.0, 0.72, 0.42) * (lampOut * 0.05)
+        postColour = SIMD4(s.zenith * 0.02 + s.horizon * 0.01 + lampGlow, 1)
 
         // Keys: dark plastic in the dashboard, amber where you play.
         keyInstances.removeAll(keepingCapacity: true)
@@ -220,6 +239,14 @@ final class CoastRoadRenderer: ThemeRenderer {
         oceanU.withUnsafeBytes { e.setFragmentBytes($0.baseAddress!, length: $0.count, index: 2) }
         e.drawPrimitives(type: .triangle, vertexStart: 0, vertexCount: 3)
 
+        if !postInstances.isEmpty {
+            e.setRenderPipelineState(posts)
+            postInstances.withUnsafeBytes { e.setVertexBytes($0.baseAddress!, length: $0.count, index: 0) }
+            roadU.withUnsafeBytes { e.setVertexBytes($0.baseAddress!, length: $0.count, index: 1) }
+            e.setFragmentBytes(&postColour, length: MemoryLayout<SIMD4<Float>>.size, index: 0)
+            e.drawPrimitives(type: .triangle, vertexStart: 0, vertexCount: 6, instanceCount: postInstances.count)
+        }
+
         if !lightInstances.isEmpty {
             e.setRenderPipelineState(lights)
             lightInstances.withUnsafeBytes { e.setVertexBytes($0.baseAddress!, length: $0.count, index: 0) }
@@ -227,12 +254,13 @@ final class CoastRoadRenderer: ThemeRenderer {
             e.drawPrimitives(type: .triangle, vertexStart: 0, vertexCount: 6, instanceCount: lightInstances.count / 2)
         }
 
+        // Rain and snow on the glass, then the car's frame over them (no weather inside the car).
+        weather.draw(e)
+
         e.setRenderPipelineState(frame)
         skyU.withUnsafeBytes { e.setFragmentBytes($0.baseAddress!, length: $0.count, index: 0) }
         roadU.withUnsafeBytes { e.setFragmentBytes($0.baseAddress!, length: $0.count, index: 1) }
         e.drawPrimitives(type: .triangle, vertexStart: 0, vertexCount: 3)
-
-        weather.draw(e)
 
         if !keyInstances.isEmpty {
             e.setRenderPipelineState(keys)

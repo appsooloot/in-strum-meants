@@ -24,6 +24,8 @@ struct SetsGallery: View {
         switch id {
         case SetLibrary.moonlitLake.id: return [Color(red: 0.05, green: 0.07, blue: 0.16), Color(red: 0.22, green: 0.27, blue: 0.40)]
         case SetLibrary.spaceshipLounge.id: return [Color(red: 0.09, green: 0.04, blue: 0.18), Color(red: 0.16, green: 0.30, blue: 0.55)]
+        case SetLibrary.goldenHourBeach.id: return [Color(red: 0.24, green: 0.13, blue: 0.08), Color(red: 0.78, green: 0.50, blue: 0.27)]
+        case SetLibrary.coastRoad.id: return [Color(red: 0.07, green: 0.06, blue: 0.15), Color(red: 0.34, green: 0.24, blue: 0.46)]
         default: return [Color(white: 0.12), Color(white: 0.22)]
         }
     }

@@ -814,10 +814,11 @@ public:
 
 
 // ---------------------------------------------------------------- Tone oscillators (engine purr, passing cars)
-/// Advances a tone oscillator's phase (in cycles) by one sample's increment.
+/// Advances a tone oscillator's phase (in cycles, kept in 0…1 so a float holds it exactly enough: harmonics
+/// are whole multiples, so the wrap is seamless) by one sample's increment.
 inline void advanceTone(float &ph, float inc) {
     ph += inc;
-    if (ph > 1000.f) ph -= 1000.f;
+    if (ph >= 1.f) ph -= 1.f;
 }
 
 // ---------------------------------------------------------------- Engine (a soft purr that follows the speed)
@@ -1013,7 +1014,7 @@ void Ambience::setLevel(int source, float level) {
 void Ambience::triggerThunder(float distance) { thunder->trigger(distance); }
 
 void Ambience::triggerWave(float strength) {
-    if (ramps[ISD_AMB_SURF].silent()) return;
+    if (ramps[ISD_AMB_SURF].to <= 0.f) return;   // silent, or fading out as the world changes
     surf->trigger(strength, ctx.surfDistance);
 }
 

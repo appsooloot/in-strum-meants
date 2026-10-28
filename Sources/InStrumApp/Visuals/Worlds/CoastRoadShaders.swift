@@ -117,7 +117,8 @@ enum CoastRoadShaders {
             float grooves = 0.75 + 0.25 * cos(ry * 200.0);
             float3 metal = float3(0.22, 0.23, 0.25) * grooves * (ambient * 1.4 + lightCol * lightW * 0.4)
                          + lampCol * lampsLit * 0.12 * exp(-(lampDx * lampDx) / 0.6);
-            float shine = exp(-pow((p.y - railY - 0.016) / 0.005, 2.0));
+            float sh = (p.y - railY - 0.016) / 0.005;
+            float shine = exp(-sh * sh);
             col = mix(col, metal, max(beam, postCover * 0.95));
             col += (horizon * 0.25 + lampCol * lampsLit * 0.3) * shine * beam;
             // The road's edge below the rail.
@@ -128,12 +129,12 @@ enum CoastRoadShaders {
             alpha = 1.0;
         } else if (alt < 0.0) {
             // The sea from height (the Ocean layer, travelling with the car).
-            float t = kSeaBelow / max(-d.z, 1e-4);
+            float t = kSeaBelow / max(-d.z, 0.003);   // at most 20 km: the haze has it by then
             float3 P = d * t;
             float2 fwd = normalize(sky.forward.xy), rgt = float2(fwd.y, -fwd.x);
             float f = dot(P.xy, fwd), s = dot(P.xy, rgt);
             float2 q = float2(s, f);
-            float2 slope = oceanSlope(q, o);
+            float2 slope = oceanSlope(q, o, oceanFootprint(d, f, sky));
             float3 nrm = oceanNormal(slope, fwd, rgt);
             col = oceanShade(d, nrm, q, f, sky, o);
             // White water at the cliff base, surging with each break.
@@ -217,9 +218,36 @@ enum CoastRoadShaders {
         float2 q = in.local;
         float core = exp(-dot(q, q) / (r * r));
         float along = saturate(q.x / max(in.trail, 1e-4));
-        float streak = in.trail > 0.0 && q.x > 0.0 ? exp(-(q.y * q.y) / (r * r * 0.25)) * pow(1.0 - along, 2.0) * step(q.x, in.trail) : 0.0;
+        float streak = in.trail > 0.0 && q.x > 0.0 ? exp(-(q.y * q.y) / (r * r * 0.25)) * (1.0 - along) * (1.0 - along) * step(q.x, in.trail) : 0.0;
         float3 c = in.colour.rgb * in.colour.w * (core * 2.2 + streak * 0.9 + exp(-dot(q, q) / (r * r * 5.0)) * 0.25);
         return float4(c, 0.0);
+    }
+
+    // Posts and arms for the lamps that high notes light: per instance (x, head y, base y, unused) in aspect
+    // units of the world's frame, rolled like the lights.
+    struct PostOut { float4 pos [[position]]; float2 local; float4 p; };
+    vertex PostOut road_post_vertex(uint vid [[vertex_id]], uint iid [[instance_id]], constant float4* posts [[buffer(0)]],
+                                    constant RoadU& u [[buffer(1)]]) {
+        float2 c[6] = { float2(0, 0), float2(1, 0), float2(0, 1), float2(1, 0), float2(1, 1), float2(0, 1) };
+        float4 pp = posts[iid];
+        float2 q = mix(float2(pp.x - 0.02, pp.z), float2(pp.x + 0.19, pp.y + 0.06), c[vid]);
+        float aspect = u.a.y, ro = u.a.z, cr = cos(ro), sr = sin(ro);
+        float2 rq = float2(q.x * cr + q.y * sr, -q.x * sr + q.y * cr);
+        PostOut o;
+        o.pos = float4(rq.x / aspect, rq.y, 0, 1);
+        o.local = q;
+        o.p = pp;
+        return o;
+    }
+    fragment float4 road_post_fragment(PostOut in [[stage_in]], constant float4& colour [[buffer(0)]]) {
+        float2 q = in.local;
+        float dx = q.x - in.p.x, headY = in.p.y;
+        float post = smoothstep(0.012, 0.007, abs(dx)) * step(q.y, headY + 0.015);
+        float w = dx / 0.16;
+        float armY = headY + 0.012 + 0.04 * w * (1.0 - w);
+        float arm = smoothstep(0.008, 0.004, abs(q.y - armY)) * step(0.0, dx) * step(dx, 0.165);
+        float a = max(post, arm);
+        return float4(colour.rgb * a, a);
     }
 
     // The car around the window: door trim and headliner lit by the sky and the dashboard, a rubber seal
@@ -235,7 +263,8 @@ enum CoastRoadShaders {
         float keysTop = u.a.x;
         if (cover < 0.004) {
             // On the glass: a faint diagonal sheen and the dashboard's glow reflected low down.
-            float sheen = exp(-pow((p.x * 0.35 + p.y - 0.25) / 0.35, 2.0)) * 0.025;
+            float sx = (p.x * 0.35 + p.y - 0.25) / 0.35;
+            float sheen = exp(-sx * sx) * 0.025;
             float dashRefl = exp(-max(p.y - u.w.y, 0.0) / 0.12) * 0.04;
             float3 c = ambient * sheen * 3.0 + dash * dashRefl * 0.25;
             ColorDepth o; o.color = float4(c, 0.0); o.depth = float4(0.05, 0, 0, 0);
@@ -246,7 +275,8 @@ enum CoastRoadShaders {
         trim *= 0.8 + 0.2 * smoothstep(-1.0, 1.0, ndc.y);
         float seal = exp(-max(dist, 0.0) / 0.01);
         trim = mix(trim, float3(0.006), seal * 0.6);
-        trim += (sky.horizon.rgb * 0.06) * exp(-pow((dist - 0.018) / 0.006, 2.0));   // a lit edge on the trim
+        float ex = (dist - 0.018) / 0.006;
+        trim += (sky.horizon.rgb * 0.06) * exp(-ex * ex);   // a lit edge on the trim
         ColorDepth o;
         o.color = float4(trim * cover, cover);
         o.depth = float4(0.04, 0, 0, 1);

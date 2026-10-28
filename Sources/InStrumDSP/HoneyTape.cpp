@@ -9,7 +9,8 @@ namespace {
 // Level and tone calibration (see docs/superpowers/briefs/honey-tape.md).
 constexpr float kFlute = 0.30f;          // flute tone per voice (fundamental peak)
 constexpr float kSaw = 0.16f;            // each of the four string saws
-constexpr float kMaster = 0.31f;       // sits level with Felt Glass and Orbit Pad
+constexpr float kTapeIn = 0.3f;          // the voices' sum into the tape: chords stay in its soft region
+constexpr float kMaster = 0.26f / kTapeIn;   // sits level with Felt Glass and Orbit Pad
 constexpr float kWetMax = 0.50f;         // reverb return at full Space
 constexpr float kFluteReleaseT60 = 0.35f;
 constexpr float kStringsReleaseT60 = 0.8f;
@@ -328,7 +329,7 @@ void HoneyTape::processBlock(float *left, float *right, int n) {
         }
         float peakAbs = 0;
         for (int t = 0; t < n; ++t) {
-            float l = dryL[t], rr = dryR[t];
+            float l = kTapeIn * dryL[t], rr = kTapeIn * dryR[t];
             tapeDelay.process(l, rr);
             tapeColour.process(l, rr);
             dryL[t] = warmShelf[0].process(l);

@@ -35,8 +35,9 @@ public struct OceanSwell {
     private let phase0: SIMD4<Double>
     private static let componentPeriods = SIMD4<Double>(9.7, 11.3, 7.1, 5.3)
     private static let lookAhead = 40.0
-    /// Seconds from a break until its wash reaches the sand (the white water's run in from the break line).
-    public static let washDelay = 0.0
+    /// Seconds from a break until its wash reaches the sand: the white water's run in from the break line (the
+    /// beach draws 11 m of it at 4.4 m/s), so the wash slides up the sand as the foam arrives, not before.
+    public static let washDelay = 2.5
     private static let keepRecent = 6
 
     public init(seed: UInt64) {
@@ -87,11 +88,12 @@ public struct OceanSwell {
     }
 
     /// How far up the sand the wash reaches at time `t`: 0 at the waterline … 1 at the top of the wet sand.
-    /// Each wave rises (ease-out) to 0.3 + 0.6 × strength over 1.2–2 s after it breaks, then drains by 6 s.
+    /// Each wave's wash arrives `washDelay` after it breaks, rises (ease-out) to 0.3 + 0.6 × strength over
+    /// 1.2–2 s, then drains by 6 s.
     public func washFront(at t: Double) -> Float {
         var front: Float = 0
         for w in recent {
-            let a = t - w.breakTime
+            let a = t - w.breakTime - Self.washDelay
             guard a > 0, a < 6 else { continue }
             let peak = 0.3 + 0.6 * w.strength
             let rise = 1.2 + 0.8 * Double(w.strength)

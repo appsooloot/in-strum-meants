@@ -135,25 +135,34 @@ public struct CoastLights {
         default: hue = nil
         }
         if let hue {
-            if bloom < 0.05 { bloomHue = hue } else { bloomHue += (hue - bloomHue) * Float(1 - exp(-d / 0.4)) }
+            bloomHue = hue   // the renderer glides the colour (in RGB, so it never passes through other hues)
             let top = min(1, bloomAmount * reactionScale)
             bloom += (top - bloom) * Float(1 - exp(-d / 0.35))
         } else {
             bloom *= Float(exp(-d / 2.5))
         }
 
-        // Lights stream right to left with the car; released ones fade over about 1.5 s.
+        // Lights stream right to left with the car; released ones fade over about 1.5 s. Lamp lights pass with the
+        // lamps themselves (x is the share of `lampTravel` the car has gone since they joined the road).
         let fade = Float(1.5) * lingerScale
         for i in lights.indices {
-            lights[i].x += speed * 1.1 * Self.laneSpeed(lights[i].lane) * fdt
+            if lights[i].lane == .lamp {
+                lights[i].x = Float((distance - lights[i].spawnDistance) / Self.lampTravel)
+            } else {
+                lights[i].x += speed * 1.1 * Self.laneSpeed(lights[i].lane) * fdt
+            }
             lights[i].age += fdt
             if !lights[i].held { lights[i].brightness *= exp(-fdt / max(0.3, fade)) }
         }
-        lights.removeAll { $0.x > 1.05 || $0.brightness < 0.01 }
+        lights.removeAll { ($0.lane == .lamp ? $0.x >= 1 : $0.x > 1.05) || $0.brightness < 0.01 }
         // Admit this step's share of the queue; over the cap, the faintest go.
         let launch = min(pending.count, Self.maxSpawnsPerStep)
         if launch > 0 {
-            lights.append(contentsOf: pending.prefix(launch))
+            for var l in pending.prefix(launch) {
+                l.spawnDistance = distance
+                if l.lane == .lamp { l.x = 0 }
+                lights.append(l)
+            }
             pending.removeFirst(launch)
             while lights.count > Self.cap {
                 var worst = 0

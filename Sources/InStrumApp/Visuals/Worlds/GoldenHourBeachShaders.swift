@@ -7,10 +7,10 @@
 enum GoldenHourBeachShaders {
     static let source = SkyShaders.common + OceanShaders.common + """
     struct BeachU {
-        float4 a;           // keys top (NDC y), unused, glitter 0…1, haze 0…1
+        float4 a;           // keys top (NDC y), spray scale (gentle visuals halve it), glitter 0…1, haze 0…1
         float4 b;           // palms 0…1, wind, line count, night 0…1
         float4 c;           // aspect, camera height (m), seconds since the last break (< 0: none), its strength
-        float4 shore;       // wash front 0…1, foam from chords 0…1, smooth (1) or not (0), unused
+        float4 shore;       // wash front 0…1, foam from chords 0…1, seconds since the break before last, its strength
         float4 crest[3];    // the next crests: metres beyond the break line, strength
         float4 line[48];    // across (m), out (m), half length (m), glow
         float4 lineB[48];   // hue, unused…
@@ -135,6 +135,23 @@ enum GoldenHourBeachShaders {
         return cover;
     }
 
+    /// One broken wave's white water: the bore rolling in from the break line, the foam it leaves behind, and its
+    /// breaking face slumping over half a second (so a break never pops). Adds to `white` and to the slope.
+    void breakerWhite(float f, float s, float2 q, float since, float last, constant OceanU& o,
+                      thread float& white, thread float2& slope) {
+        if (last <= 0.0 || since < 0.0 || since >= 14.0) return;
+        // Where the bore is: it leaves the break line along the crest's own curve, then wanders.
+        float wobble = mix(1.2 * sin(s * 0.05), 0.9 * (vnoise3(float3(s * 0.3, 2.0, 0.0)) - 0.5), saturate(since / 1.5));
+        float fb = max(kWaterline, kBreak - since * kBoreSpeed) + wobble;
+        float behind = f - fb;
+        float bore = exp(-(behind * behind) / 0.9) * step(since * kBoreSpeed, kBreak - kWaterline + 1.0);
+        float trail = behind > 0.0 ? exp(-behind / (2.0 + since * 0.9)) * step(f, kBreak + 2.0) : 0.0;
+        float lace = smoothstep(0.28, 0.7, vnoise3(float3(q * float2(0.8, 1.6), 2.0 * sin(o.phases.x) + since * 0.2)));
+        white += (0.35 + last) * exp(-since / 5.0) * (bore * 1.2 + trail * (0.25 + 0.85 * lace));
+        float face = exp(-((behind + 1.6) * (behind + 1.6)) / 2.2), lip = exp(-(behind * behind) / 0.7);
+        slope.y += (0.3 + last) * exp(-since / 0.5) * (face - 0.4 * lip);
+    }
+
     // A low headland to the left, hazy with distance. Height above the horizon (radians) by relative azimuth.
     float headland(float azRel) {
         if (azRel < -0.95 || azRel > -0.22) return -1.0;
@@ -198,7 +215,7 @@ enum GoldenHourBeachShaders {
             float edge = kWaterline + 0.8 * (vnoise3(float3(s * 0.22, 5.0, 1.5 * sin(o.phases.w))) - 0.5);
             if (f > edge) {
                 // The sea: swells steepen over the shallows; crests roll in, curl and break into white water.
-                float2 slope = oceanSlope(q, o);
+                float2 slope = oceanSlope(q, o, oceanFootprint(d, f, u));
                 float shoal = smoothstep(kBreak + 25.0, kBreak - 4.0, f);
                 slope *= 1.0 + 1.0 * shoal;
                 float white = 0.0;
@@ -216,15 +233,9 @@ enum GoldenHourBeachShaders {
                     float broken = smoothstep(0.25, 0.7, vnoise3(float3(s * 0.18, ahead * 0.3, 1.0)) + smoothstep(4.0, 0.0, ahead));
                     white += curl * lip * broken * 1.3 + (0.3 + strength) * nearing * lip * 0.1;
                 }
-                // The bore: white water rushing in from the break, foam spreading and fading behind it.
-                if (last > 0.0 && since >= 0.0 && since < 14.0) {
-                    float fb = max(kWaterline, kBreak - since * kBoreSpeed) + 0.9 * (vnoise3(float3(s * 0.3, 2.0, 0.0)) - 0.5);
-                    float behind = f - fb;
-                    float bore = exp(-(behind * behind) / 0.9) * step(since * kBoreSpeed, kBreak - kWaterline + 1.0);
-                    float trail = behind > 0.0 ? exp(-behind / (2.0 + since * 0.9)) * step(f, kBreak + 2.0) : 0.0;
-                    float lace = smoothstep(0.28, 0.7, vnoise3(float3(q * float2(0.8, 1.6), 2.0 * sin(o.phases.x) + since * 0.2)));
-                    white += (0.35 + last) * exp(-since / 5.0) * (bore * 1.2 + trail * (0.25 + 0.85 * lace));
-                }
+                // The last two waves' white water: the newest rolling in, the one before still fading.
+                breakerWhite(f, s, q, since, last, o, white, slope);
+                breakerWhite(f, s, q, b.shore.z, b.shore.w, o, white, slope);
                 // Lingering lace over the shallows.
                 white += 0.22 * shoal * smoothstep(0.58, 0.85, vnoise3(float3(q * float2(0.5, 1.1), 1.5 * cos(o.phases.z))));
                 // A thin swash line where the sea laps the sand.
@@ -235,7 +246,7 @@ enum GoldenHourBeachShaders {
                 col = mix(col, foamCol, white * (0.7 + 0.25 * foamGold));
                 // Spray glints on golden foam.
                 float spark = smoothstep(0.8, 0.95, vnoise3(float3(q * 6.0, 5.0 * sin(o.phases.y))));
-                col += lightCol * spark * white * (0.3 + foamGold) * 1.5 * lightW;
+                col += lightCol * spark * white * (0.3 + foamGold) * 1.5 * lightW * b.a.y;
                 depth = saturate(f / 60.0);
             } else {
                 // The sand: wet below the highest recent wash (a mirror), dry beyond it.
