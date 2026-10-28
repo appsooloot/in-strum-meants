@@ -228,3 +228,186 @@ final class AmbienceTests: XCTestCase {
         XCTAssertLessThan(DSPTestKit.dBFS(out.l), -150)
     }
 }
+
+// MARK: - Window worlds: fire, kettle, street, drips, clock; through the glass; wet roads; snow ticks
+
+extension AmbienceTests {
+    static func indoors(_ v: Float, at t: Double = 0) -> Action { (t, { isd_ambience_set_indoors($0, v) }) }
+    static func wetness(_ v: Float, at t: Double = 0) -> Action { (t, { isd_ambience_set_wetness($0, v) }) }
+    static func snowOnGlass(_ v: Float, at t: Double = 0) -> Action { (t, { isd_ambience_set_snow_on_glass($0, v) }) }
+    static func startKettle(at t: Double) -> Action { (t, { isd_ambience_debug_start_kettle($0) }) }
+
+    static func mid(_ out: (l: [Float], r: [Float])) -> [Float] { zip(out.l, out.r).map { 0.5 * ($0 + $1) } }
+
+    /// An RBJ band-pass, run twice (−24 dB/octave skirts).
+    static func bandpass(_ x: [Float], _ lo: Double, _ hi: Double) -> [Float] {
+        let f0 = (lo * hi).squareRoot(), bw = log2(hi / lo), w0 = 2 * Double.pi * f0 / sr
+        let alpha = sin(w0) * sinh(log(2) / 2 * bw * w0 / sin(w0)), a0 = 1 + alpha
+        let b0 = alpha / a0, b2 = -alpha / a0, a1 = -2 * cos(w0) / a0, a2 = (1 - alpha) / a0
+        var y = x
+        for _ in 0..<2 {
+            var x1 = 0.0, x2 = 0.0, y1 = 0.0, y2 = 0.0
+            for i in y.indices {
+                let xi = Double(y[i])
+                let yi = b0 * xi + b2 * x2 - a1 * y1 - a2 * y2
+                x2 = x1; x1 = xi; y2 = y1; y1 = yi
+                y[i] = Float(yi)
+            }
+        }
+        return y
+    }
+
+    /// RMS (dBFS) of consecutive frames of `ms` milliseconds.
+    static func frameDB(_ x: [Float], ms: Double) -> [Double] {
+        let n = Int(ms / 1000 * sr)
+        return stride(from: 0, to: x.count - n + 1, by: n).map { DSPTestKit.dBFS(x[$0..<($0 + n)]) }
+    }
+
+    /// How many times the frames rise `db` above the median of the `window` frames around them.
+    static func events(_ frames: [Double], above db: Double, window: Int) -> Int {
+        var count = 0, on = false
+        for i in frames.indices {
+            let lo = max(0, i - window / 2), hi = min(frames.count, i + window / 2)
+            let sorted = frames[lo..<hi].sorted()
+            let hit = frames[i] - sorted[sorted.count / 2] >= db
+            if hit && !on { count += 1 }
+            on = hit
+        }
+        return count
+    }
+
+    static func bandDB(_ x: [Float], _ lo: Double, _ hi: Double) -> Double { DSPTestKit.dBFS(bandpass(x, lo, hi)) }
+
+    func testWindowSourcesInTheirBands() {
+        let bands: [(ISDAmbienceSource, String, ClosedRange<Double>, ClosedRange<Double>)] = [
+            (ISD_AMB_FIRE, "fire", 300...4000, -36 ... -18),
+            (ISD_AMB_STREET, "street", 100...1500, -42 ... -22),
+            (ISD_AMB_DRIPS, "drips", 800...4000, -45 ... -20),
+        ]
+        for (source, name, band, loudness) in bands {
+            let out = Self.render(seconds: 23, actions: [Self.level(source, 1)])
+            let steady = SynthRender.slice(out.l, 3, 23)
+            let centroid = DSPTestKit.averageCentroid(steady, sampleRate: Self.sr), db = DSPTestKit.dBFS(steady)
+            XCTAssertTrue(band.contains(centroid), "\(name): centroid \(Int(centroid)) Hz")
+            XCTAssertTrue(loudness.contains(db), "\(name): \(String(format: "%.1f", db)) dBFS")
+            XCTAssertTrue(out.l.allSatisfy(\.isFinite) && out.r.allSatisfy(\.isFinite), name)
+            XCTAssertLessThanOrEqual(max(out.l.map(abs).max() ?? 0, out.r.map(abs).max() ?? 0), 1, name)
+        }
+    }
+
+    func testFireCracklesAndPops() {
+        let fire = SynthRender.slice(Self.mid(Self.render(seconds: 33, actions: [Self.level(ISD_AMB_FIRE, 1)])), 3, 33)
+        let crackles = Double(Self.events(Self.frameDB(fire, ms: 5), above: 12, window: 40)) / 30
+        XCTAssertTrue((1...12).contains(crackles), "\(crackles) crackles a second")
+        let thumps = Double(Self.events(Self.frameDB(Self.bandpass(fire, 60, 150), ms: 20), above: 10, window: 100)) / 30
+        XCTAssertTrue((0.05...1).contains(thumps), "\(thumps) low thumps a second")
+    }
+
+    func testKettleCycle() {
+        let out = Self.render(seconds: 150, actions: [Self.level(ISD_AMB_KETTLE, 1), Self.startKettle(at: 0)]).l
+        let cold = Self.bandDB(SynthRender.slice(out, 0, 10), 60, 400), hot = Self.bandDB(SynthRender.slice(out, 80, 90), 60, 400)
+        XCTAssertGreaterThanOrEqual(hot, cold + 6, "the rumble rises: \(cold) → \(hot) dB")
+        // The click: a broadband transient (high band, 10 dB over the 200 ms before it) within 100–125 s.
+        let high = Self.frameDB(Self.bandpass(SynthRender.slice(out, 99, 126), 2000, 16000), ms: 5)
+        var click: Double?
+        for i in 40..<high.count {
+            let before = high[(i - 40)..<i].sorted()
+            if high[i] - before[20] >= 10 { click = 99 + Double(i) * 0.005; break }
+        }
+        let clickAt = try? XCTUnwrap(click, "no click")
+        XCTAssertTrue((100...125).contains(clickAt ?? 0), "click at \(clickAt ?? -1) s")
+        // Then the clink: a 2.5–7 kHz ping more than 2 s later, far above that band before the click.
+        let from = (clickAt ?? 100) + 2
+        let ping = Self.frameDB(Self.bandpass(SynthRender.slice(out, from, 125), 2500, 7000), ms: 20)
+        let peak = ping.max() ?? -200, quiet = Self.bandDB(SynthRender.slice(out, 99, 99.9), 2500, 7000)
+        XCTAssertGreaterThanOrEqual(peak, quiet + 20, "clink \(peak) dB against \(quiet) dB")
+        XCTAssertGreaterThan(peak, -60)
+        // And back to quiet.
+        XCTAssertLessThanOrEqual(DSPTestKit.dBFS(SynthRender.slice(out, 140, 150)), DSPTestKit.dBFS(SynthRender.slice(out, 0, 10)) + 3)
+    }
+
+    func testKettleComesEveryFewMinutes() {
+        let out = Self.render(seconds: 600, actions: [Self.level(ISD_AMB_KETTLE, 1), Self.density(1.5)]).l
+        let windows = stride(from: 0.0, to: 600, by: 10).map { Self.bandDB(SynthRender.slice(out, $0, $0 + 10), 60, 400) }
+        let median = windows.sorted()[windows.count / 2]
+        var cycles = 0, on = false
+        for w in windows {
+            let hit = w > median + 10
+            if hit && !on { cycles += 1 }
+            on = hit
+        }
+        XCTAssertTrue((2...4).contains(cycles), "\(cycles) kettle cycles in 10 minutes")
+    }
+
+    func testClockTicksAtOneHertz() {
+        let out = SynthRender.slice(Self.render(seconds: 22, actions: [Self.level(ISD_AMB_CLOCK, 1)]).l, 2, 20)
+        let env = Self.frameDB(out, ms: 10).map { pow(10, $0 / 20) }
+        var best = -1.0, bestLag = 0
+        for lag in 50...150 {
+            var s = 0.0
+            for i in 0..<(env.count - lag) { s += env[i] * env[i + lag] }
+            if s > best { best = s; bestLag = lag }
+        }
+        XCTAssertEqual(Double(bestLag) * 0.01, 1.0, accuracy: 0.02)
+    }
+
+    func testIndoorsMufflesOnlyOutdoorSources() {
+        let open = SynthRender.slice(Self.render(seconds: 14, actions: [Self.level(ISD_AMB_STREET, 1)]).l, 4, 14)
+        let closed = SynthRender.slice(Self.render(seconds: 14, actions: [Self.level(ISD_AMB_STREET, 1), Self.indoors(1)]).l, 4, 14)
+        XCTAssertGreaterThanOrEqual(Self.bandDB(open, 3000, 8000) - Self.bandDB(closed, 3000, 8000), 12)
+        XCTAssertGreaterThanOrEqual(DSPTestKit.dBFS(open) - DSPTestKit.dBFS(closed), 6)
+        let fire = DSPTestKit.dBFS(SynthRender.slice(Self.render(seconds: 14, actions: [Self.level(ISD_AMB_FIRE, 1)]).l, 4, 14))
+        let fireInside = DSPTestKit.dBFS(SynthRender.slice(Self.render(seconds: 14, actions: [Self.level(ISD_AMB_FIRE, 1), Self.indoors(1)]).l, 4, 14))
+        XCTAssertEqual(fire, fireInside, accuracy: 0.5, "the fire is inside with you")
+    }
+
+    /// The waking street: the later the morning (the higher its level), the more often a car goes by (final review:
+    /// only the loudness followed the level).
+    func testStreetCarsComeMoreOftenLater() {
+        func cars(_ level: Float) -> Int32 {
+            guard let a = isd_ambience_create(Self.sr, 512, 7) else { return -1 }
+            defer { isd_ambience_destroy(a) }
+            isd_ambience_set_level(a, ISD_AMB_STREET, level)
+            var l = [Float](repeating: 0, count: 512), r = l
+            for _ in 0..<Int(300 * Self.sr / 512) {
+                l.withUnsafeMutableBufferPointer { lp in r.withUnsafeMutableBufferPointer { rp in isd_ambience_render(a, lp.baseAddress!, rp.baseAddress!, 512) } }
+            }
+            return isd_ambience_debug_events(a, ISD_AMB_STREET)
+        }
+        let early = cars(0.15), late = cars(0.6)
+        XCTAssertGreaterThanOrEqual(late, 2 * early, "\(early) cars early, \(late) later")
+        XCTAssertGreaterThanOrEqual(late, 15)
+    }
+
+    /// The bedroom's old sash window (indoors 0.7) lets the dawn chorus through, softened (final review: behind the
+    /// fully closed window the birds were 26 dB down).
+    func testDawnChorusCarriesThroughTheSash() {
+        let open = DSPTestKit.dBFS(SynthRender.slice(Self.render(seconds: 20, actions: [Self.level(ISD_AMB_DAWN_CHORUS, 0.6)]).l, 4, 20))
+        let sash = DSPTestKit.dBFS(SynthRender.slice(Self.render(seconds: 20, actions: [Self.level(ISD_AMB_DAWN_CHORUS, 0.6), Self.indoors(0.7)]).l, 4, 20))
+        XCTAssertGreaterThan(sash, open - 15)
+        XCTAssertLessThan(sash, open - 4, "still through glass")
+    }
+
+    func testWetRoadHisses() {
+        let dry = SynthRender.slice(Self.render(seconds: 10, actions: [Self.level(ISD_AMB_ROAD, 1), Self.speed(0.6)]).l, 3, 10)
+        let wet = SynthRender.slice(Self.render(seconds: 10, actions: [Self.level(ISD_AMB_ROAD, 1), Self.speed(0.6), Self.wetness(1)]).l, 3, 10)
+        XCTAssertGreaterThanOrEqual(Self.bandDB(wet, 4000, 10000) - Self.bandDB(dry, 4000, 10000), 6)
+    }
+
+    func testSnowTicksAreSofterThanRain() {
+        let rain = SynthRender.slice(Self.render(seconds: 10, actions: [Self.level(ISD_AMB_RAIN_GLASS, 1)]).l, 3, 10)
+        let snow = SynthRender.slice(Self.render(seconds: 10, actions: [Self.level(ISD_AMB_RAIN_GLASS, 1), Self.snowOnGlass(1)]).l, 3, 10)
+        XCTAssertGreaterThanOrEqual(DSPTestKit.dBFS(rain) - DSPTestKit.dBFS(snow), 6)
+        XCTAssertLessThan(DSPTestKit.averageCentroid(snow, sampleRate: Self.sr), DSPTestKit.averageCentroid(rain, sampleRate: Self.sr))
+    }
+
+    func testDripsFollowTheirLevel() {
+        func drips(_ level: Float) -> Int {
+            let x = SynthRender.slice(Self.mid(Self.render(seconds: 43, actions: [Self.level(ISD_AMB_DRIPS, level)])), 3, 43)
+            return Self.events(Self.frameDB(x, ms: 5), above: 12, window: 40)
+        }
+        let few = drips(0.3), many = drips(1)
+        XCTAssertGreaterThanOrEqual(Double(many), 2 * Double(few), "\(few) drips at 0.3, \(many) at 1")
+        XCTAssertGreaterThan(few, 0)
+    }
+}

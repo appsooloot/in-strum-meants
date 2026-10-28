@@ -40,13 +40,16 @@ struct SkyClock {
         var moonPhase: Double          // 0…1, 0.5 full
         var virtualMoon: Bool          // quick and frozen modes place the moon by phase on the ecliptic
         var hourOfDay: Double
+        /// The local calendar day the sky is showing (days since 1970): today's date in real time and frozen
+        /// modes, a new day for every cycle in quick mode. It picks each dawn's character.
+        var day: Int
     }
 
     private(set) var location = GeoPoint(latitude: 0, longitude: 0)
     private(set) var timeZone = TimeZone(identifier: "UTC")!
     private var equinoxMidnight = Date(timeIntervalSince1970: 0)
     private var quickDays: Double?
-    private var quickStart = 0.0, quickPhase0 = 0.5
+    private var quickStart = 0.0, quickPhase0 = 0.5, quickBaseDay = 0
     private var mode: TimeMode?
 
     /// Resolves the city: the chosen one, else the Mac's time zone's, else 0°, 0° in the Mac's zone.
@@ -71,22 +74,25 @@ struct SkyClock {
         if s.timeMode != mode { mode = s.timeMode; quickDays = nil }
         switch s.timeMode {
         case .realTime:
-            return Reading(instant: now, moonPhase: Lunar.phaseAngle(at: now) / 360, virtualMoon: false, hourOfDay: localHour(now))
+            return Reading(instant: now, moonPhase: Lunar.phaseAngle(at: now) / 360, virtualMoon: false, hourOfDay: localHour(now),
+                           day: LivingSky.localDay(now, zone: timeZone))
         case .frozen:
             let t = equinoxMidnight.addingTimeInterval(s.frozenHour * 3600)
-            return Reading(instant: t, moonPhase: s.frozenPhase, virtualMoon: true, hourOfDay: s.frozenHour)
+            return Reading(instant: t, moonPhase: s.frozenPhase, virtualMoon: true, hourOfDay: s.frozenHour,
+                           day: LivingSky.localDay(now, zone: timeZone))
         case .quick:
             if quickDays == nil {
                 let start = localHour(now) / 24
                 quickDays = start; quickStart = start
                 quickPhase0 = Lunar.phaseAngle(at: now) / 360
+                quickBaseDay = LivingSky.localDay(now, zone: timeZone)
             }
             quickDays! += dt / (min(60, max(2, s.dayMinutes)) * 60)
             let fraction = quickDays! - floor(quickDays!)
             var phase = (quickPhase0 + (quickDays! - quickStart) / 8).truncatingRemainder(dividingBy: 1)
             if phase < 0 { phase += 1 }
             return Reading(instant: equinoxMidnight.addingTimeInterval(fraction * 86_400), moonPhase: phase, virtualMoon: true,
-                           hourOfDay: fraction * 24)
+                           hourOfDay: fraction * 24, day: quickBaseDay + Int(floor(quickDays!)))
         }
     }
 

@@ -11,7 +11,7 @@ enum GoldenHourBeachShaders {
         float4 b;           // palms 0…1, wind, line count, night 0…1
         float4 c;           // aspect, camera height (m), seconds since the last break (< 0: none), its strength
         float4 shore;       // wash front 0…1, foam from chords 0…1, seconds since the break before last, its strength
-        float4 crest[3];    // the next crests: metres beyond the break line, strength
+        float4 crest[3];    // the next crests: metres beyond the break line, strength (crest[0].z: wetness after rain)
         float4 line[48];    // across (m), out (m), half length (m), glow
         float4 lineB[48];   // hue, unused…
     };
@@ -252,6 +252,10 @@ enum GoldenHourBeachShaders {
                 // The sand: wet below the highest recent wash (a mirror), dry beyond it.
                 float wetTop = kWaterline - kWetBand + wobble * 0.5;
                 float wet = smoothstep(wetTop - 0.8, wetTop + 0.8, f);
+                // After the rain the wet sand spreads up the beach toward the camera.
+                float rainWet = b.crest[0].z;
+                float rainTop = mix(wetTop, 1.5, rainWet);
+                float damp = rainWet * smoothstep(rainTop - 0.8, rainTop + 0.8, f) * (1.0 - wet);
                 float grain = vnoise3(float3(q * float2(9.0, 5.0), 3.0));
                 float ripple = 0.5 + 0.5 * sin(f * 11.0 + 2.0 * vnoise3(float3(q * 0.7, 1.0)) + s * 0.8);
                 float3 sandDry = float3(0.62, 0.50, 0.36) * (0.88 + 0.07 * ripple + 0.1 * grain);
@@ -259,7 +263,7 @@ enum GoldenHourBeachShaders {
                 float3 sky = mix(zenith, horizon, 0.7);
                 float3 direct = o.sunColor.rgb * saturate(o.sun.z * 3.0 + 0.15) * o.sun.w
                               + o.moonColor.rgb * saturate(o.moon.z * 3.0 + 0.15) * o.moon.w;
-                float3 dryCol = sandDry * (sky * 0.55 + direct * 0.7 + 0.02);
+                float3 dryCol = sandDry * (sky * 0.55 + direct * 0.7 + 0.02) * (1.0 - 0.25 * rainWet);   // dry ripples darken
                 // Wet sand reflects the sky (slightly rough) and the lights' paths.
                 float2 rough = (float2(vnoise3(float3(q * 3.0, 2.0)), vnoise3(float3(q * 3.0 + 7.0, 4.0))) - 0.5) * 0.07;
                 float3 n = normalize(float3(rough, 1.0));
@@ -274,6 +278,8 @@ enum GoldenHourBeachShaders {
                             + o.moonColor.rgb * (pow(sdM, 90.0) * 1.4 + pow(sdM, 12.0) * 0.12) * o.moon.w;
                 wetCol += spec * (0.5 + 0.5 * b.a.z);
                 col = mix(dryCol, wetCol, wet);
+                // Rain-wet sand: darker, with a duller mirror of the sky than the sea's own wet band.
+                col = mix(col, mix(dryCol * 0.7, wetCol, 0.6), damp);
                 // Sand drifting in the breeze over the dry sand.
                 float drift = smoothstep(0.6, 0.9, vnoise3(float3(q * float2(0.6, 7.0) + float2(3.0 * sin(o.phases.x), 0.0), 4.0)));
                 col += sandDry * sky * 0.12 * drift * b.b.y * (1.0 - wet);

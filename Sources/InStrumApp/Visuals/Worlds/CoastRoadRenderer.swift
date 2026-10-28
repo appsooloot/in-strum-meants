@@ -10,6 +10,8 @@ import InStrumCore
 final class CoastRoadRenderer: ThemeRenderer {
     /// Coast Lights sent to the GPU (fewer on Smooth).
     static func lightBudget(_ q: QualityLevel) -> Int { q == .lite ? 64 : CoastLights.cap }
+    /// Light sprites per draw (two float4s each within setVertexBytes' 4 KB).
+    static let maxLightInstances = 128
     /// Screen scroll per metre travelled for each layer (aspect units), and the wraps that keep them seamless.
     static let farRate = 0.002, midRate = 0.05, baseRate = 0.012
     static let midWrap = 40.0, baseWrap = 50.0
@@ -22,7 +24,7 @@ final class CoastRoadRenderer: ThemeRenderer {
     let warp: WarpLayer
     private var showWarp = false
     private let road, lights, frame, keys, posts: MTLRenderPipelineState
-    private var roadU = [SIMD4<Float>](repeating: .zero, count: 5)
+    private var roadU = [SIMD4<Float>](repeating: .zero, count: 6)
     private var oceanU = [SIMD4<Float>](repeating: .zero, count: 7)
     private var lightInstances: [SIMD4<Float>] = []
     private var postInstances: [SIMD4<Float>] = []
@@ -154,6 +156,9 @@ final class CoastRoadRenderer: ThemeRenderer {
         roadU[2] = SIMD4(lampOut, night, frame.speed, fog)
         roadU[3] = SIMD4(since, lastStrength, base, s.wind)
         roadU[4] = SIMD4(0.93 * aspect, bottom, top, 0.1)
+        // Wet tarmac: how wet, and the road's far edge (where reflections hang from).
+        let roadLineY = bottom + 0.06
+        roadU[5] = SIMD4(s.wetness, roadLineY, 0, 0)
 
         // The sea passes by the distance travelled, wrapped to its tile (every swell component and noise repeats
         // over the tile, so there's no seam); the chord bloom tints and brightens the glitter path.
@@ -174,6 +179,7 @@ final class CoastRoadRenderer: ThemeRenderer {
         let visible = CoastLights.visible(frame.lights, limit: Self.lightBudget(quality))
         lightCount = visible.count
         lightInstances.removeAll(keepingCapacity: true)
+        var reflections: [SIMD4<Float>] = []
         postInstances.removeAll(keepingCapacity: true)
         lampPosts.removeAll(keepingCapacity: true)
         let railY = bottom + 0.2, headY = top - 0.2
@@ -199,7 +205,18 @@ final class CoastRoadRenderer: ThemeRenderer {
             let c = Self.colour(hue: l.hue)
             lightInstances.append(SIMD4(x, y, trail, radius))
             lightInstances.append(SIMD4(c, min(1.5, l.brightness) * lightScale))
+            // On a wet road the lights just above it shine back as streaks hanging from the road's edge (a negative
+            // radius marks a reflection: stretched 4× down, clipped to the road). The lamps' reflections fall below
+            // the window; the road shader streaks their glow instead.
+            if s.wetness >= 0.05, y > roadLineY, y - roadLineY < 0.6 {
+                let mirrored = roadLineY - (y - roadLineY) * 0.25
+                reflections.append(SIMD4(x, mirrored, trail, -radius))
+                reflections.append(SIMD4(c, min(1.5, l.brightness) * lightScale * 0.35 * s.wetness))
+            }
         }
+        // setVertexBytes takes at most 4 KB: 128 instances of two float4s, lights first.
+        let room = max(0, Self.maxLightInstances - lightInstances.count / 2)
+        lightInstances.append(contentsOf: reflections.prefix(room * 2))
 
         let lampGlow = SIMD3<Float>(1.0, 0.72, 0.42) * (lampOut * 0.05)
         postColour = SIMD4(s.zenith * 0.02 + s.horizon * 0.01 + lampGlow, 1)
@@ -251,6 +268,7 @@ final class CoastRoadRenderer: ThemeRenderer {
             e.setRenderPipelineState(lights)
             lightInstances.withUnsafeBytes { e.setVertexBytes($0.baseAddress!, length: $0.count, index: 0) }
             roadU.withUnsafeBytes { e.setVertexBytes($0.baseAddress!, length: $0.count, index: 1) }
+            roadU.withUnsafeBytes { e.setFragmentBytes($0.baseAddress!, length: $0.count, index: 1) }
             e.drawPrimitives(type: .triangle, vertexStart: 0, vertexCount: 6, instanceCount: lightInstances.count / 2)
         }
 

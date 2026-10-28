@@ -1,5 +1,6 @@
 import XCTest
 import Metal
+import simd
 @testable import InStrumApp
 @testable import InStrumCore
 
@@ -47,6 +48,118 @@ final class WorldKitTests: XCTestCase {
         let full = PreviewRenderer.brightestPatch(try render(moonState(0.5)), radius: 12)
         let crescent = PreviewRenderer.brightestPatch(try render(moonState(0.1)), radius: 12)
         XCTAssertGreaterThan(full, crescent * 1.5, "full \(full) crescent \(crescent)")
+    }
+
+    // MARK: - Halos, the Belt of Venus, pastel dawns, blizzards
+
+    /// The NDC point where an east-north-up direction lands on a 640×360 sky frame.
+    private func screenPoint(_ dir: SkyDirection, sky: SkyLayer, latitude: Double) -> (x: Double, y: Double) {
+        let cam = sky.camera(latitude: latitude, aspect: 640.0 / 360)
+        let d = SkyLayer.enu(dir)
+        let f = simd_dot(d, cam.forward)
+        return (Double(simd_dot(d, cam.right) / f / cam.tanH), Double(simd_dot(d, cam.up) / f / cam.tanV))
+    }
+
+    /// Mean RGB (0…1) of a small square around an NDC point.
+    private func rgb(_ image: CGImage, at p: (x: Double, y: Double), radius: Int = 3) -> SIMD3<Double> {
+        let w = image.width, h = image.height
+        var px = [UInt8](repeating: 0, count: w * h * 4)
+        let ctx = CGContext(data: &px, width: w, height: h, bitsPerComponent: 8, bytesPerRow: w * 4,
+                            space: CGColorSpaceCreateDeviceRGB(), bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)
+        ctx?.draw(image, in: CGRect(x: 0, y: 0, width: w, height: h))
+        let cx = Int((p.x + 1) / 2 * Double(w)), cy = Int((1 - p.y) / 2 * Double(h))
+        var sum = SIMD3<Double>(repeating: 0), n = 0.0
+        for row in max(0, cy - radius)...min(h - 1, cy + radius) {
+            for col in max(0, cx - radius)...min(w - 1, cx + radius) {
+                let i = (row * w + col) * 4
+                sum += SIMD3(Double(px[i]), Double(px[i + 1]), Double(px[i + 2])) / 255; n += 1
+            }
+        }
+        return sum / max(1, n)
+    }
+
+    private func luma(_ c: SIMD3<Double>) -> Double { 0.2126 * c.x + 0.7152 * c.y + 0.0722 * c.z }
+
+    private func renderSky(_ state: SkyState, viewAzimuth: Double?) throws -> (image: CGImage, sky: SkyLayer) {
+        guard let device = MTLCreateSystemDefaultDevice() else { throw XCTSkip("No Metal device") }
+        let preview = try XCTUnwrap(PreviewRenderer(width: 640, height: 360))
+        let r = try XCTUnwrap(SkyOnlyRenderer(device: device))
+        r.sky.viewAzimuth = viewAzimuth
+        r.update(state, quality: .high, size: CGSize(width: 640, height: 360), dt: 1.0 / 30, time: 0, surface: .none)
+        return (try XCTUnwrap(preview.capture(r)), r.sky)
+    }
+
+    /// A clear morning with the sun 10° up straight ahead: halos forced on brighten the sundog's spot (22°/cos 10° to
+    /// the right) well above a point 15° from the sun; with halo 0 the two match.
+    func testHalosAppearAroundTheSun() throws {
+        var s = frozen(13)
+        let view = SkyLayer.defaultViewAzimuth(latitude: s.latitude)
+        s.sun = SkyDirection(azimuth: view, altitude: 10)
+        func ratio(halo: Float) throws -> Double {
+            var st = s; st.halo = halo
+            let (image, sky) = try renderSky(st, viewAzimuth: view)
+            let dog = screenPoint(SkyDirection(azimuth: view + HaloOptics.sundogOffset(sunAltitude: 10), altitude: 10), sky: sky, latitude: s.latitude)
+            let near = screenPoint(SkyDirection(azimuth: view + 15, altitude: 10), sky: sky, latitude: s.latitude)
+            return luma(rgb(image, at: dog)) / max(1e-6, luma(rgb(image, at: near)))
+        }
+        let on = try ratio(halo: 1), off = try ratio(halo: 0)
+        XCTAssertGreaterThanOrEqual(on, 1.15, "sundog against 15°: \(on)")
+        XCTAssertEqual(off, 1, accuracy: 0.05, "without halos: \(off)")
+    }
+
+    /// Dusk, the sun 3° down: looking away from it, a pink band sits about 10° up; looking 90° from the sun it doesn't.
+    func testBeltOfVenusIsPink() throws {
+        var s = frozen(13)
+        s.sun = SkyDirection(azimuth: 90, altitude: -3)
+        let c = SkyPalette.colours(sunAltitude: -3, cloud: 0, mist: s.mist, moonlight: 0)
+        s.zenith = c.zenith; s.horizon = c.horizon; s.starVisibility = 0
+        // Red over green (a difference: ratios flatten under the tone curve).
+        func pinkness(view: Double) throws -> Double {
+            let (image, sky) = try renderSky(s, viewAzimuth: view)
+            let p = rgb(image, at: screenPoint(SkyDirection(azimuth: view, altitude: 10), sky: sky, latitude: s.latitude))
+            return p.x - p.y
+        }
+        let away = try pinkness(view: 270), side = try pinkness(view: 0)
+        XCTAssertGreaterThan(away, 1.1 * side, "away \(away) side \(side)")
+    }
+
+    /// The same dawn frame, pastel against plain: a pinker, less orange horizon and a lavender zenith.
+    func testPastelDawnTintsTheSky() throws {
+        var s = frozen(13)
+        s.sun = SkyDirection(azimuth: 90, altitude: -2)
+        s.cloudCover = 0; s.starVisibility = 0
+        func frame(pastel: Float) throws -> (horizon: SIMD3<Double>, zenith: SIMD3<Double>) {
+            var st = s
+            let c = SkyPalette.colours(sunAltitude: -2, cloud: 0, mist: s.mist, moonlight: 0, pastel: pastel)
+            st.zenith = c.zenith; st.horizon = c.horizon; st.dawnPastel = pastel
+            let (image, sky) = try renderSky(st, viewAzimuth: 0)
+            return (rgb(image, at: screenPoint(SkyDirection(azimuth: 0, altitude: 2), sky: sky, latitude: s.latitude), radius: 5),
+                    rgb(image, at: (0, 0.9), radius: 5))
+        }
+        let plain = try frame(pastel: 0), pastel = try frame(pastel: 1)
+        let hPlain = plain.horizon.z / plain.horizon.x, hPastel = pastel.horizon.z / pastel.horizon.x
+        XCTAssertGreaterThanOrEqual(hPastel, 1.15 * hPlain, "horizon b/r \(hPlain) → \(hPastel)")
+        let zPlain = plain.zenith.x / plain.zenith.y, zPastel = pastel.zenith.x / pastel.zenith.y
+        XCTAssertGreaterThanOrEqual(zPastel, 1.2 * zPlain, "zenith r/g \(zPlain) → \(zPastel)")
+    }
+
+    func testBlizzardDrivesTheSnowSideways() throws {
+        guard let device = MTLCreateSystemDefaultDevice() else { throw XCTSkip("No Metal device") }
+        let w = try XCTUnwrap(WeatherLayer(device: device))
+        var s = frozen(13, weather: .blizzard)
+        s.snow = 1; s.wind = 1; s.rain = 0
+        s.gust = 1
+        w.update(s, quality: .high, size: CGSize(width: 640, height: 360), dt: 1.0 / 30, surface: .ground(horizonY: -0.33))
+        XCTAssertGreaterThan(w.tilt, 1.2)
+        XCTAssertGreaterThan(w.streamerCount, 0)
+        XCTAssertLessThanOrEqual(w.streamerCount, 150)
+        s.gust = 0
+        w.update(s, quality: .high, size: CGSize(width: 640, height: 360), dt: 1.0 / 30, surface: .ground(horizonY: -0.33))
+        XCTAssertEqual(w.tilt, 0.25, accuracy: 0.01)
+        XCTAssertEqual(w.streamerCount, 0)
+        s.gust = 1
+        w.update(s, quality: .lite, size: CGSize(width: 640, height: 360), dt: 1.0 / 30, surface: .ground(horizonY: -0.33))
+        XCTAssertLessThanOrEqual(w.streamerCount, 60, "Smooth keeps streamers light")
     }
 
     func testWeatherLayerScalesWithQualityAndAmount() throws {
@@ -248,6 +361,38 @@ enum FramePatch {
         return out
     }
 
+    /// Mean RGB (0…1) inside an NDC rectangle.
+    static func meanRGB(_ image: CGImage, x: ClosedRange<Double>, y: ClosedRange<Double>) -> SIMD3<Double> {
+        pixels(image, x: x, y: y).reduce(SIMD3<Double>(repeating: 0), +) / Double(max(1, pixels(image, x: x, y: y).count))
+    }
+
+    /// Mean luminance of the brightest `share` of the pixels inside an NDC rectangle.
+    static func brightest(_ image: CGImage, x: ClosedRange<Double>, y: ClosedRange<Double>, share: Double = 0.05) -> Double {
+        let l = pixels(image, x: x, y: y).map { 0.2126 * $0.x + 0.7152 * $0.y + 0.0722 * $0.z }.sorted(by: >)
+        let n = max(1, Int(Double(l.count) * share))
+        return l.prefix(n).reduce(0, +) / Double(n)
+    }
+
+    static func pixels(_ image: CGImage, x: ClosedRange<Double>, y: ClosedRange<Double>) -> [SIMD3<Double>] {
+        let w = image.width, h = image.height
+        var px = [UInt8](repeating: 0, count: w * h * 4)
+        let ctx = CGContext(data: &px, width: w, height: h, bitsPerComponent: 8, bytesPerRow: w * 4,
+                            space: CGColorSpaceCreateDeviceRGB(), bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)
+        ctx?.draw(image, in: CGRect(x: 0, y: 0, width: w, height: h))
+        var out: [SIMD3<Double>] = []
+        for row in 0..<h {
+            let ny = 1 - 2 * (Double(row) + 0.5) / Double(h)
+            guard y.contains(ny) else { continue }
+            for col in 0..<w {
+                let nx = 2 * (Double(col) + 0.5) / Double(w) - 1
+                guard x.contains(nx) else { continue }
+                let i = (row * w + col) * 4
+                out.append(SIMD3(Double(px[i]), Double(px[i + 1]), Double(px[i + 2])) / 255)
+            }
+        }
+        return out
+    }
+
     /// Mean absolute luminance difference between two frames inside an NDC rectangle.
     static func difference(_ a: CGImage, _ b: CGImage, x: ClosedRange<Double>, y: ClosedRange<Double>) -> Double {
         let la = luminance(a), lb = luminance(b), w = a.width, h = a.height
@@ -283,7 +428,8 @@ final class GoldenHourBeachRendererTests: XCTestCase {
     }
 
     /// Steps the beach at 60 fps (notes go down at 0.5 s and stay held) and renders the frame at `seconds`.
-    private func renderBeach(notes: [UInt8], at seconds: Double, state: ThemeState, width: Int = 640, height: Int = 360)
+    private func renderBeach(notes: [UInt8], at seconds: Double, state: ThemeState, width: Int = 640, height: Int = 360,
+                             skyEdit: ((inout SkyState) -> Void)? = nil)
         throws -> (image: CGImage, renderer: GoldenHourBeachRenderer, frame: BeachFrame) {
         guard let device = MTLCreateSystemDefaultDevice() else { throw XCTSkip("No Metal device") }
         let preview = try XCTUnwrap(PreviewRenderer(width: width, height: height))
@@ -300,6 +446,7 @@ final class GoldenHourBeachRendererTests: XCTestCase {
             elapsed = t
             if i == 30 { d.handle(notes.map { .noteOn(note: $0, velocity: 1) }, at: t) }
             frame = d.step(dt: 1.0 / 60, t: t, quality: .high) as? BeachFrame
+            if let edit = skyEdit, frame != nil { edit(&frame!.sky) }
             if let frame { r.update(frame, params: d.parameters, quality: .high, gentle: false, dt: 1.0 / 60, size: size) }
         }
         let f = try XCTUnwrap(frame)
@@ -360,6 +507,18 @@ final class GoldenHourBeachRendererTests: XCTestCase {
             XCTAssertGreaterThan(s.meanLuminance, 0.08, "\(q)")
             XCTAssertGreaterThan(s.variance, 0.002, "\(q)")
         }
+    }
+
+    /// After the rain the whole beach is wet: the dry sand near the camera turns darker and mirrors the blue sky.
+    func testBeachShinesAfterRain() throws {
+        let state = ThemeState(values: ["keys.show": .bool(false)])
+        let dry = try renderBeach(notes: [], at: 2, state: state) { $0.wetness = 0 }
+        let wet = try renderBeach(notes: [], at: 2, state: state) { $0.wetness = 0.9 }
+        let x = -0.33...0.33, y = -0.97 ... -0.86
+        let a = FramePatch.meanRGB(dry.image, x: x, y: y), b = FramePatch.meanRGB(wet.image, x: x, y: y)
+        let la = 0.2126 * a.x + 0.7152 * a.y + 0.0722 * a.z, lb = 0.2126 * b.x + 0.7152 * b.y + 0.0722 * b.z
+        XCTAssertGreaterThanOrEqual(abs(lb - la) / max(la, 1e-6), 0.08, "dry \(a) wet \(b)")
+        XCTAssertGreaterThan(b.z / max(b.x, 1e-6), 1.05 * a.z / max(a.x, 1e-6), "the wet sand reflects the sky: dry \(a) wet \(b)")
     }
 
     func testLinesShowOnTheSand() throws {
@@ -464,7 +623,8 @@ final class CoastRoadRendererTests: XCTestCase {
 
     /// Steps the road at 60 fps (notes go down at 0.5 s and stay held) and captures frames at the given times.
     private func roadShots(notes: [UInt8], at times: [Double], state: ThemeState, sky: SkySettings? = nil,
-                           width: Int = 640, height: Int = 360) throws -> (images: [CGImage], shots: [RoadShot], renderer: CoastRoadRenderer) {
+                           width: Int = 640, height: Int = 360, skyEdit: ((inout SkyState) -> Void)? = nil)
+        throws -> (images: [CGImage], shots: [RoadShot], renderer: CoastRoadRenderer) {
         guard let device = MTLCreateSystemDefaultDevice() else { throw XCTSkip("No Metal device") }
         let preview = try XCTUnwrap(PreviewRenderer(width: width, height: height))
         let r = try XCTUnwrap(CoastRoadRenderer(device: device))
@@ -482,7 +642,8 @@ final class CoastRoadRendererTests: XCTestCase {
             let t = Double(i) / 60
             elapsed = t
             if i == 30 { d.handle(notes.map { .noteOn(note: $0, velocity: 1) }, at: t) }
-            guard let f = d.step(dt: 1.0 / 60, t: t, quality: .high) as? RoadFrame else { continue }
+            guard var f = d.step(dt: 1.0 / 60, t: t, quality: .high) as? RoadFrame else { continue }
+            skyEdit?(&f.sky)
             r.update(f, params: d.parameters, quality: .high, gentle: false, dt: 1.0 / 60, size: size)
             if t >= next - 1e-9 {
                 shots.append(RoadShot(image: try XCTUnwrap(preview.capture(r)), frame: f, lampPosts: r.lampPosts))
@@ -539,6 +700,19 @@ final class CoastRoadRendererTests: XCTestCase {
         }
     }
 
+    /// Wet tarmac at night: the lights above the road shine back from it as streaks in the road strip.
+    func testWetRoadReflectsTheLights() throws {
+        let state = ThemeState(values: ["keys.show": .bool(false), "lamps": .number(1)])
+        let notes: [UInt8] = [36, 40, 43, 48, 52, 55, 60, 64, 67, 72]
+        let dry = try roadShots(notes: notes, at: [3], state: state, sky: MoonlitLakeRendererTests.night) { $0.wetness = 0 }
+        let wet = try roadShots(notes: notes, at: [3], state: state, sky: MoonlitLakeRendererTests.night) { $0.wetness = 0.9 }
+        // Keys hidden: the window's bottom is at −0.9 and the road strip runs to −0.84; the lights on the road sit
+        // from −0.87 up, so the strip below them only shines by reflection.
+        let x = -0.85...0.85, y = -0.895 ... -0.872
+        let a = FramePatch.brightest(dry.images[0], x: x, y: y), b = FramePatch.brightest(wet.images[0], x: x, y: y)
+        XCTAssertGreaterThanOrEqual(b, 1.3 * a, "dry \(a) wet \(b)")
+    }
+
     func testLampsLightAtBlueHour() throws {
         // No notes, keys hidden: the lamps are the only change.
         func patch(lamps: Double) throws -> Double {
@@ -576,8 +750,9 @@ final class CoastRoadRendererTests: XCTestCase {
         // pow() of a negative base is undefined under fast math (NaN on some GPUs): squares are written x * x.
         let pattern = try NSRegularExpression(pattern: #"pow\([^;]*?,\s*2\.0\)"#)
         let shared = SkyShaders.common.count + OceanShaders.common.count
-        for (name, full) in [("road", CoastRoadShaders.source), ("beach", GoldenHourBeachShaders.source), ("ocean", OceanShaders.common)] {
-            let source = name == "ocean" ? full : String(full.dropFirst(shared))
+        for (name, full) in [("road", CoastRoadShaders.source), ("beach", GoldenHourBeachShaders.source), ("ocean", OceanShaders.common),
+                             ("sky", SkyShaders.source)] {
+            let source = name == "ocean" || name == "sky" ? full : String(full.dropFirst(shared))
             let hits = pattern.numberOfMatches(in: source, range: NSRange(source.startIndex..., in: source))
             XCTAssertEqual(hits, 0, name)
         }
@@ -626,6 +801,7 @@ final class WorldPreviewTests: XCTestCase {
             ("lake-rain-t5", sky(hour: 22, phase: 0.55, weather: .rain), .high, 5),
             ("lake-smooth-t5", sky(hour: 22, phase: 0.55), .lite, 5),
             ("lake-ripples-t2.5", sky(hour: 22, phase: 0.55), .high, 2.5),
+            ("lake-after-rain", sky(hour: 22, phase: 0.55, weather: .afterRain), .high, 5),
         ]
         for (name, s, q, t) in cases {
             let image = try XCTUnwrap(preview.render(themeID: MoonlitLakeModel.id, at: [t], quality: q, sky: s, mood: .serene).first)
@@ -652,6 +828,8 @@ final class WorldPreviewTests: XCTestCase {
             ("beach-smooth", sky(hour: 13, phase: 0.5), held, .lite, 5),
             ("beach-lines-t6", sky(hour: 13, phase: 0.5), held, .high, 6),
             ("beach-warp-t7", sky(hour: 13, phase: 0.5), warp, .high, 7),
+            ("beach-after-rain", sky(hour: 13, phase: 0.5, weather: .afterRain), held, .high, 5),
+            ("beach-blizzard", sky(hour: 13, phase: 0.5, weather: .blizzard), held, .high, 5),
         ]
         for (name, s, state, q, t) in cases {
             let image = try XCTUnwrap(preview.render(themeID: GoldenHourBeachModel.id, at: [t], state: state, quality: q, sky: s).first)
@@ -678,6 +856,8 @@ final class WorldPreviewTests: XCTestCase {
             ("road-smooth", sky(hour: 13, phase: 0.5), held, .lite, 5),
             ("road-lights-t6", sky(hour: 13, phase: 0.5), held, .high, 6),
             ("road-warp-t7", sky(hour: 13, phase: 0.5), warp, .high, 7),
+            ("road-after-rain-night", sky(hour: 1, phase: 0.5, weather: .afterRain), follow, .high, 5),
+            ("road-blizzard", sky(hour: 13, phase: 0.5, weather: .blizzard), held, .high, 5),
         ]
         for (name, s, state, q, t) in cases {
             let image = try XCTUnwrap(preview.render(themeID: CoastRoadModel.id, at: [t], state: state, quality: q, sky: s).first)
@@ -727,6 +907,8 @@ final class SkyPreviewTests: XCTestCase {
             ("sky-rain-night-water", 22.0, 0.5, .rain, .water(horizonY: -0.33)),
             ("sky-snow-dusk", 19.6, 0.4, .snow, .ground(horizonY: -0.33)),
             ("sky-storm-glass", 15.0, 0.5, .storm, .glass),
+            ("sky-blizzard-ground", 13.0, 0.5, .blizzard, .ground(horizonY: -0.33)),
+            ("sky-after-rain-ground", 9.5, 0.5, .afterRain, .ground(horizonY: -0.33)),
         ]
         for (name, hour, phase, weather, surface) in cases {
             var s = SkySettings(); s.timeMode = .frozen; s.frozenHour = hour; s.frozenPhase = phase; s.cityID = "melbourne"
@@ -739,6 +921,456 @@ final class SkyPreviewTests: XCTestCase {
                 r.update(state, quality: .high, size: CGSize(width: 1280, height: 720), dt: 1.0 / 30, time: Float(i) / 30, surface: surface)
             }
             let image = try XCTUnwrap(preview.capture(r))
+            try PreviewRenderer.writePNG(image, to: url.appendingPathComponent("\(name).png"))
+        }
+        // Optics: halos, sundogs, a moon halo, a pastel dawn and the Belt of Venus (held or placed to show them).
+        let zone = TimeZone(identifier: "Australia/Melbourne")!
+        func state(hour: Double, phase: Double, weather: WeatherKind, hold: SkyHold = .follow) -> SkyState {
+            var s = SkySettings(); s.timeMode = .frozen; s.frozenHour = hour; s.frozenPhase = phase; s.cityID = "melbourne"
+            s.weatherMode = .pick; s.weather = weather
+            let sky = LivingSky(settings: s, homeZone: zone)
+            var st = sky.step(now: Date(timeIntervalSince1970: 1_793_000_000), dt: 0, hold: hold)
+            for i in 1...120 { st = sky.step(now: Date(timeIntervalSince1970: 1_793_000_000 + Double(i)), dt: 1, hold: hold) }
+            return st
+        }
+        var haloDay = state(hour: 13, phase: 0.5, weather: .lightCloud); haloDay.halo = 1
+        var lowSun = state(hour: 13, phase: 0.5, weather: .clear); lowSun.halo = 1
+        let ahead = SkyLayer.defaultViewAzimuth(latitude: lowSun.latitude)
+        lowSun.sun = SkyDirection(azimuth: ahead, altitude: 8)
+        let lowColours = SkyPalette.colours(sunAltitude: 8, cloud: 0, mist: lowSun.mist, moonlight: 0)
+        lowSun.zenith = lowColours.zenith; lowSun.horizon = lowColours.horizon
+        var moonHalo = state(hour: 23.5, phase: 0.5, weather: .lightCloud); moonHalo.halo = 1
+        moonHalo.moon = SkyDirection(azimuth: ahead, altitude: 30); moonHalo.moonLit = 1
+        let pastel = state(hour: 13, phase: 0.5, weather: .lightCloud, hold: .pastelDawn)
+        var belt = state(hour: 13, phase: 0.5, weather: .clear)
+        belt.sun = SkyDirection(azimuth: ahead + 180, altitude: -3)
+        let beltColours = SkyPalette.colours(sunAltitude: -3, cloud: 0, mist: belt.mist, moonlight: 0)
+        belt.zenith = beltColours.zenith; belt.horizon = beltColours.horizon; belt.starVisibility = 0.1
+        let optics: [(String, SkyState, Double?)] = [
+            ("sky-halo-day", haloDay, nil), ("sky-sundogs-low", lowSun, ahead), ("sky-moon-halo", moonHalo, ahead),
+            ("sky-pastel-dawn", pastel, pastel.sun.azimuth), ("sky-belt-of-venus", belt, ahead),
+        ]
+        for (name, st, view) in optics {
+            let r = try XCTUnwrap(SkyOnlyRenderer(device: device))
+            r.sky.viewAzimuth = view
+            for i in 0..<10 { r.update(st, quality: .high, size: CGSize(width: 1280, height: 720), dt: 1.0 / 30, time: Float(i) / 30, surface: .none) }
+            let image = try XCTUnwrap(preview.capture(r))
+            try PreviewRenderer.writePNG(image, to: url.appendingPathComponent("\(name).png"))
+        }
+    }
+}
+
+/// Snowbound Cabin Window (Set 5's world) with Frost Grow and the Window Kit.
+@MainActor
+final class SnowboundCabinRendererTests: XCTestCase {
+    func testCabinShadersCompile() throws {
+        guard let device = MTLCreateSystemDefaultDevice() else { throw XCTSkip("No Metal device") }
+        let lib = try device.makeLibrary(source: SnowboundCabinShaders.source, options: nil)
+        for name in ["cabin_glass_vertex", "cabin_full_vertex", "cabin_scene_fragment", "cabin_spark_vertex", "cabin_spark_fragment",
+                     "cabin_room_fragment", "cabin_keys_vertex", "cabin_keys_fragment"] {
+            XCTAssertNotNil(lib.makeFunction(name: name), name)
+        }
+        let own = String(SnowboundCabinShaders.source.dropFirst(SkyShaders.common.count))
+        XCTAssertFalse(own.contains("pow("), "squares and powers are written out")
+    }
+
+    nonisolated static func sky(hour: Double, weather: WeatherKind = .clear, phase: Double = 0.5) -> SkySettings {
+        var s = SkySettings(); s.timeMode = .frozen; s.frozenHour = hour; s.frozenPhase = phase; s.cityID = "melbourne"
+        s.weatherMode = .pick; s.weather = weather
+        return s
+    }
+
+    struct CabinShot { var image: CGImage; var renderer: SnowboundCabinRenderer; var frame: CabinFrame }
+
+    /// Steps the cabin at 60 fps (notes go down at `noteTime` and stay held) and renders the frame at `seconds`.
+    private func renderCabin(notes: [UInt8], velocity: Float = 1, noteTime: Double = 0.5, at seconds: Double,
+                             state: ThemeState = ThemeState(), sky: SkySettings = SnowboundCabinRendererTests.sky(hour: 22),
+                             quality: QualityLevel = .high,
+                             gentle: Bool = false, width: Int = 640, height: Int = 360,
+                             each: ((SnowboundCabinRenderer, CabinFrame) -> Void)? = nil) throws -> CabinShot {
+        guard let device = MTLCreateSystemDefaultDevice() else { throw XCTSkip("No Metal device") }
+        let preview = try XCTUnwrap(PreviewRenderer(width: width, height: height))
+        let r = try XCTUnwrap(SnowboundCabinRenderer(device: device))
+        XCTAssertTrue(r.awaitField(), "the frost field grows")
+        let d = SceneDirector(themeID: SnowboundCabinModel.id, state: state, reaction: ReactionPresets.expressivePianist)
+        let start = Date(timeIntervalSince1970: 1_793_000_000)
+        var elapsed = 0.0
+        d.clock = { start.addingTimeInterval(elapsed) }
+        d.sky.reset(settings: sky)
+        var frame: CabinFrame?
+        let size = CGSize(width: width, height: height)
+        let noteStep = Int((noteTime * 60).rounded())
+        for i in 1...Int(seconds * 60) {
+            let t = Double(i) / 60
+            elapsed = t
+            if i == max(1, noteStep), !notes.isEmpty { d.handle(notes.map { .noteOn(note: $0, velocity: velocity) }, at: t) }
+            frame = d.step(dt: 1.0 / 60, t: t, quality: quality) as? CabinFrame
+            if let frame {
+                r.update(frame, params: d.parameters, quality: quality, gentle: gentle, dt: 1.0 / 60, size: size)
+                each?(r, frame)
+            }
+        }
+        let f = try XCTUnwrap(frame)
+        return CabinShot(image: try XCTUnwrap(preview.capture(r)), renderer: r, frame: f)
+    }
+
+    func testCabinPreviewIsStructured() throws {
+        for q in [QualityLevel.lite, .high] {
+            for hour in [22.0, 18.9, 13.0] {
+                let shot = try renderCabin(notes: [], at: 1, sky: Self.sky(hour: hour), quality: q)
+                let s = PreviewRenderer.stats(shot.image)
+                XCTAssertGreaterThan(s.meanLuminance, 0.02, "\(q) \(hour)")
+                XCTAssertGreaterThan(s.variance, 0.002, "\(q) \(hour)")
+            }
+        }
+    }
+
+    func testFrostGrowsOnTheCabinGlass() throws {
+        let held = try renderCabin(notes: [48, 52, 55, 59], velocity: 0.5, at: 30)
+        let silent = try renderCabin(notes: [], at: 30)
+        XCTAssertGreaterThanOrEqual(held.renderer.glass.frostCoverage - silent.renderer.glass.frostCoverage, 0.15)
+        XCTAssertGreaterThan(held.frame.frostLevel, silent.frame.frostLevel)
+    }
+
+    /// The share of pixels in an NDC box whose luminance differs from the frost-free render by more than 0.05.
+    private func frosted(_ a: CGImage, _ bare: CGImage, x: ClosedRange<Double>, y: ClosedRange<Double>) -> Double {
+        let pa = FramePatch.pixels(a, x: x, y: y), pb = FramePatch.pixels(bare, x: x, y: y)
+        func luma(_ c: SIMD3<Double>) -> Double { 0.2126 * c.x + 0.7152 * c.y + 0.0722 * c.z }
+        var n = 0
+        for i in 0..<min(pa.count, pb.count) where abs(luma(pa[i]) - luma(pb[i])) > 0.05 { n += 1 }
+        return pa.isEmpty ? 0 : Double(n) / Double(pa.count)
+    }
+
+    func testNotesMeltPatches() throws {
+        // A snowy night (plenty of frost); one note held from 0.5 s melts a clear patch where its key sits.
+        let night = Self.sky(hour: 22, weather: .snow)
+        let shot = try renderCabin(notes: [60], velocity: 0.6, at: 5, sky: night)
+        let bare = try renderCabin(notes: [60], velocity: 0.6, at: 5, state: ThemeState(values: ["frost": .number(0)]), sky: night)
+        let patch = try XCTUnwrap(shot.frame.patches.first)
+        let rect = shot.renderer.windowRect
+        let cx = Double(rect.x + (rect.z - rect.x) * patch.x), cy = Double(rect.y + (rect.w - rect.y) * patch.y)
+        let ry = Double(patch.radius * (rect.w - rect.y)), rx = ry * 360 / 640
+        let inside = frosted(shot.image, bare.image, x: (cx - 0.5 * rx)...(cx + 0.5 * rx), y: (cy - 0.5 * ry)...(cy + 0.5 * ry))
+        let around = (frosted(shot.image, bare.image, x: (cx - 2.6 * rx)...(cx - 1.6 * rx), y: (cy - 0.5 * ry)...(cy + 0.5 * ry))
+                      + frosted(shot.image, bare.image, x: (cx + 1.6 * rx)...(cx + 2.6 * rx), y: (cy - 0.5 * ry)...(cy + 0.5 * ry))) / 2
+        XCTAssertLessThan(inside, around - 0.2, "inside \(inside), around \(around)")
+    }
+
+    func testCabinHonoursGentleVisuals() throws {
+        var plain: (flare: Float, glint: Float) = (0, 0), gentle: (flare: Float, glint: Float) = (0, 0)
+        _ = try renderCabin(notes: [60, 64, 67], at: 0.8) { r, _ in plain = (max(plain.flare, r.flareOut), max(plain.glint, r.glintOut)) }
+        _ = try renderCabin(notes: [60, 64, 67], at: 0.8, gentle: true) { r, _ in
+            gentle = (max(gentle.flare, r.flareOut), max(gentle.glint, r.glintOut))
+        }
+        XCTAssertGreaterThan(plain.flare, 0.3, "a chord flares the fire")
+        XCTAssertLessThanOrEqual(gentle.flare, plain.flare * 0.55)
+        XCTAssertLessThanOrEqual(gentle.glint, plain.glint * 0.55)
+    }
+
+    func testNoRainInsideTheCabin() throws {
+        let shot = try renderCabin(notes: [], at: 5, sky: Self.sky(hour: 22, weather: .rain))
+        XCTAssertEqual(shot.frame.sky.rain, 0)
+        XCTAssertGreaterThan(shot.frame.sky.snow, 0.5)
+        XCTAssertEqual(shot.renderer.weather.kind, 1, "snow, never rain streaks")
+        XCTAssertGreaterThan(shot.renderer.weather.particleCount, 0)
+        XCTAssertGreaterThan(shot.renderer.glass.stuckFlakeCount, 0, "flakes land on the glass")
+    }
+
+    func testCabinFramesAnyAspect() throws {
+        for (w, h) in [(864, 360), (360, 360)] {
+            let shot = try renderCabin(notes: [60, 64, 67], at: 1, width: w, height: h)
+            let r = shot.renderer.windowRect
+            let aspect = Float(w) / Float(h)
+            XCTAssertGreaterThanOrEqual(r.x - 0.05, -1, "\(w)×\(h)"); XCTAssertLessThanOrEqual(r.z + 0.05, 1, "\(w)×\(h)")
+            XCTAssertGreaterThanOrEqual(r.y, -1, "\(w)×\(h)"); XCTAssertLessThanOrEqual(r.w + 0.05 * aspect, 1, "\(w)×\(h)")
+            XCTAssertEqual(shot.renderer.keyRects.count, 88)
+            for k in shot.renderer.keyRects {
+                XCTAssertGreaterThanOrEqual(k.x, -1); XCTAssertLessThanOrEqual(k.z, 1)
+                XCTAssertGreaterThanOrEqual(k.y, -1); XCTAssertLessThanOrEqual(k.w, 1)
+            }
+            let s = PreviewRenderer.stats(shot.image)
+            XCTAssertGreaterThan(s.variance, 0.001, "\(w)×\(h)")
+        }
+    }
+
+    func testCabinBurstStaysInBudget() throws {
+        guard let device = MTLCreateSystemDefaultDevice() else { throw XCTSkip("No Metal device") }
+        let preview = try XCTUnwrap(PreviewRenderer(width: 640, height: 360))
+        let r = try XCTUnwrap(SnowboundCabinRenderer(device: device))
+        let d = SceneDirector(themeID: SnowboundCabinModel.id, state: ThemeState(), reaction: ReactionPresets.expressivePianist)
+        d.sky.reset(settings: Self.sky(hour: 22))
+        for q in [QualityLevel.lite, .high] {
+            let start = Date()
+            for i in 0..<60 {
+                let t = Double(i) / 60
+                if i < 60 { d.handle((0..<34).map { k in .noteOn(note: UInt8(21 + (i * 34 + k) % 88), velocity: 0.8) }, at: t) }
+                let f = try XCTUnwrap(d.step(dt: 1.0 / 60, t: t, quality: q) as? CabinFrame)
+                r.update(f, params: d.parameters, quality: q, gentle: false, dt: 1.0 / 60, size: CGSize(width: 640, height: 360))
+                XCTAssertLessThanOrEqual(r.patchCount, SnowboundCabinRenderer.patchBudget(q))
+                XCTAssertNotNil(preview.capture(r))
+            }
+            XCTAssertLessThan(Date().timeIntervalSince(start), 4, "\(q)")
+        }
+    }
+}
+
+extension WorldPreviewTests {
+    func testWriteCabinPreviews() throws {
+        guard let dir = ProcessInfo.processInfo.environment["PREVIEW_DIR"] else { throw XCTSkip("PREVIEW_DIR not set") }
+        guard MTLCreateSystemDefaultDevice() != nil else { throw XCTSkip("No Metal device") }
+        let url = URL(fileURLWithPath: dir, isDirectory: true)
+        try FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
+        let preview = try XCTUnwrap(PreviewRenderer(width: 1280, height: 720))
+        let follow = ThemeState()
+        let pastel = ThemeState(values: ["light.hold": .choice(SkyHold.pastelDawn.rawValue)])
+        let golden = ThemeState(values: ["light.hold": .choice(SkyHold.goldenHour.rawValue)])
+        let warp = ThemeState(values: ["visual": .choice("Galaxy Warp")])
+        let sky = SnowboundCabinRendererTests.sky
+        let cases: [(String, SkySettings, ThemeState, QualityLevel, Double)] = [
+            ("cabin-night", sky(22, .clear, 0.5), follow, .high, 5),
+            ("cabin-golden", sky(13, .clear, 0.5), golden, .high, 5),
+            ("cabin-noon-halo", sky(13, .lightCloud, 0.5), follow, .high, 5),
+            ("cabin-pastel-dawn", sky(13, .lightCloud, 0.5), pastel, .high, 5),
+            ("cabin-blizzard", sky(15, .blizzard, 0.5), follow, .high, 5),
+            ("cabin-snow", sky(21, .snow, 0.5), follow, .high, 5),
+            ("cabin-smooth", sky(22, .clear, 0.5), follow, .lite, 5),
+            ("cabin-frost-t30", sky(22, .clear, 0.5), follow, .high, 30),
+            ("cabin-warp-t7", sky(22, .clear, 0.5), warp, .high, 7),
+        ]
+        for (name, s, state, q, t) in cases {
+            let image = try XCTUnwrap(preview.render(themeID: SnowboundCabinModel.id, at: [t], state: state, quality: q, sky: s,
+                                                     mood: .hushedWarm).first)
+            try PreviewRenderer.writePNG(image, to: url.appendingPathComponent("\(name).png"))
+        }
+    }
+}
+
+/// Bedroom Window at Dawn (Set 6's world) with Curtain Light and the Window Kit.
+@MainActor
+final class BedroomDawnRendererTests: XCTestCase {
+    func testBedroomShadersCompile() throws {
+        guard let device = MTLCreateSystemDefaultDevice() else { throw XCTSkip("No Metal device") }
+        let lib = try device.makeLibrary(source: BedroomDawnShaders.source, options: nil)
+        for name in ["bed_glass_vertex", "bed_full_vertex", "bed_scene_fragment", "bed_room_fragment", "bed_shaft_fragment",
+                     "bed_curtain_vertex", "bed_curtain_fragment", "bed_sprite_vertex", "bed_sprite_fragment",
+                     "bed_keys_vertex", "bed_keys_fragment"] {
+            XCTAssertNotNil(lib.makeFunction(name: name), name)
+        }
+        let own = String(BedroomDawnShaders.source.dropFirst(SkyShaders.common.count))
+        XCTAssertFalse(own.contains("pow("), "squares and powers are written out")
+    }
+
+    nonisolated static func sky(hour: Double, weather: WeatherKind = .clear, phase: Double = 0.5) -> SkySettings {
+        var s = SkySettings(); s.timeMode = .frozen; s.frozenHour = hour; s.frozenPhase = phase; s.cityID = "melbourne"
+        s.weatherMode = .pick; s.weather = weather
+        return s
+    }
+
+    struct BedroomShot { var image: CGImage; var renderer: BedroomDawnRenderer; var frame: BedroomFrame }
+
+    /// Steps the bedroom at 60 fps (notes go down at 0.5 s and stay held) and renders the frame at `seconds`.
+    private func renderBedroom(notes: [UInt8], at seconds: Double, state: ThemeState = ThemeState(),
+                               sky: SkySettings = BedroomDawnRendererTests.sky(hour: 13), quality: QualityLevel = .high,
+                               gentle: Bool = false, width: Int = 640, height: Int = 360,
+                               skyEdit: ((inout SkyState) -> Void)? = nil,
+                               each: ((BedroomDawnRenderer, BedroomFrame) -> Void)? = nil) throws -> BedroomShot {
+        guard let device = MTLCreateSystemDefaultDevice() else { throw XCTSkip("No Metal device") }
+        let preview = try XCTUnwrap(PreviewRenderer(width: width, height: height))
+        let r = try XCTUnwrap(BedroomDawnRenderer(device: device))
+        XCTAssertTrue(r.awaitField())
+        let d = SceneDirector(themeID: BedroomDawnModel.id, state: state, reaction: ReactionPresets.expressivePianist)
+        let start = Date(timeIntervalSince1970: 1_793_000_000)
+        var elapsed = 0.0
+        d.clock = { start.addingTimeInterval(elapsed) }
+        d.sky.reset(settings: sky)
+        var frame: BedroomFrame?
+        let size = CGSize(width: width, height: height)
+        for i in 1...Int(seconds * 60) {
+            let t = Double(i) / 60
+            elapsed = t
+            if i == 30, !notes.isEmpty { d.handle(notes.map { .noteOn(note: $0, velocity: 0.8) }, at: t) }
+            frame = d.step(dt: 1.0 / 60, t: t, quality: quality) as? BedroomFrame
+            if let edit = skyEdit, frame != nil { edit(&frame!.sky) }
+            if let frame {
+                r.update(frame, params: d.parameters, quality: quality, gentle: gentle, dt: 1.0 / 60, size: size)
+                each?(r, frame)
+            }
+        }
+        let f = try XCTUnwrap(frame)
+        return BedroomShot(image: try XCTUnwrap(preview.capture(r)), renderer: r, frame: f)
+    }
+
+    private func luma(_ c: SIMD3<Double>) -> Double { 0.2126 * c.x + 0.7152 * c.y + 0.0722 * c.z }
+
+    func testBedroomPreviewIsStructured() throws {
+        let pastel = ThemeState()
+        let follow = ThemeState(values: ["light.hold": .choice(SkyHold.follow.rawValue)])
+        for q in [QualityLevel.lite, .high] {
+            for (state, hour) in [(pastel, 13.0), (follow, 13.0), (follow, 20.3), (follow, 23.0)] {
+                let shot = try renderBedroom(notes: [], at: 1, state: state, sky: Self.sky(hour: hour), quality: q)
+                let s = PreviewRenderer.stats(shot.image)
+                XCTAssertGreaterThan(s.meanLuminance, 0.02, "\(q) \(hour)")
+                XCTAssertGreaterThan(s.variance, 0.002, "\(q) \(hour)")
+            }
+        }
+    }
+
+    /// The floor below the window, in NDC.
+    private func floorBox(_ r: BedroomDawnRenderer) -> (ClosedRange<Double>, ClosedRange<Double>) {
+        let rect = r.windowRect
+        return (Double(rect.x - 0.3)...Double(rect.z + 0.3), Double(r.floorLine - 0.16)...Double(r.floorLine - 0.02))
+    }
+
+    func testHoldingNotesBrightensTheRoom() throws {
+        let held = try renderBedroom(notes: [60, 64, 67, 71], at: 4.5)
+        let silent = try renderBedroom(notes: [], at: 4.5)
+        let (x, y) = floorBox(held.renderer)
+        let a = luma(FramePatch.meanRGB(held.image, x: x, y: y)), b = luma(FramePatch.meanRGB(silent.image, x: x, y: y))
+        XCTAssertGreaterThanOrEqual(a, 1.15 * b, "held \(a), silent \(b)")
+    }
+
+    func testShaftsFallThroughThePanes() throws {
+        // The same dawn with and without Morning light: the difference is the shafts (and the floor patch).
+        let shot = try renderBedroom(notes: [], at: 1, state: ThemeState(values: ["light": .number(1)]))
+        let dark = try renderBedroom(notes: [], at: 1, state: ThemeState(values: ["light": .number(0)]))
+        XCTAssertGreaterThan(shot.renderer.shaftOut, 0.05, "the dawn sun shines in")
+        XCTAssertEqual(dark.renderer.shaftOut, 0)
+        let r = shot.renderer
+        let pane = try XCTUnwrap(r.glassPanesNDC().min { ($0.y, -$0.x) < ($1.y, -$1.x) })   // the bottom-right pane
+        let centre = SIMD2<Float>((pane.x + pane.z) / 2, (pane.y + pane.w) / 2)
+        let dir = r.beamDirection
+        var perp = SIMD2<Float>(-dir.y, dir.x)
+        if perp.x < 0 { perp = -perp }
+        let along = centre + dir * 0.25
+        let side = along + perp * 0.3
+        func gain(_ p: SIMD2<Float>) -> Double {
+            let x = Double(p.x - 0.015)...Double(p.x + 0.015), y = Double(p.y - 0.015)...Double(p.y + 0.015)
+            return luma(FramePatch.meanRGB(shot.image, x: x, y: y)) - luma(FramePatch.meanRGB(dark.image, x: x, y: y))
+        }
+        XCTAssertGreaterThan(gain(along), gain(side) + 0.01, "a beam below the pane, not beside it")
+    }
+
+    func testBedroomHonoursGentleVisuals() throws {
+        var plain: (glint: Float, glow: Float) = (0, 0), gentle: (glint: Float, glow: Float) = (0, 0)
+        _ = try renderBedroom(notes: [72, 84, 96], at: 3) { r, _ in plain = (max(plain.glint, r.glintOut), max(plain.glow, r.glowOut)) }
+        _ = try renderBedroom(notes: [72, 84, 96], at: 3, gentle: true) { r, _ in gentle = (max(gentle.glint, r.glintOut), max(gentle.glow, r.glowOut)) }
+        XCTAssertGreaterThan(plain.glow, 0.3)
+        XCTAssertLessThanOrEqual(gentle.glint, plain.glint * 0.55)
+        XCTAssertLessThanOrEqual(gentle.glow, plain.glow * 0.55)
+    }
+
+    func testStreetShinesAfterRain() throws {
+        let night = BedroomDawnRendererTests.sky(hour: 22)
+        let follow = ThemeState(values: ["light.hold": .choice(SkyHold.follow.rawValue)])
+        let wet = try renderBedroom(notes: [], at: 1, state: follow, sky: night) { $0.wetness = 0.9 }
+        let dry = try renderBedroom(notes: [], at: 1, state: follow, sky: night) { $0.wetness = 0 }
+        let rect = wet.renderer.windowRect
+        let h = Double(rect.w - rect.y)
+        let x = Double(rect.x + 0.02)...Double(rect.z - 0.02)
+        let y = (Double(rect.y) + 0.12 * h)...(Double(rect.y) + 0.3 * h)
+        let pw = FramePatch.pixels(wet.image, x: x, y: y).map(luma), pd = FramePatch.pixels(dry.image, x: x, y: y).map(luma)
+        func variance(_ v: [Double]) -> Double { let m = v.reduce(0, +) / Double(max(1, v.count)); return v.reduce(0) { $0 + ($1 - m) * ($1 - m) } / Double(max(1, v.count)) }
+        let mw = pw.reduce(0, +) / Double(max(1, pw.count)), md = pd.reduce(0, +) / Double(max(1, pd.count))
+        XCTAssertGreaterThan(mw + variance(pw) * 10, md + variance(pd) * 10, "wet \(mw) dry \(md)")
+    }
+
+    func testBedroomFramesAnyAspect() throws {
+        for (w, h) in [(864, 360), (360, 360)] {
+            let shot = try renderBedroom(notes: [60, 64, 67], at: 1.5, width: w, height: h)
+            let r = shot.renderer
+            let aspect = Float(w) / Float(h)
+            XCTAssertGreaterThanOrEqual(r.windowRect.x - 0.045, -1, "\(w)×\(h)")
+            XCTAssertLessThanOrEqual(r.windowRect.z + 0.045, 1, "\(w)×\(h)")
+            XCTAssertLessThanOrEqual(r.windowRect.w + 0.045 * aspect, 1, "\(w)×\(h)")
+            XCTAssertEqual(r.curtainPoints.count, 2 * 24 * 32)
+            for p in r.curtainPoints { XCTAssertTrue((-1...1).contains(p.x) && (-1...1).contains(p.y)) }
+            XCTAssertEqual(r.keyRects.count, 88)
+            for k in r.keyRects {
+                XCTAssertGreaterThanOrEqual(k.x, -1); XCTAssertLessThanOrEqual(k.z, 1)
+                XCTAssertGreaterThanOrEqual(k.y, -1); XCTAssertLessThanOrEqual(k.w, 1)
+            }
+            XCTAssertGreaterThan(r.shaftOut, 0.05, "\(w)×\(h): the shafts still fall")
+            XCTAssertGreaterThan(r.floorLine, -1, "\(w)×\(h): the floor is in view")
+            XCTAssertGreaterThan(PreviewRenderer.stats(shot.image).variance, 0.001)
+        }
+    }
+
+    /// Following the sky on a summer afternoon, the sun sinking through 25° in the west doesn't swing the view round
+    /// from east (final review: it turned about 170° whenever the sun crossed 25° or −12°).
+    func testBedroomViewNeverSwingsRound() throws {
+        var frameIndex = 0
+        var azimuths: [Double] = []
+        _ = try renderBedroom(notes: [], at: 4, state: ThemeState(values: ["light.hold": .choice(SkyHold.follow.rawValue)]),
+                              skyEdit: { s in
+                                  frameIndex += 1
+                                  s.sun = SkyDirection(azimuth: 280, altitude: 26 - 2 * Double(frameIndex) / 240)
+                              },
+                              each: { r, _ in if let az = r.viewAzimuth { azimuths.append(az) } })
+        let first = try XCTUnwrap(azimuths.first), last = try XCTUnwrap(azimuths.last)
+        let turn = abs((last - first + 540).truncatingRemainder(dividingBy: 360) - 180)
+        XCTAssertLessThan(turn, 45, "turned \(turn)°")
+    }
+
+    /// The shafts and the panes stop at the window's real bars instead of walking all 19 slots for every sample of
+    /// every pixel (final review: about 133 loop steps per pixel on Smooth).
+    func testBarLoopsStopAtTheBars() {
+        for (name, source) in [("bedroom", BedroomDawnShaders.source), ("cabin", SnowboundCabinShaders.source)] {
+            XCTAssertTrue(source.contains("if (i >= nBars) break;"), name)
+        }
+        XCTAssertTrue(BedroomDawnShaders.source.contains("discard_fragment();   // outside every beam"), "the shaft pass skips pixels no beam can reach")
+    }
+
+    func testBedroomBurstStaysInBudget() throws {
+        guard let device = MTLCreateSystemDefaultDevice() else { throw XCTSkip("No Metal device") }
+        let preview = try XCTUnwrap(PreviewRenderer(width: 640, height: 360))
+        let r = try XCTUnwrap(BedroomDawnRenderer(device: device))
+        let d = SceneDirector(themeID: BedroomDawnModel.id, state: ThemeState(), reaction: ReactionPresets.expressivePianist)
+        d.sky.reset(settings: Self.sky(hour: 13))
+        for q in [QualityLevel.lite, .high] {
+            let start = Date()
+            for i in 0..<60 {
+                let t = Double(i) / 60
+                d.handle((0..<34).map { k in .noteOn(note: UInt8(21 + (i * 34 + k) % 88), velocity: 0.8) }, at: t)
+                let f = try XCTUnwrap(d.step(dt: 1.0 / 60, t: t, quality: q) as? BedroomFrame)
+                r.update(f, params: d.parameters, quality: q, gentle: false, dt: 1.0 / 60, size: CGSize(width: 640, height: 360))
+                XCTAssertEqual(r.curtainVertexCount, 2 * 24 * 32)
+                XCTAssertNotNil(preview.capture(r))
+            }
+            XCTAssertLessThan(Date().timeIntervalSince(start), 4, "\(q)")
+        }
+        XCTAssertLessThanOrEqual(r.bufferAllocations, 3, "curtain vertices and sprites reuse a ring of three")
+    }
+}
+
+extension WorldPreviewTests {
+    func testWriteBedroomPreviews() throws {
+        guard let dir = ProcessInfo.processInfo.environment["PREVIEW_DIR"] else { throw XCTSkip("PREVIEW_DIR not set") }
+        guard MTLCreateSystemDefaultDevice() != nil else { throw XCTSkip("No Metal device") }
+        let url = URL(fileURLWithPath: dir, isDirectory: true)
+        try FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
+        let preview = try XCTUnwrap(PreviewRenderer(width: 1280, height: 720))
+        let pastel = ThemeState()
+        let follow = ThemeState(values: ["light.hold": .choice(SkyHold.follow.rawValue)])
+        let golden = ThemeState(values: ["light.hold": .choice(SkyHold.goldenHour.rawValue)])
+        let frost = ThemeState(values: ["visual": .choice("Frost Grow"), "light.hold": .choice(SkyHold.follow.rawValue)])
+        let open = ThemeState(values: ["window.open": .bool(true)])
+        let sky = BedroomDawnRendererTests.sky
+        let cases: [(String, SkySettings, ThemeState, QualityLevel, Double)] = [
+            ("bedroom-pastel-dawn", sky(13, .clear, 0.5), pastel, .high, 5),
+            ("bedroom-golden", sky(13, .clear, 0.5), golden, .high, 5),
+            ("bedroom-noon", sky(12.5, .lightCloud, 0.5), follow, .high, 5),
+            ("bedroom-night-fairy", sky(22.5, .clear, 0.5), follow, .high, 5),
+            ("bedroom-after-rain", sky(8.5, .afterRain, 0.5), follow, .high, 5),
+            ("bedroom-rain", sky(9, .rain, 0.5), follow, .high, 5),
+            ("bedroom-snow", sky(7.5, .snow, 0.5), follow, .high, 5),
+            ("bedroom-smooth", sky(13, .clear, 0.5), pastel, .lite, 5),
+            ("bedroom-light-t4", sky(13, .clear, 0.5), pastel, .high, 4),
+            ("bedroom-frost-t20", sky(6.5, .snow, 0.5), frost, .high, 20),
+            ("bedroom-window-open", sky(13, .clear, 0.5), open, .high, 5),
+        ]
+        for (name, s, state, q, t) in cases {
+            let image = try XCTUnwrap(preview.render(themeID: BedroomDawnModel.id, at: [t], state: state, quality: q, sky: s,
+                                                     mood: .softWaking).first)
             try PreviewRenderer.writePNG(image, to: url.appendingPathComponent("\(name).png"))
         }
     }

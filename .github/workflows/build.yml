@@ -57,7 +57,12 @@ jobs:
           git init -q && git checkout -q -b previews
           git -c user.name=ci -c user.email=ci@localhost add -A
           git -c user.name=ci -c user.email=ci@localhost commit -qm "previews for $GITHUB_SHA"
-          git push -f -q "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" previews
+          # The push has hung on GitHub's side now and then: give each try two minutes, three tries.
+          for i in 1 2 3; do
+            perl -e 'alarm 120; exec @ARGV' git push -f -q "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" previews && exit 0
+            echo "push attempt $i failed or timed out"; sleep 10
+          done
+          exit 1
       - name: Report
         if: always()
         run: |
@@ -124,17 +129,25 @@ jobs:
 
           **Install:** download the **.dmg** below and open it, drag *In Strum Meants* onto *Applications* (choose **Replace** if asked), then right-click the app → **Open** → **Open** (first time only). The .zip is a fallback.
 
-          **Preview build — two new instruments, Cabin Felt and Morning Box.** Try them before their worlds arrive: press **Choose Instrument**.
+          **Sets 5 & 6 — Cosy Windows: Snowbound Cabin Window and Bedroom Window at Dawn.** Two new sets in the gallery, each a world, a visual, an instrument and a soundscape that belong together.
 
-          - **Cabin Felt** (after Mac Miller's "Stay"). Presets: Cabin Felt, Fireside, Snow Horn, Late Night. An upright felt piano played close in a small log cabin, with the soft key thump and damper "chuff" and warm wood around it, plus a mellow **horn** that follows your top line by itself: it slurs when you play legato and scoops up into fresh phrases.
-          - **Morning Box** (after Mac Miller's "Dunno"). Presets: Morning Box, Music Box, Wall of Light, Snooze. A celesta (or a music box: turn **Box** up) over a warm synth wall that **builds the longer you play** and settles when you stop.
+          - **Snowbound Cabin Window** (after Mac Miller's "Stay"; mood: hushed, safe, warm). Inside a log cabin at a frosted three-by-two window: snowy alpine peaks that catch the alpenglow, pines, a far cabin whose window lights at dusk, a frozen creek, and the fire behind you lighting the frame, the sill, a candle and a mug. Instrument: **Cabin Felt** (felt upright with a horn that follows your top line). Visual: **Frost Grow**: hold notes and the frost creeps further over the glass; each note melts a warm clear patch where its key sits, which freezes back over when you let go; chords flare the fire. Rain falls as snow here, storms are blizzards.
+          - **Bedroom Window at Dawn** (after Mac Miller's "Dunno"; mood: soft, waking). A painted sash window behind sheer curtains: rooftops and chimneys, houses lighting up as the morning comes, a street lamp, a big tree with the odd bird, a street that mirrors the lights after rain. Instrument: **Morning Box** (celesta or music box over a wall that builds). Visual: **Curtain Light**: holding notes swells the morning light, every note puffs air into the curtains at its key's place, high notes make dust motes glint, chords tint the light gold, rose or lilac, and at night notes twinkle the fairy lights. **Window open** (a setting) lets the curtains move more and the street come closer.
+          - **New skies everywhere:** ice halos and sundogs on icy light-cloud days (moon halos at night), the pink Belt of Venus at twilight, pastel dawns about one morning in three, **Blizzard** and **After the rain** weathers (wet beaches and roads shine, drips fall). **Pastel dawn** is a new Hold the light choice.
+          - **New sounds:** a fireplace, a kettle, a waking street, drips after rain and a ticking clock, heard through the glass in the window worlds (outdoor sounds lose their top indoors).
 
-          **What to try:**
-          - **Play-along tests:** "Stay" in **F♯ major** at its slow half-time pocket (about 67), and "Dunno" in **C♯ major** at 82. They should blend, never clash. If one sits off-pitch, use Fine tune under **Open Instrument**.
-          - **The horn** (Cabin Felt): play chords with a melody on top. Hold one melody note into the next for a slur; lift between phrases for a fresh scoop. **Horn** sets its level (0 is piano only, as in Fireside). **Felt** hushes the strike; **Fire** warms it.
-          - **The wall** (Morning Box): keep playing for a minute and hear it build (more voices, wider, brighter); stop and it slowly settles. **Build** sets how far it can grow (0 keeps it still). **Box** goes from celesta to music box, **Haze** adds a soft tape wobble.
+          **Hear them first:** cabin-felt-demo, morning-box-demo, snowbound-cabin-ambience and bedroom-dawn-ambience are below (original clips rendered on the build machine; never the songs).
 
-          **Hear them first:** the *cabin-felt-demo.m4a* and *morning-box-demo.m4a* files below are short original clips rendered on the build machine (never the songs' melodies).
+          **Ear-and-eye checklist:**
+          - **Play-along test:** "Stay" in **F♯ major** at its slow half-time pocket (about 67) on Cabin Felt, and "Dunno" in **C♯ major** at 82 on Morning Box. They should blend, never clash.
+          - **The horn** follows your top line: legato slurs, fresh phrases scoop.
+          - **The wall** builds the longer you play and settles when you stop.
+          - **The fire and the kettle** sound right (crackle, roar; rumble, boil, click).
+          - **Frost** grows while you hold notes and melts where you play.
+          - **The curtains** breathe with the breeze and your notes.
+          - **Halos, pastel dawns, blizzards and wet roads** show in the older worlds too.
+          - **Smoothness** on Smooth (Display → Quality → Smooth).
+          - **The two new cards** in the gallery move with their songs.
 
           **Sound & MIDI** (gear button, top right): pick the output, restart the audio, switch MIDI keyboards on or off, set the channel. If the sound cuts in and out, choose 512 or 1024 there and press Restart audio.
 

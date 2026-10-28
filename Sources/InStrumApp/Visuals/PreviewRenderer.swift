@@ -43,6 +43,8 @@ final class PreviewRenderer {
         let dt = 1.0 / 60
         var garden: ButterflyRenderer?, steinway: SteinwayRenderer?, moonlitLake: MoonlitLakeRenderer?
         var lounge: SpaceshipLoungeRenderer?, beach: GoldenHourBeachRenderer?, road: CoastRoadRenderer?
+        var cabin: SnowboundCabinRenderer?
+        var bedroom: BedroomDawnRenderer?
         var images: [CGImage] = []
         for t in times.sorted() {
             var current: ThemeRenderer?
@@ -81,6 +83,20 @@ final class PreviewRenderer {
                     if road == nil { road = CoastRoadRenderer(device: device) }
                     road?.update(r, params: director.parameters, quality: quality, gentle: gentle, dt: dt, size: size)
                     current = road
+                } else if let c = frame as? CabinFrame {
+                    if cabin == nil {
+                        cabin = SnowboundCabinRenderer(device: device)
+                        cabin?.awaitField()   // previews show the grown frost, not the fallback
+                    }
+                    cabin?.update(c, params: director.parameters, quality: quality, gentle: gentle, dt: dt, size: size)
+                    current = cabin
+                } else if let b = frame as? BedroomFrame {
+                    if bedroom == nil {
+                        bedroom = BedroomDawnRenderer(device: device)
+                        bedroom?.awaitField()
+                    }
+                    bedroom?.update(b, params: director.parameters, quality: quality, gentle: gentle, dt: dt, size: size)
+                    current = bedroom
                 }
                 if time + dt > t { break }
             }

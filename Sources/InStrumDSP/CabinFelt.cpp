@@ -206,15 +206,15 @@ void CabinFelt::startVoice(Voice &v, int note, int pitch, int velocity) {
     v.level = v.stringRef;
 }
 
-void CabinFelt::damp(Voice &v) {
+void CabinFelt::damp(Voice &v, float chuffScale) {
     if (v.damped) return;
     v.damped = true;
     v.str.damp(decayR(0.15f, sr));
     if (!noMechanics) {
-        // The damper's felt landing on the strings: a short, soft chuff around the low mids.
+        // The damper's felt landing on the strings: a short, soft chuff around the low mids, well under the note.
         const float now = std::sqrt(0.5f * std::max(v.level, 0.f));
         v.chuff.bp.clear(); v.chuff.lp.clear();
-        v.chuff.start(0.020f, 560.f, 1.4f, now * 3.5f, sr);
+        v.chuff.start(0.020f, 560.f, 1.4f, now * 0.35f * chuffScale, sr);
     }
 }
 
@@ -240,7 +240,11 @@ void CabinFelt::setSustain(bool down) {
     } else {
         setSympDecay(0.08f);
         sympGain.setTarget(0.f);
-        for (auto &v : voices) if (v.active && !v.fading && !v.keyDown) damp(v);
+        // Every damper lands at once: together they make one soft chuff, not one per string.
+        int landing = 0;
+        for (auto &v : voices) if (v.active && !v.fading && !v.keyDown && !v.damped) ++landing;
+        const float together = landing > 1 ? 1.f / std::sqrt((float)landing) : 1.f;
+        for (auto &v : voices) if (v.active && !v.fading && !v.keyDown) damp(v, together);
     }
 }
 
@@ -270,22 +274,39 @@ void CabinFelt::startHorn(int note, int velocity) {
     while (p > kHornHigh) p -= 12;
     while (p < kHornLow) p += 12;
     const float vp = (float)std::clamp(velocity, 1, 127) / 127.f;
-    const bool legato = horn.sounding && !horn.released && !horn.fast;
+    const bool held = horn.sounding && !horn.released && !horn.fast;
+    // A chord's notes arrive a few ms apart, often bottom-first: within 35 ms of the phrase (or slur) beginning, a
+    // higher note moves the horn straight there instead of slurring up through the chord.
+    const bool chord = held && horn.sinceOnset < (int)(0.035 * sr);
+    // Folding into the horn's range can turn a rising line into a falling leap: never slur the wrong way.
+    const bool wrongWay = held && note != horn.key && ((note > horn.key) != (p > horn.pitch));
+    const bool legato = held && !chord && !wrongWay;
     horn.key = note; horn.pitch = p; horn.released = false; horn.fast = false;
-    horn.velocity = vp;
-    horn.bright = clamp01(0.25f + 0.75f * clamp01(vp + 0.3f * (mBright - 0.5f)));
+    horn.velTarget = vp;
+    horn.brightTarget = clamp01(0.25f + 0.75f * clamp01(vp + 0.3f * (mBright - 0.5f)));
+    if (chord) {
+        horn.midi = horn.from = horn.to = (float)p; horn.glidePos = horn.glideLen = 1;
+        idle = false; idleSamples = 0;
+        return;   // the scoop, the vibrato's wait and the onset clock run on
+    }
     horn.age = 0;   // the vibrato waits again on every new note
+    horn.sinceOnset = 0;
     if (legato) {
         // A slur: glide from wherever the pitch is now, with a small dip in breath.
         horn.from = horn.midi; horn.to = (float)p; horn.glidePos = 0; horn.glideLen = std::max(1, (int)(0.075 * sr));
     } else {
         // A fresh phrase: scoop up into the note with a puff of breath.
-        horn.sounding = true;
         horn.midi = horn.from = horn.to = (float)p; horn.glidePos = horn.glideLen = 1;
         horn.scoop = -40.f;
-        horn.env = 0;
-        horn.phase = 0;
-        horn.f1.clear(); horn.f2.clear(); horn.breath.clear(); horn.dark.clear();
+        if (!horn.sounding) {
+            horn.sounding = true;
+            horn.env = 0;
+            horn.phase = 0;
+            horn.f1.clear(); horn.f2.clear(); horn.breath.clear(); horn.dark.clear();
+            horn.velocity = horn.velTarget; horn.bright = horn.brightTarget;
+        }
+        // Still ringing (its release tail, or a wrong-way leap): the breath swells again from where it is, the
+        // waveform and filters run on, so a detached re-attack never clicks.
     }
     idle = false; idleSamples = 0;
 }
@@ -315,6 +336,11 @@ float CabinFelt::renderHorn(float freqRatio) {
     } else {
         horn.midi = horn.to;
     }
+    // Velocity and brightness follow a slur's new note over about 15 ms (never in a single sample).
+    const float follow = 1.f - std::exp(-1.f / (0.015f * fsr));
+    horn.velocity += (horn.velTarget - horn.velocity) * follow;
+    horn.bright += (horn.brightTarget - horn.bright) * follow;
+    if (horn.sinceOnset < (1 << 30)) ++horn.sinceOnset;
     const float scoopTau = 0.035f * (1.2f - 0.4f * clamp01(mEnergy));
     horn.scoop *= std::exp(-1.f / (scoopTau * fsr));
     const float t = (float)horn.age / fsr;

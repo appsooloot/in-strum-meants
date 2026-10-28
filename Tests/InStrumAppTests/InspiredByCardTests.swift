@@ -13,6 +13,7 @@ final class InspiredByCardTests: XCTestCase {
     }
 
     func testEverySetHasItsOwnCardColours() {
+        XCTAssertEqual(SetLibrary.all.count, 6)
         let fallback = SetsGallery.tint(for: "no-such-set")
         var seen: [[Color]] = []
         for set in SetLibrary.all {
@@ -53,6 +54,27 @@ final class InspiredByCardTests: XCTestCase {
         let art = try XCTUnwrap(CardArt.art(for: CreditLibrary.dunno.id))
         XCTAssertNotEqual(art, CardArt.art(for: CreditLibrary.stay.id))
         XCTAssertEqual(art.pulse(for: CreditLibrary.dunno), 60.0 / 82, accuracy: 1e-9)
+    }
+
+    /// The Stay card's frost stars keep off its words: the liner notes (top right), the title block (bottom left) and
+    /// the Listen button (final review: a star sat on "TRACK 3").
+    func testStayFrostKeepsOffTheWords() {
+        let w: CGFloat = 600, h: CGFloat = 360
+        let words = [CGRect(x: 0.6 * w, y: 0, width: 0.4 * w, height: 0.1 * h),          // F♯ major · TRACK 3 · 134 BPM
+                     CGRect(x: 0, y: 0.68 * h, width: 0.72 * w, height: 0.32 * h),        // Inspired by, title, credit, line
+                     CGRect(x: 0.82 * w, y: 0.86 * h, width: 0.18 * w, height: 0.14 * h)] // Listen
+        for (fx, fy, r) in CardArt.stayFrost {
+            let star = CGRect(x: fx * w - r, y: fy * h - r, width: 2 * r, height: 2 * r)
+            for rect in words { XCTAssertFalse(star.intersects(rect), "star at (\(fx), \(fy)) covers \(rect)") }
+        }
+    }
+
+    /// The Dunno card's beam is light falling through the room, not a white wedge (final review: plus-lighter clipped it
+    /// to white and swallowed the motes).
+    func testDunnoBeamIsNotClippedToWhite() throws {
+        let image = try XCTUnwrap(Self.render(CreditLibrary.dunno, at: 1.0))
+        let beam = FramePatch.meanRGB(image, x: -0.1...0.1, y: -0.11...0)
+        XCTAssertLessThan(min(beam.x, beam.y, beam.z), 0.9, "\(beam)")
     }
 
     func testCardsDrawTheirArtAndBreatheWithTheTempo() throws {

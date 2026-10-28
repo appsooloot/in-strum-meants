@@ -114,7 +114,7 @@ final class SceneDirectorTests: XCTestCase {
         _ = lake.step(dt: 1.0 / 60, t: 0, quality: .high)
         XCTAssertLessThan(lake.lastSky?.sun.altitude ?? 0, -20, "the lake follows the real 2 am sky")
         XCTAssertEqual(SkyHold.spec(default: .blueHour).defaultValue, .choice("Blue hour"))
-        XCTAssertEqual(SkyHold.allCases.map(\.rawValue), ["Follow the sky", "Golden hour", "Blue hour"])
+        XCTAssertEqual(SkyHold.allCases.map(\.rawValue), ["Follow the sky", "Golden hour", "Blue hour", "Pastel dawn"])
     }
 
     func testMoodLookIsNeutralAtHalf() {

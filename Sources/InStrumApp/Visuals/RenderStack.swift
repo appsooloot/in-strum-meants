@@ -99,6 +99,19 @@ final class RenderStack {
         return p
     }
 
+    /// Like `scenePass`, but keeps what is already drawn (to continue a scene after a mid-frame copy, e.g. glass blur).
+    func scenePassContinuing() -> MTLRenderPassDescriptor? {
+        guard let hdr = hdrTarget, let depth = depthTarget else { return nil }
+        let p = MTLRenderPassDescriptor()
+        p.colorAttachments[0].texture = hdr
+        p.colorAttachments[0].loadAction = .load
+        p.colorAttachments[0].storeAction = .store
+        p.colorAttachments[1].texture = depth
+        p.colorAttachments[1].loadAction = .load
+        p.colorAttachments[1].storeAction = .store
+        return p
+    }
+
     private func fullscreen(_ cb: MTLCommandBuffer, into target: MTLTexture, load: MTLLoadAction = .dontCare,
                             pipeline: MTLRenderPipelineState, _ setup: (MTLRenderCommandEncoder) -> Void) {
         let p = MTLRenderPassDescriptor()

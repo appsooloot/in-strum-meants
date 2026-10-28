@@ -126,6 +126,8 @@ struct SkyControls: View {
         case .rain: return "Rain"
         case .storm: return "Storm"
         case .snow: return "Snow"
+        case .blizzard: return "Blizzard"
+        case .afterRain: return "After the rain"
         }
     }
 }

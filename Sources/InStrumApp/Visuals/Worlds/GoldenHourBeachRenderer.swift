@@ -140,6 +140,7 @@ final class GoldenHourBeachRenderer: ThemeRenderer {
         beachU[1] = SIMD4(Float(p.number("palms")), s.wind, Float(lines.count), night)
         beachU[2] = SIMD4(aspect, Self.cameraHeight, since, lastStrength)
         beachU[3] = SIMD4(frame.washFront, frame.foam * sparkleScale, since2, strength2)
+        crests[0].z = s.wetness   // after the rain: the whole beach is wet
         beachU[4] = crests[0]; beachU[5] = crests[1]; beachU[6] = crests[2]
 
         oceanU[0] = frame.swellPhases

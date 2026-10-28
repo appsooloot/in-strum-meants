@@ -46,6 +46,8 @@ public enum ThemeRegistry {
         .make(SpaceshipLoungeModel.self),
         .make(GoldenHourBeachModel.self),
         .make(CoastRoadModel.self),
+        .make(SnowboundCabinModel.self),
+        .make(BedroomDawnModel.self),
     ]
 
     public static var all: [(id: String, name: String)] { entries.map { ($0.id, $0.name) } }

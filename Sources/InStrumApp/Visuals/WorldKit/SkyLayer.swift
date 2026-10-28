@@ -23,7 +23,7 @@ final class SkyLayer {
     var sunRadiusDegrees: Double = 0.9
 
     private let pipeline: MTLRenderPipelineState
-    private var u = [SIMD4<Float>](repeating: .zero, count: 12)
+    private var u = [SIMD4<Float>](repeating: .zero, count: 13)
     /// The SkyU uniforms, for worlds whose shaders reflect the sky (bind at the same index as the dome: 0).
     var uniforms: [SIMD4<Float>] { u }
 
@@ -75,6 +75,7 @@ final class SkyLayer {
         u[7] = SIMD4(Float(s.moonLit), 0.04, Float(moonRadiusDegrees * .pi / 180), Float(sunRadiusDegrees * .pi / 180))
         u[8] = SIMD4(east, 0); u[9] = SIMD4(north, 0); u[10] = SIMD4(upEq, 0)
         u[11] = SIMD4(s.mist, s.wind, quality == .lite ? 2 : 3, pixelAngle)
+        u[12] = SIMD4(s.halo, s.dawnPastel, s.gust, s.wetness)
     }
 
     func draw(_ e: MTLRenderCommandEncoder) {
@@ -84,14 +85,17 @@ final class SkyLayer {
     }
 }
 
-/// Rain streaks or snow flakes (instanced), splash rings on water, drops on glass, and lightning
-/// exposure requests that go through the flash limiter.
+/// Rain streaks or snow flakes (instanced), splash rings on water, drops on glass, blowing-snow streamers, and
+/// lightning exposure requests that go through the flash limiter.
 @MainActor
 final class WeatherLayer {
     static func baseCount(_ q: QualityLevel) -> Int { q == .lite ? 400 : (q == .high ? 1200 : 2500) }
+    static func streamerCap(_ q: QualityLevel) -> Int { q == .lite ? 60 : 150 }
 
     var gentle = false
     private(set) var particleCount = 0
+    /// Ground streamers drawn this frame (blizzard gusts only).
+    private(set) var streamerCount = 0
     /// Instance buffers made so far: a ring of three, grown only when too small (never one per frame).
     private(set) var bufferAllocations = 0
     private var ring: [MTLBuffer?] = [nil, nil, nil]
@@ -102,6 +106,7 @@ final class WeatherLayer {
     private struct Drop { var x, y, depth, speed, landY: Float }
     private struct Ring { var x, y, age, size: Float }
     private struct Bead { var x, y, size, speed, wobble: Float }
+    private struct Streamer { var x, y, length, speed, alpha: Float }
 
     private let particlePipeline, ringPipeline: MTLRenderPipelineState
     private var drops: [Drop] = []
@@ -110,10 +115,14 @@ final class WeatherLayer {
     private var instances: [SIMD4<Float>] = []
     private var ringInstances: [SIMD4<Float>] = []
     private var beadInstances: [SIMD4<Float>] = []
+    private var streamers: [Streamer] = []
+    private var streamerInstances: [SIMD4<Float>] = []
     private var rng = SeededRandom(seed: 0xD20F5)
     private var limiter = FlashLimiter()
-    private var kind: Float = 0
-    private var tilt: Float = 0
+    /// 0 rain streaks, 1 snow flakes (tests check a cold world never rains).
+    private(set) var kind: Float = 0
+    /// Sideways drift per unit of fall: snow leans harder in gusts.
+    private(set) var tilt: Float = 0
     private var aspect: Float = 16.0 / 9
     private var brightness: Float = 1
 
@@ -144,7 +153,8 @@ final class WeatherLayer {
         let amount = max(s.rain, s.snow)
         kind = snowing ? 1 : 0
         let wanted = Int((Float(Self.baseCount(quality)) * amount).rounded())
-        tilt = (snowing ? 0.25 : 0.6) * s.wind
+        tilt = (snowing ? 0.25 + 1.2 * s.gust : 0.6) * s.wind
+        let gustSpeed: Float = snowing ? 1 + s.gust : 1
         // Night light is dim: weather glints less.
         brightness = 0.25 + 0.75 * min(1, max(0, Float((s.sun.altitude + 6) / 18))) + 0.15 * Float(s.moonLit)
         let horizon: Float? = { if case let .water(y) = surface { return y }; if case let .ground(y) = surface { return y }; return nil }()
@@ -156,8 +166,8 @@ final class WeatherLayer {
         for i in drops.indices {
             var d = drops[i]
             if snowing {
-                d.y -= d.speed * fdt
-                d.x += (tilt * d.speed + 0.03 * sin(d.y * 9 + d.depth * 20)) * fdt
+                d.y -= d.speed * gustSpeed * fdt
+                d.x += (tilt * d.speed * gustSpeed + 0.03 * sin(d.y * 9 + d.depth * 20)) * fdt
             } else {
                 d.y -= d.speed * fdt
                 d.x += tilt * d.speed * fdt / aspect
@@ -205,6 +215,25 @@ final class WeatherLayer {
             beads.removeAll()
         }
 
+        // Blowing snow: long thin wisps racing across the lower third of the view in blizzard gusts.
+        streamerInstances.removeAll(keepingCapacity: true)
+        if s.snow > 0.9 && s.gust > 0.2 {
+            let wantedStreamers = Int(Float(Self.streamerCap(quality)) * min(1, (s.gust - 0.2) / 0.6))
+            while streamers.count < wantedStreamers { streamers.append(newStreamer(anywhere: streamers.isEmpty)) }
+            if streamers.count > wantedStreamers { streamers.removeLast(streamers.count - wantedStreamers) }
+            let dir: Float = tilt >= 0 ? 1 : -1
+            for i in streamers.indices {
+                var st = streamers[i]
+                st.x += dir * st.speed * (0.6 + 0.8 * s.gust) * fdt
+                if st.x > 1.3 || st.x < -1.3 { st = newStreamer(anywhere: false); st.x = -1.25 * dir }
+                streamers[i] = st
+                streamerInstances.append(SIMD4(st.x, st.y, st.length, st.alpha * s.gust))
+            }
+        } else {
+            streamers.removeAll()
+        }
+        streamerCount = streamerInstances.count
+
         limiter.gentle = gentle
         exposureBoost = limiter.limit(exposure: 1 + 1.2 * s.lightning, sparkle: 0, dt: dt).exposure
     }
@@ -223,11 +252,17 @@ final class WeatherLayer {
              speed: 0.05 + 0.25 * rng.unit(), wobble: rng.range(0, 6))
     }
 
+    private func newStreamer(anywhere: Bool) -> Streamer {
+        Streamer(x: anywhere ? rng.range(-1.2, 1.2) : rng.range(-1.3, 1.3), y: rng.range(-0.98, -0.36),
+                 length: rng.range(0.15, 0.45), speed: rng.range(0.8, 1.6), alpha: rng.range(0.10, 0.28))
+    }
+
     func draw(_ e: MTLRenderCommandEncoder) {
         let sets: [(MTLRenderPipelineState, [SIMD4<Float>], Float)] = [
             (particlePipeline, instances, kind), (ringPipeline, ringInstances, 0), (particlePipeline, beadInstances, 2),
+            (particlePipeline, streamerInstances, 3),
         ]
-        // This frame's slot in the ring holds all three sets (256-byte aligned); it grows only when too small.
+        // This frame's slot in the ring holds all four sets (256-byte aligned); it grows only when too small.
         func aligned(_ n: Int) -> Int { (n + 255) / 256 * 256 }
         let total = sets.reduce(0) { $0 + aligned($1.1.count * MemoryLayout<SIMD4<Float>>.stride) }
         guard total > 0 else { return }

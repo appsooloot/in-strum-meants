@@ -8,7 +8,8 @@ let package = Package(
         .executable(name: "InStrumMeants", targets: ["InStrumMeants"])
     ],
     targets: [
-        .target(name: "InStrumCore"),
+        // Optimised even in debug, so tests measure the real cost of the simulations (cloth, frost growth).
+        .target(name: "InStrumCore", swiftSettings: [.unsafeFlags(["-O"])]),
         // Real-time DSP (C++17 behind a C header). Optimised even in debug so tests measure real cost.
         .target(name: "InStrumDSP", cxxSettings: [.unsafeFlags(["-O2", "-fno-math-errno"])]),
         .target(name: "InStrumAudio", dependencies: ["InStrumCore", "InStrumDSP"]),

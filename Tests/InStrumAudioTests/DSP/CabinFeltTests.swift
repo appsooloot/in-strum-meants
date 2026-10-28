@@ -86,7 +86,30 @@ final class CabinFeltTests: XCTestCase {
         let with = R.render(cabin, seconds: 1.2, params: on, events: events).l
         let without = R.render(cabin, seconds: 1.2, params: dry, events: events).l
         XCTAssertGreaterThan(db(band(R.slice(with, 0, 0.02), 40, 150)), db(band(R.slice(without, 0, 0.02), 40, 150)) + 3, "key thump")
-        XCTAssertGreaterThan(db(band(R.slice(with, 1.0, 1.02), 300, 900)), db(band(R.slice(without, 1.0, 1.02), 300, 900)) + 3, "damper chuff")
+    }
+
+    /// The damper's chuff is there, but well under the note it stops (final review: it was louder than the note).
+    func testDamperChuffIsQuiet() {
+        var on = dry; on[Int(ISD_P_DEBUG_NO_MECHANICS)] = 0
+        let events = [R.noteOn(0, 60, 110), R.noteOff(3.0, 60)]
+        let with = R.render(cabin, seconds: 3.3, params: on, events: events).l
+        let without = R.render(cabin, seconds: 3.3, params: dry, events: events).l
+        let a = R.slice(with, 3.0, 3.025), b = R.slice(without, 3.0, 3.025)
+        let chuff = DSPTestKit.dBFS(zip(a, b).map { $0 - $1 }), note = DSPTestKit.dBFS(R.slice(without, 2.95, 3.0))
+        XCTAssertLessThan(chuff, note - 10, "chuff \(chuff) dB, note \(note) dB")
+        XCTAssertGreaterThan(chuff, note - 40, "the chuff is still there")
+    }
+
+    /// Lifting the pedal off a big chord lands every damper at once: it never gets louder.
+    func testPedalUpNeverGetsLouder() {
+        var events = [R.pedal(0, 127)]
+        for n: UInt8 in [48, 52, 55, 60, 64, 67, 71, 72] { events += [R.noteOn(0.01, n, 100), R.noteOff(0.5, n)] }
+        events.append(R.pedal(2.0, 0))
+        let out = R.render(cabin, seconds: 2.4, params: [Int(ISD_P_SPACE): 0, Int(ISD_P_HORN): 0], events: events).l
+        let before = DSPTestKit.dBFS(R.slice(out, 1.98, 2.0)), after = DSPTestKit.dBFS(R.slice(out, 2.0, 2.02))
+        XCTAssertLessThanOrEqual(after, before + 0.5)
+        let peakBefore = R.slice(out, 1.9, 2.0).map(abs).max() ?? 0, peakAfter = R.slice(out, 2.0, 2.05).map(abs).max() ?? 0
+        XCTAssertLessThanOrEqual(peakAfter, peakBefore * 1.05)
     }
 
     // MARK: - Horn
@@ -96,6 +119,44 @@ final class CabinFeltTests: XCTestCase {
         let r = renderProbing(seconds: 1.7, params: hornOnly, events: events, probes: [0.1, 0.7, 1.2])
         XCTAssertEqual(r.values, [67, 67, -1])
         XCTAssertLessThan(DSPTestKit.dBFS(R.slice(r.out, 1.4, 1.6)), -60, "the horn never drops to a lower held note")
+    }
+
+    /// A chord's notes arrive bottom-first (in one sample, or rolled a few ms apart): the horn lands on the top note at
+    /// once instead of sliding up through the chord (final review).
+    func testHornLandsOnTheTopOfAChord() {
+        for gap in [0.0, 0.008] {
+            let out = R.render(cabin, seconds: 0.3, params: hornOnly,
+                               events: [R.noteOn(0, 60, 100), R.noteOn(gap, 64, 100), R.noteOn(2 * gap, 67, 100)]).l
+            let w = R.slice(out, 0.03, 0.07)
+            XCTAssertGreaterThan(band(w, 370, 420), 4 * band(w, 250, 345), "rolled \(gap) s apart")
+        }
+    }
+
+    /// A detached melody re-attacks while the last note is still dying away: no click (final review).
+    func testHornReattacksWithoutAClick() {
+        var worst: Float = 0
+        for gap in [0.0, 0.0005, 0.002, 0.005, 0.01, 0.02] {
+            let out = R.render(cabin, seconds: 0.6, params: hornOnly,
+                               events: [R.noteOn(0, 67, 100), R.noteOff(0.3, 67), R.noteOn(0.3 + gap, 69, 100)]).l
+            let steady = DSPTestKit.maxJump(R.slice(out, 0.15, 0.28))
+            worst = max(worst, DSPTestKit.maxJump(R.slice(out, 0.3 + gap - 0.0005, 0.3 + gap + 0.003)) / steady)
+        }
+        XCTAssertLessThan(worst, 1.2, "the re-attack's step against the steady note's")
+    }
+
+    /// A slur from a soft note to a hard one swells over a few ms rather than jumping in one sample.
+    func testHornSlurSwellsSmoothly() {
+        let out = R.render(cabin, seconds: 1.0, params: hornOnly, events: [R.noteOn(0, 67, 40), R.noteOn(0.5, 69, 127)]).l
+        let before = DSPTestKit.dBFS(R.slice(out, 0.498, 0.5)), after = DSPTestKit.dBFS(R.slice(out, 0.5, 0.502))
+        XCTAssertLessThan(after - before, 3)
+    }
+
+    /// A rising line past the horn's top (C6 → D6) folds D6 down an octave: the horn starts it afresh instead of
+    /// gliding down through the octave (final review).
+    func testHornNeverGlidesTheWrongWay() {
+        let out = R.render(cabin, seconds: 0.9, params: hornOnly, events: [R.noteOn(0, 84, 100), R.noteOn(0.5, 86, 100)]).l
+        let w = R.slice(out, 0.52, 0.57)
+        XCTAssertLessThan(band(w, 640, 1000), 0.25 * band(w, 560, 615))
     }
 
     func testHornSlursLegato() {

@@ -2,6 +2,7 @@
 public enum AmbienceSource: String, Codable, CaseIterable {
     case water, crickets, breeze, owl, rainOnWater, rainOnGlass, dawnChorus, shipHum, airFlow, chime, hullTicks, wind
     case surf, palms, gulls, road, engine, windowWind, passingCar
+    case fire, kettle, street, drips, clock
 }
 
 /// What a world wants to hear right now. Levels are 0…1; anything missing is silent.
@@ -23,9 +24,16 @@ public struct AmbienceScene: Equatable {
     public var speed: Double
     /// 0 close, detailed surf … 1 a far, low roar.
     public var surfDistance: Double
+    /// 0 outdoors … 1 inside behind glass: outdoor sounds lose their top and come through quieter.
+    public var indoors: Double
+    /// 0…1: a wet road hisses.
+    public var wetness: Double
+    /// 0…1: snow on the glass turns rain on the glass into soft ticks.
+    public var snowOnGlass: Double
 
     public init(levels: [AmbienceSource: Double] = [:], nightCool: Double = 0, activity: Double = 0, thunder: Double? = nil,
-                closeness: Double = 0.5, density: Double = 1, wave: Double? = nil, speed: Double = 0, surfDistance: Double = 0) {
+                closeness: Double = 0.5, density: Double = 1, wave: Double? = nil, speed: Double = 0, surfDistance: Double = 0,
+                indoors: Double = 0, wetness: Double = 0, snowOnGlass: Double = 0) {
         self.levels = levels
         self.nightCool = nightCool
         self.activity = activity
@@ -35,6 +43,9 @@ public struct AmbienceScene: Equatable {
         self.wave = wave
         self.speed = speed
         self.surfDistance = surfDistance
+        self.indoors = indoors
+        self.wetness = wetness
+        self.snowOnGlass = snowOnGlass
     }
 
     public static let silent = AmbienceScene()

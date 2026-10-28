@@ -38,12 +38,16 @@ public struct SpaceshipLoungeModel: ThemeModel, MoodAware, SkyAware {
 
     public mutating func handle(_ e: PerformanceEvent) { pending.append(e) }
 
-    public mutating func setSky(_ s: SkyState) {
+    public mutating func setSky(_ s: SkyState) { sky = Self.weatherless(s) }
+
+    /// Space has no weather: the sky's clock, sun and moon without cloud, rain, frost, halos, wetness or gusts.
+    static func weatherless(_ s: SkyState) -> SkyState {
         var s = s
         s.weather = .clear; s.nextWeather = .clear; s.weatherBlend = 0
         s.cloudCover = 0; s.rain = 0; s.snow = 0; s.mist = 0; s.wind = 0; s.lightning = 0
+        s.halo = 0; s.frost = 0; s.wetness = 0; s.gust = 0
         s.starVisibility = 1
-        sky = s
+        return s
     }
 
     /// The longitude below the lounge: where the local solar hour matches the sky's hour, plus the orbit's drift.

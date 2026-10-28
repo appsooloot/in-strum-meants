@@ -207,6 +207,24 @@ final class AppModelTests: XCTestCase {
 
     // MARK: - Worlds drive the ambience
 
+    func testIndoorsAndWetnessCountAsChanges() {
+        let base = AmbienceScene(levels: [.fire: 0.7])
+        XCTAssertTrue(AppModel.ambienceChanged(base, AmbienceScene(levels: [.fire: 0.7], indoors: 0.2)))
+        XCTAssertTrue(AppModel.ambienceChanged(base, AmbienceScene(levels: [.fire: 0.7], wetness: 0.2)))
+        XCTAssertTrue(AppModel.ambienceChanged(base, AmbienceScene(levels: [.fire: 0.7], snowOnGlass: 0.2)))
+        XCTAssertFalse(AppModel.ambienceChanged(base, AmbienceScene(levels: [.fire: 0.7], indoors: 0.005)))
+    }
+
+    func testLeavingTheCabinUnmufflesTheBeach() {
+        let m = makeModel()
+        m.updateAmbience(AmbienceScene(levels: [.fire: 0.7, .wind: 0.5], indoors: 1, snowOnGlass: 1), at: 0)
+        m.updateAmbience(AmbienceScene(levels: [.surf: 0.8, .palms: 0.4]), at: 1)
+        let sent = engine.scenes.last
+        XCTAssertEqual(sent?.level(.surf), 0.8)
+        XCTAssertEqual(sent?.indoors, 0)
+        XCTAssertEqual(sent?.snowOnGlass, 0)
+    }
+
     func testAmbienceForwardingIsThrottled() {
         let m = makeModel()
         let lake = AmbienceScene(levels: [.water: 0.8, .crickets: 0.6], activity: 0.2)
@@ -375,6 +393,44 @@ final class AppModelTests: XCTestCase {
         XCTAssertEqual(m.themeID, CoastRoadModel.id)
         XCTAssertEqual(visual(m), "Coast Lights")
         XCTAssertEqual(m.activeSetID, "coast-road")
+        XCTAssertFalse(m.isSetModified)
+    }
+
+    func testApplyingSnowboundCabinLoadsCabinFelt() async {
+        let m = makeModel()
+        await m.launch(skipPluginInSafeMode: false)
+        await m.applySet("snowbound-cabin")
+        XCTAssertEqual(engine.loaded.last.flatMap { BuiltInCatalog.engine(for: $0) }, .cabinFelt)
+        XCTAssertEqual(engine.applied.last?.id, "cabin-felt")
+        XCTAssertEqual(engine.moods.last, .hushedWarm)
+        XCTAssertEqual(m.mood, .hushedWarm)
+        XCTAssertEqual(m.themeID, SnowboundCabinModel.id)
+        XCTAssertEqual(visual(m), "Frost Grow")
+        XCTAssertEqual(m.activeSetID, "snowbound-cabin")
+        XCTAssertFalse(m.isSetModified)
+        m.saveThemeState(ThemeState(values: ["visual": .choice("Galaxy Warp")]), for: SnowboundCabinModel.id)
+        XCTAssertTrue(m.isSetModified)
+        await m.restoreSet()
+        XCTAssertFalse(m.isSetModified)
+        XCTAssertEqual(visual(m), "Frost Grow")
+    }
+
+    func testApplyingBedroomDawnLoadsMorningBox() async {
+        let m = makeModel()
+        await m.launch(skipPluginInSafeMode: false)
+        await m.applySet("bedroom-dawn")
+        XCTAssertEqual(engine.loaded.last.flatMap { BuiltInCatalog.engine(for: $0) }, .morningBox)
+        XCTAssertEqual(engine.applied.last?.id, "morning-box")
+        XCTAssertEqual(engine.moods.last, .softWaking)
+        XCTAssertEqual(m.mood, .softWaking)
+        XCTAssertEqual(m.themeID, BedroomDawnModel.id)
+        XCTAssertEqual(visual(m), "Curtain Light")
+        XCTAssertEqual(m.activeSetID, "bedroom-dawn")
+        XCTAssertFalse(m.isSetModified)
+        m.applyPatch(PatchLibrary.all.first { $0.id == "snooze" }!)   // another Morning Box preset
+        XCTAssertTrue(m.isSetModified)
+        await m.restoreSet()
+        XCTAssertEqual(m.builtInPatch?.id, "morning-box")
         XCTAssertFalse(m.isSetModified)
     }
 

@@ -12,6 +12,7 @@ enum CoastRoadShaders {
         float4 c;   // lamps lit 0…1 (after the limiter), night 0…1, speed 0…1, fog 0…1
         float4 d;   // seconds since the last break (< 0 none), its strength, cliff-base scroll (wrapped), wind
         float4 w;   // window: half width (x·aspect units), bottom, top, corner radius
+        float4 e;   // wetness 0…1, the road's far edge (NDC y), unused…
     };
     struct RoadOut { float4 pos [[position]]; float2 ndc; };
 
@@ -121,9 +122,13 @@ enum CoastRoadShaders {
             float shine = exp(-sh * sh);
             col = mix(col, metal, max(beam, postCover * 0.95));
             col += (horizon * 0.25 + lampCol * lampsLit * 0.3) * shine * beam;
-            // The road's edge below the rail.
+            // The road's edge below the rail; wet tarmac darkens, mirrors the sky and streaks the lamps' light.
             if (p.y < bottom + 0.06) {
-                col = float3(0.018, 0.017, 0.016) * (ambient + 0.4) + lampCol * lampsLit * 0.03;
+                float wetRoad = u.e.x;
+                col = float3(0.018, 0.017, 0.016) * (ambient + 0.4) * (1.0 - 0.35 * wetRoad) + lampCol * lampsLit * 0.03;
+                col += (zenith * 0.5 + horizon * 0.5) * 0.18 * wetRoad;
+                float below = saturate((u.e.y - p.y) / 0.06);
+                col += lampCol * lampsLit * wetRoad * 0.35 * exp(-(lampDx - 0.16) * (lampDx - 0.16) / 0.0012) * (0.6 + 0.4 * below);
                 depth = 0.1;
             }
             alpha = 1.0;
@@ -193,13 +198,14 @@ enum CoastRoadShaders {
 
     // Coast Lights: per instance (x, y, trail length, radius) and (r, g, b, brightness), NDC before the roll.
     struct LightInstance { float4 pos; float4 colour; };
-    struct LightOut { float4 pos [[position]]; float2 local; float4 colour; float trail; float radius; };
+    struct LightOut { float4 pos [[position]]; float2 local; float4 colour; float trail; float radius; float reflection; float worldY; };
     vertex LightOut road_lights_vertex(uint vid [[vertex_id]], uint iid [[instance_id]], constant LightInstance* lights [[buffer(0)]],
                                        constant RoadU& u [[buffer(1)]]) {
         float2 c[6] = { float2(0, 0), float2(1, 0), float2(0, 1), float2(1, 0), float2(1, 1), float2(0, 1) };
         LightInstance l = lights[iid];
-        float r = l.pos.w, trail = l.pos.z;
-        float2 lo = float2(-r * 2.5, -r * 2.5), hi = float2(trail + r * 2.5, r * 2.5);
+        float reflection = l.pos.w < 0.0 ? 1.0 : 0.0;   // a reflection on the wet road: stretched 4× down
+        float r = abs(l.pos.w), trail = l.pos.z, stretch = 1.0 + 3.0 * reflection;
+        float2 lo = float2(-r * 2.5, -r * 2.5 * stretch), hi = float2(trail + r * 2.5, r * 2.5 * stretch);
         float2 local = mix(lo, hi, c[vid]);
         // Aspect units, rotated by the roll, then back to NDC.
         float aspect = u.a.y, ro = u.a.z, cr = cos(ro), sr = sin(ro);
@@ -211,11 +217,17 @@ enum CoastRoadShaders {
         o.colour = l.colour;
         o.trail = trail;
         o.radius = r;
+        o.reflection = reflection;
+        o.worldY = l.pos.y + local.y;
         return o;
     }
-    fragment float4 road_lights_fragment(LightOut in [[stage_in]]) {
+    fragment float4 road_lights_fragment(LightOut in [[stage_in]], constant RoadU& u [[buffer(1)]]) {
         float r = in.radius;
         float2 q = in.local;
+        if (in.reflection > 0.5) {
+            if (in.worldY > u.e.y || in.worldY < u.w.y) discard_fragment();   // only on the road itself
+            q.y *= 0.25;
+        }
         float core = exp(-dot(q, q) / (r * r));
         float along = saturate(q.x / max(in.trail, 1e-4));
         float streak = in.trail > 0.0 && q.x > 0.0 ? exp(-(q.y * q.y) / (r * r * 0.25)) * (1.0 - along) * (1.0 - along) * step(q.x, in.trail) : 0.0;

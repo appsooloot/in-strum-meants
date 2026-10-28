@@ -66,7 +66,9 @@ private:
         bool sounding = false, released = true, fast = false;
         int key = -1, pitch = 0;
         float midi = 0, from = 0, to = 0, scoop = 0, env = 0, velocity = 0, bright = 0;
+        float velTarget = 0, brightTarget = 0;   // velocity and brightness glide to these over about 15 ms
         int glidePos = 0, glideLen = 1, age = 0;
+        int sinceOnset = 1 << 30;                // samples since the phrase or slur began (a chord's later notes land within 35 ms)
         double phase = 0, vibPhase = 0;
         Biquad f1, f2, breath;
         OnePole dark;
@@ -74,7 +76,7 @@ private:
 
     void startVoice(Voice &v, int note, int pitch, int velocity);
     Voice &allocate();
-    void damp(Voice &v);
+    void damp(Voice &v, float chuffScale = 1.f);
     void beginFade(Voice &v);
     void retune();
     void startHorn(int note, int velocity);
