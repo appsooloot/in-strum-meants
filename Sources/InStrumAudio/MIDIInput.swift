@@ -99,7 +99,7 @@ public final class MIDIInput {
             let src = MIDIGetSource(i)
             guard src != 0 else { continue }
             var uid: MIDIUniqueID = 0
-            MIDIObjectGetIntegerProperty(src, kMIDIPropertyUniqueID, &uid)
+            if MIDIObjectGetIntegerProperty(src, kMIDIPropertyUniqueID, &uid) != noErr { uid = MIDIUniqueID(bitPattern: src) }
             seen.insert(uid)
             let name = Self.name(of: src)
             names.append(name)

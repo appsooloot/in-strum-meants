@@ -171,6 +171,26 @@ final class AppModelTests: XCTestCase {
         XCTAssertEqual(m.audioNote, "The sound stopped and was restarted.")
     }
 
+    func testChoosingTheSameOutputAgainLeavesTheSoundAlone() async {
+        engine.outputDevices = [OutputDevice(id: 7, uid: "speakers", name: "MacBook Pro Speakers")]
+        let m = makeModel()
+        await m.launch(skipPluginInSafeMode: false)
+        m.selectOutputDevice("speakers")
+        m.selectOutputDevice("speakers")
+        XCTAssertEqual(engine.selected, ["speakers"], "re-choosing the same output would cut the sound for nothing")
+        m.selectOutputDevice(nil)
+        m.selectOutputDevice(nil)
+        XCTAssertEqual(engine.selected, ["speakers", nil])
+    }
+
+    func testRescanReleasesHeldNotes() {
+        let m = makeModel()
+        m.midi = FakeMIDI()
+        let before = engine.panicCount
+        m.rescanMIDI()
+        XCTAssertGreaterThan(engine.panicCount, before, "a key held while its keyboard reconnects would hang")
+    }
+
     func testRestartAudio() {
         let m = makeModel()
         m.restartAudio()

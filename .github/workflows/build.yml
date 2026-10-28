@@ -124,16 +124,19 @@ jobs:
 
           **Install:** download the **.dmg** below and open it, drag *In Strum Meants* onto *Applications* (choose **Replace** if asked), then right-click the app → **Open** → **Open** (first time only). The .zip is a fallback.
 
-          **Preview build — Cabin Felt (after Mac Miller's "Stay").** A new instrument to try before its world arrives: press **Choose Instrument** and pick **Cabin Felt** (presets: Cabin Felt, Fireside, Snow Horn, Late Night). An upright felt piano played close in a small log cabin, with the soft key thump and damper "chuff" and warm wood around it, plus a mellow **horn** that follows your top line by itself: it slurs when you play legato and scoops up into fresh phrases.
+          **Preview build — two new instruments, Cabin Felt and Morning Box.** Try them before their worlds arrive: press **Choose Instrument**.
+
+          - **Cabin Felt** (after Mac Miller's "Stay"). Presets: Cabin Felt, Fireside, Snow Horn, Late Night. An upright felt piano played close in a small log cabin, with the soft key thump and damper "chuff" and warm wood around it, plus a mellow **horn** that follows your top line by itself: it slurs when you play legato and scoops up into fresh phrases.
+          - **Morning Box** (after Mac Miller's "Dunno"). Presets: Morning Box, Music Box, Wall of Light, Snooze. A celesta (or a music box: turn **Box** up) over a warm synth wall that **builds the longer you play** and settles when you stop.
 
           **What to try:**
-          - **Play-along test** with "Stay" in **F♯ major**, at its slow half-time pocket (about 67). It should blend, never clash. If it sits off-pitch, use Fine tune under **Open Instrument**.
-          - **The horn:** play chords with a melody on top. Hold one melody note into the next for a slur; lift between phrases for a fresh scoop. **Horn** sets its level (0 is piano only, as in Fireside).
-          - **Felt** (hushed and soft, or a clearer strike) and **Fire** (warmth).
+          - **Play-along tests:** "Stay" in **F♯ major** at its slow half-time pocket (about 67), and "Dunno" in **C♯ major** at 82. They should blend, never clash. If one sits off-pitch, use Fine tune under **Open Instrument**.
+          - **The horn** (Cabin Felt): play chords with a melody on top. Hold one melody note into the next for a slur; lift between phrases for a fresh scoop. **Horn** sets its level (0 is piano only, as in Fireside). **Felt** hushes the strike; **Fire** warms it.
+          - **The wall** (Morning Box): keep playing for a minute and hear it build (more voices, wider, brighter); stop and it slowly settles. **Build** sets how far it can grow (0 keeps it still). **Box** goes from celesta to music box, **Haze** adds a soft tape wobble.
 
-          **Hear it first:** the *cabin-felt-demo.m4a* below is a short original clip rendered on the build machine (never the song's melody).
+          **Hear them first:** the *cabin-felt-demo.m4a* and *morning-box-demo.m4a* files below are short original clips rendered on the build machine (never the songs' melodies).
 
-          **Sound & MIDI** (from the last build): the gear button at the top right picks the output, restarts the audio, switches MIDI keyboards on or off and sets the channel. If the sound cuts in and out, choose 512 or 1024 there and press Restart audio.
+          **Sound & MIDI** (gear button, top right): pick the output, restart the audio, switch MIDI keyboards on or off, set the channel. If the sound cuts in and out, choose 512 or 1024 there and press Restart audio.
 
           **Check each build:** instant key response · soft vs hard feels right · pedal (optional) lingers · visuals land with notes · unplugging stops all sound · reopening restores your instrument and set.
           NOTES

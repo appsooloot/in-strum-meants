@@ -270,6 +270,7 @@ public final class AudioEngine {
     }
 
     private func restartAfterConfigurationChange() {
+        guard hardwareReady else { return }   // mid-switch: the watchdog restarts it once the output is ready
         rebuildOutput()
         try? engine.start()
     }
@@ -359,35 +360,59 @@ public final class AudioEngine {
     public func restartAudio() {
         guard !manualRendering else { return }
         engine.stop()
-        rebuildOutput()
+        if hardwareReady { rebuildOutput() }
         try? engine.start()
         restarts += 1
     }
 
+    /// False mid-switch, while the output reports no rate or channels (rebuilding then can throw inside AVAudioEngine).
+    private var hardwareReady: Bool {
+        let hw = engine.outputNode.outputFormat(forBus: 0)
+        return hw.sampleRate > 0 && hw.channelCount > 0
+    }
+
+    /// The chosen output when it came back but refused to take over (not retried until it goes and returns).
+    private var refusedOutput: AudioDeviceID?
+    /// The default output last tried as a stand-in for a missing chosen output (each one is tried once).
+    private var triedFallback: AudioDeviceID?
+
     /// Called every couple of seconds: puts the sound back when it has stopped, moves to the Mac's default output
     /// when the chosen one disappears (and back when it returns), and follows the default output when that's the
-    /// choice. Returns a note for the user when it had to act.
+    /// choice. Every switch is tried once per change, so a device that refuses never causes a dropout every tick.
+    /// Returns a note for the user when it had to act.
     public func checkHealth() -> String? {
         guard !manualRendering, instrumentBus.engine != nil else { return nil }
         if let uid = selectedOutputUID {
             let chosen = CoreAudioDevices.device(uid: uid)
-            if usingFallback, let back = chosen, CoreAudioDevices.isAlive(back), play(to: back) {
-                usingFallback = false
-                return "Your chosen output is back: playing to it again."
+            let chosenAlive = chosen.map(CoreAudioDevices.isAlive) ?? false
+            if !chosenAlive { refusedOutput = nil }
+            if usingFallback, chosenAlive, let back = chosen, back != refusedOutput {
+                if play(to: back) {
+                    usingFallback = false
+                    triedFallback = nil
+                    return "Your chosen output is back: playing to it again."
+                }
+                refusedOutput = back
             }
-            if !usingFallback, chosen == nil || !(chosen.map(CoreAudioDevices.isAlive) ?? false),
-               let fallback = CoreAudioDevices.defaultOutput(), play(to: fallback) {
-                usingFallback = true
-                return "Your chosen output isn't connected: playing to the Mac's default output until it's back."
+            if !chosenAlive, let fallback = CoreAudioDevices.defaultOutput(), fallback != chosen, CoreAudioDevices.isAlive(fallback),
+               !engine.isRunning || (fallback != triedFallback && currentDeviceID() != fallback) {
+                triedFallback = fallback
+                let first = !usingFallback
+                if play(to: fallback) {
+                    usingFallback = true
+                    if first { return "Your chosen output isn't connected: playing to the Mac's default output until it's back." }
+                }
             }
         } else if let target = CoreAudioDevices.defaultOutput(), target != lastSeenDefault {
-            let first = lastSeenDefault == nil
-            lastSeenDefault = target
-            if !first, currentDeviceID() != target, CoreAudioDevices.isAlive(target), play(to: target) {
-                return nil   // followed the Mac's new default output, as asked
-            }
+            if lastSeenDefault == nil || currentDeviceID() == target {
+                lastSeenDefault = target
+            } else if CoreAudioDevices.isAlive(target) {
+                lastSeenDefault = target   // one try per change
+                if play(to: target) { return nil }   // followed the Mac's new default output, as asked
+            }                              // not ready yet (a Bluetooth device just connecting): look again next time
         }
         if !engine.isRunning {
+            guard hardwareReady else { return "The sound has stopped. Check the output below, then press Restart audio." }
             rebuildOutput()
             try? engine.start()
             restarts += 1
