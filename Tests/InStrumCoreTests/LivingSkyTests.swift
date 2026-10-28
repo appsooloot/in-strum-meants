@@ -208,3 +208,231 @@ final class LivingSkyTests: XCTestCase {
         XCTAssertEqual(LivingSky(settings: s, homeZone: TimeZone(identifier: "Etc/UTC")!).location, GeoPoint(latitude: 0, longitude: 0))
     }
 }
+
+// MARK: - Sets 5 & 6: blizzard, after the rain, frost, wetness, gusts, halos, pastel dawns
+
+extension LivingSkyTests {
+    private func sky(_ kind: WeatherKind, hour: Double = 13, city: String = "melbourne", seed: UInt64 = 1) -> LivingSky {
+        var s = SkySettings(); s.timeMode = .frozen; s.frozenHour = hour; s.cityID = city; s.weatherMode = .pick; s.weather = kind
+        return LivingSky(settings: s, seed: seed, homeZone: melbourneZone)
+    }
+
+    private func pick(_ sky: LivingSky, _ kind: WeatherKind) {
+        var s = sky.settings; s.weather = kind; sky.settings = s
+    }
+
+    /// Steps `seconds` of sky in `dt` steps from `now` (or the test's start), calling `each` after every step.
+    @discardableResult
+    private func run(_ sky: LivingSky, seconds: Double, dt: Double = 1, now: Date? = nil, hold: SkyHold = .follow,
+                     each: (SkyState) -> Void = { _ in }) -> SkyState {
+        let t0 = now ?? start
+        var state = sky.step(now: t0, dt: 0, hold: hold)
+        let steps = Int((seconds / dt).rounded())
+        for i in 1...max(1, steps) {
+            state = sky.step(now: t0.addingTimeInterval(Double(i) * dt), dt: dt, hold: hold)
+            each(state)
+        }
+        return state
+    }
+
+    func testNewWeatherValues() {
+        XCTAssertEqual(WeatherKind.allCases, [.clear, .lightCloud, .overcast, .mist, .drizzle, .rain, .storm, .snow, .blizzard, .afterRain])
+        // cloud, rain, snow, mist, wind, halo, frost, gust (spec §6.1)
+        let table: [WeatherKind: [Float]] = [
+            .clear: [0, 0, 0, 0.1, 0.1, 0, 0.15, 0],
+            .lightCloud: [0.35, 0, 0, 0.15, 0.2, 0.7, 0.1, 0.1],
+            .overcast: [0.85, 0, 0, 0.25, 0.3, 0, 0.1, 0.1],
+            .mist: [0.4, 0, 0, 0.9, 0.05, 0.15, 0.2, 0],
+            .drizzle: [0.8, 0.3, 0, 0.4, 0.2, 0, 0, 0.1],
+            .rain: [0.9, 0.75, 0, 0.3, 0.4, 0, 0, 0.2],
+            .storm: [1, 1, 0, 0.2, 0.9, 0, 0, 0.6],
+            .snow: [0.85, 0, 0.8, 0.3, 0.25, 0.2, 0.6, 0.2],
+            .blizzard: [1, 0, 1, 0.6, 1, 0, 0.9, 1],
+            .afterRain: [0.45, 0, 0, 0.55, 0.1, 0, 0, 0],
+        ]
+        for k in WeatherKind.allCases {
+            let v = k.values
+            XCTAssertEqual([v.cloud, v.rain, v.snow, v.mist, v.wind, v.halo, v.frost, v.gust], table[k], "\(k)")
+        }
+        XCTAssertEqual(WeatherKind.blizzard.beautyWeight, 0.3)
+        XCTAssertEqual(WeatherKind.afterRain.beautyWeight, 1.5)
+    }
+
+    func testFrostOnlyAtNightForClearSkies() {
+        XCTAssertEqual(sky(.clear, hour: 13).step(now: start, dt: 0).frost, 0, accuracy: 1e-6)
+        XCTAssertEqual(sky(.clear, hour: 2).step(now: start, dt: 0).frost, 0.15, accuracy: 0.01)
+        XCTAssertEqual(sky(.snow, hour: 13).step(now: start, dt: 0).frost, 0.6, accuracy: 0.01)
+    }
+
+    func testRainMeltsFrost() {
+        let s = sky(.snow)
+        XCTAssertEqual(s.step(now: start, dt: 0).frost, 0.6, accuracy: 0.01)
+        pick(s, .rain)
+        var biggestDrop: Float = 0, last: Float = 0.6
+        let after = run(s, seconds: 65) { st in biggestDrop = max(biggestDrop, last - st.frost); last = st.frost }
+        XCTAssertLessThanOrEqual(after.frost, 0.01)
+        XCTAssertLessThan(biggestDrop, 0.15, "the frost melts over seconds, never vanishing in one frame")
+    }
+
+    func testWetnessRisesInRainAndDriesSlowly() {
+        let s = sky(.rain)
+        let wet = run(s, seconds: 300)
+        XCTAssertGreaterThan(wet.wetness, 0.9)
+        pick(s, .clear)
+        let dry = run(s, seconds: 540)
+        XCTAssertGreaterThan(dry.wetness, 0.30 * wet.wetness, "\(dry.wetness)")
+        XCTAssertLessThan(dry.wetness, 0.45 * wet.wetness, "\(dry.wetness)")
+        pick(s, .afterRain)
+        run(s, seconds: 60)
+        var lowest: Float = 1
+        run(s, seconds: 600) { lowest = min(lowest, $0.wetness) }
+        XCTAssertGreaterThanOrEqual(lowest, 0.85)
+    }
+
+    func testSnowDoesNotWet() {
+        XCTAssertEqual(run(sky(.snow), seconds: 600).wetness, 0)
+    }
+
+    func testGustsComeAndGo() {
+        func rises(seed: UInt64) -> [Int] {
+            var prev: Float = 0, i = 0, out: [Int] = []
+            run(sky(.blizzard, seed: seed), seconds: 120, dt: 1.0 / 30) { st in
+                if prev < 0.5 && st.gust >= 0.5 { out.append(i) }
+                prev = st.gust; i += 1
+            }
+            return out
+        }
+        let a = rises(seed: 7)
+        XCTAssertTrue((15...40).contains(a.count), "\(a.count) gusts in 2 minutes")
+        XCTAssertEqual(rises(seed: 7), a, "the same seed gives the same gusts")
+        XCTAssertEqual(run(sky(.clear), seconds: 30).gust, 0)
+    }
+
+    func testBlizzardMistRisesWithGust() {
+        var peak: Float = 0, quiet: Float = 1
+        run(sky(.blizzard), seconds: 30, dt: 1.0 / 30) { st in
+            if st.gust > 0.95 { peak = max(peak, st.mist) }
+            if st.gust < 0.01 { quiet = min(quiet, st.mist) }
+        }
+        XCTAssertGreaterThanOrEqual(peak, 0.85)
+        XCTAssertEqual(quiet, 0.6, accuracy: 0.02)
+    }
+
+    func testAfterRainFollowsRain() {
+        var s = SkySettings(); s.weatherMode = .randomBeautiful
+        var m = WeatherMachine(settings: s, seed: 11)
+        var prev = m.current, wet = 0, after = 0
+        for _ in 0..<2000 {
+            m.step(dt: 1300, settings: s)   // one whole spell change per step
+            if [.drizzle, .rain, .storm].contains(prev) {
+                wet += 1
+                if m.current == .afterRain { after += 1 }
+            }
+            XCTAssertNotEqual(m.current, prev, "never the same weather twice in a row")
+            prev = m.current
+        }
+        XCTAssertGreaterThan(wet, 150)
+        let share = Double(after) / Double(wet)
+        XCTAssertTrue(share > 0.5 && share < 0.7, "after the rain followed \(share) of wet spells")
+    }
+
+    func testHaloFromLightCloud() {
+        XCTAssertEqual(sky(.lightCloud).step(now: start, dt: 0).halo, 0.7, accuracy: 1e-4)
+        XCTAssertEqual(sky(.clear).step(now: start, dt: 0).halo, 0)
+        var s = SkySettings(); s.weatherMode = .randomBeautiful
+        var m = WeatherMachine(settings: s, seed: 3)
+        var halos: [Float] = []
+        for _ in 0..<400 {
+            m.step(dt: 1300, settings: s)
+            if m.current == .lightCloud { halos.append(LivingSky.halo(m)) }
+        }
+        XCTAssertGreaterThan(halos.count, 20)
+        XCTAssertTrue(halos.allSatisfy { $0 >= 0.35 - 1e-4 && $0 <= 0.7 + 1e-4 }, "\(halos)")
+        XCTAssertGreaterThan(Set(halos).count, 5, "each light-cloud spell rolls its own ice")
+    }
+
+    func testPastelMorningsAboutOneInThree() {
+        let melbourne = (0..<300).map { LivingSky.dawnIsPastel(day: $0, cityID: "melbourne") }
+        let count = melbourne.filter { $0 }.count
+        XCTAssertTrue((80...120).contains(count), "\(count) pastel mornings in 300")
+        XCTAssertEqual((0..<300).map { LivingSky.dawnIsPastel(day: $0, cityID: "melbourne") }, melbourne)
+        XCTAssertNotEqual((0..<300).map { LivingSky.dawnIsPastel(day: $0, cityID: "tokyo") }, melbourne)
+    }
+
+    private func pastelDay(zone: TimeZone, city: String) throws -> Date {
+        try XCTUnwrap((0..<40).map { start.addingTimeInterval(Double($0) * 86_400) }
+            .first { LivingSky.dawnIsPastel(day: LivingSky.localDay($0, zone: zone), cityID: city) })
+    }
+
+    func testPastelOnlyInTheMorning() throws {
+        let day = try pastelDay(zone: melbourneZone, city: "melbourne")
+        XCTAssertGreaterThan(run(sky(.clear, hour: 6.2), seconds: 120, now: day).dawnPastel, 0.99)
+        XCTAssertLessThan(run(sky(.clear, hour: 19.8), seconds: 120, now: day).dawnPastel, 0.01)
+    }
+
+    func testPastelDawnHold() {
+        XCTAssertEqual(SkyHold.pastelDawn.rawValue, "Pastel dawn")
+        XCTAssertTrue(SkyHold.pastelDawn.forcesPastel)
+        XCTAssertFalse(SkyHold.goldenHour.forcesPastel)
+        for hour in [2.0, 13.0, 20.0] {
+            let st = run(sky(.clear, hour: hour), seconds: 1, hold: .pastelDawn)
+            XCTAssertEqual(st.sun.altitude, 1.5, accuracy: 1e-9)
+            XCTAssertEqual(st.dawnPastel, 1)
+        }
+    }
+
+    func testPastelPaletteIsPastel() {
+        let p = SkyPalette.colours(sunAltitude: -2, cloud: 0, mist: 0, moonlight: 0, pastel: 1)
+        XCTAssertGreaterThan(p.horizon.x, 0.85, "\(p.horizon)")
+        XCTAssertTrue(p.horizon.y > 0.5 && p.horizon.y < 0.72, "\(p.horizon)")
+        XCTAssertGreaterThan(p.horizon.z, 0.55, "\(p.horizon)")
+        XCTAssertGreaterThan(p.zenith.z, p.zenith.x, "lavender-blue zenith \(p.zenith)")
+        XCTAssertGreaterThan(p.zenith.x, p.zenith.y * 0.95, "lavender-blue zenith \(p.zenith)")
+        // Outside the dawn window, and at pastel 0, the colours are exactly today's.
+        for alt in [-20.0, -12, -6, -2, 0, 3, 6, 12, 25] {
+            let today = SkyPalette.colours(sunAltitude: alt, cloud: 0.3, mist: 0.2, moonlight: 0.1)
+            let zero = SkyPalette.colours(sunAltitude: alt, cloud: 0.3, mist: 0.2, moonlight: 0.1, pastel: 0)
+            XCTAssertEqual(today.zenith, zero.zenith); XCTAssertEqual(today.horizon, zero.horizon)
+        }
+        for alt in [-20.0, -12, 10, 25] {
+            let today = SkyPalette.colours(sunAltitude: alt, cloud: 0, mist: 0, moonlight: 0)
+            let pastel = SkyPalette.colours(sunAltitude: alt, cloud: 0, mist: 0, moonlight: 0, pastel: 1)
+            XCTAssertEqual(today.zenith, pastel.zenith, "at \(alt)°"); XCTAssertEqual(today.horizon, pastel.horizon, "at \(alt)°")
+        }
+    }
+
+    /// Honolulu's local date is a day behind UTC's from 14:00, so a sky that picked its dawn by the UTC date would
+    /// change its mind mid-morning; the local date holds all morning.
+    func testPastelChoiceHoldsAllMorning() throws {
+        let zone = try XCTUnwrap(TimeZone(identifier: "Pacific/Honolulu"))
+        var cal = Calendar(identifier: .gregorian); cal.timeZone = zone
+        var day = cal.startOfDay(for: start)
+        while !LivingSky.dawnIsPastel(day: LivingSky.localDay(day, zone: zone), cityID: "honolulu") { day = day.addingTimeInterval(86_400) }
+        var s = SkySettings(); s.timeMode = .realTime; s.cityID = "honolulu"; s.weatherMode = .pick; s.weather = .clear
+        let sky = LivingSky(settings: s, homeZone: zone)
+        var now = day.addingTimeInterval(5.5 * 3600)
+        _ = sky.step(now: now, dt: 0)
+        var lowest: Float = 1, inWindow = 0
+        while now < day.addingTimeInterval(11.5 * 3600) {
+            now = now.addingTimeInterval(10)
+            let st = sky.step(now: now, dt: 10)
+            if st.sun.altitude > -10 && st.sun.altitude < 8 { lowest = min(lowest, st.dawnPastel); inWindow += 1 }
+        }
+        XCTAssertGreaterThan(inWindow, 50)
+        XCTAssertGreaterThanOrEqual(lowest, 0.95)
+    }
+
+    func testOldSettingsStillLoad() throws {
+        let blizzard = try JSONDecoder().decode(SkySettings.self, from: Data(#"{"weather":"blizzard","weatherMode":"pick"}"#.utf8))
+        XCTAssertEqual(blizzard.weather, .blizzard)
+        let unknown = try JSONDecoder().decode(SkySettings.self, from: Data(#"{"weather":"aurora","cityID":"tokyo"}"#.utf8))
+        XCTAssertEqual(unknown.weather, .clear)
+        XCTAssertEqual(unknown.cityID, "tokyo")
+    }
+
+    func testTheLoungeHasNoWeather() {
+        var st = SkyState(); st.halo = 0.7; st.frost = 0.6; st.wetness = 0.9; st.gust = 1
+        let lounge = SpaceshipLoungeModel.weatherless(st)
+        XCTAssertEqual([lounge.halo, lounge.frost, lounge.wetness, lounge.gust], [0, 0, 0, 0])
+    }
+}

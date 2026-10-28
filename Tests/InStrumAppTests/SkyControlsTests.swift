@@ -17,4 +17,12 @@ final class SkyControlsTests: XCTestCase {
         XCTAssertEqual(names, names.sorted())
         XCTAssertTrue(names.contains("Melbourne"))
     }
+
+    func testWeatherNames() {
+        let names = WeatherKind.allCases.map(SkyControls.weatherName)
+        XCTAssertTrue(names.allSatisfy { !$0.isEmpty })
+        XCTAssertEqual(Set(names).count, names.count)
+        XCTAssertEqual(SkyControls.weatherName(.blizzard), "Blizzard")
+        XCTAssertEqual(SkyControls.weatherName(.afterRain), "After the rain")
+    }
 }
