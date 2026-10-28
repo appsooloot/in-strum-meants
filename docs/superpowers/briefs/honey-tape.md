@@ -17,8 +17,9 @@
   - Strings sit underneath, from about C♯3 to C♯5.
   - The play-along sweet spot is the octave above middle C.
 - **Tone colour:**
-  - The flute is soft and nearly pure, with a breathy edge. Target spectral centroid at mf for C♯5 (554 Hz): **1.0–1.8 kHz**, including breath.
-  - The strings are distant and dark. Target centroid at mf for a C♯4 triad: **0.7–1.4 kHz**.
+  - The flute is soft and nearly pure, with a breathy edge. Target spectral centroid at mf for C♯5 (554 Hz): **0.55–1.0 kHz**, including breath. A power-weighted centroid of a soft flute sits near 1.1–1.3 × f0: the fundamental dominates.
+  - The strings are distant and dark. Target centroid at mf for a C♯4 triad: **0.5–1.0 kHz**.
+  - *(Revised while building: the first draft's 1.0–1.8 kHz assumed an amplitude-weighted centroid. Measured at the defaults: flute 616 Hz, strings 601 Hz.)*
 - **Attack:**
   - Flute **60–120 ms** (a soft chiff on top).
   - Strings **300–800 ms** swell.
