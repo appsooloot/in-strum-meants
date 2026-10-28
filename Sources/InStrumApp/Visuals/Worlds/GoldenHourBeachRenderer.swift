@@ -10,8 +10,8 @@ final class GoldenHourBeachRenderer: ThemeRenderer {
     /// Tide lines sent to the GPU (fewer on Smooth).
     static func lineBudget(_ q: QualityLevel) -> Int { q == .lite ? 24 : TideLines.cap }
     /// Shore geometry in metres (matches the shader's constants).
-    static let waterline: Float = 10, wetBand: Float = 5, breakLine: Float = 18, waveSpeed: Float = 5
-    static let cameraHeight: Float = 1.6
+    static let waterline: Float = 11, wetBand: Float = 5, breakLine: Float = 22, waveSpeed: Float = 5
+    static let cameraHeight: Float = 2.0
 
     private let sky: SkyLayer
     let weather: WeatherLayer
@@ -19,7 +19,7 @@ final class GoldenHourBeachRenderer: ThemeRenderer {
     private var showWarp = false
     private let beach, keys: MTLRenderPipelineState
     private var beachU = [SIMD4<Float>](repeating: .zero, count: 7 + 2 * TideLines.cap)
-    private var oceanU = [SIMD4<Float>](repeating: .zero, count: 6)
+    private var oceanU = [SIMD4<Float>](repeating: .zero, count: 7)   // the beach doesn't travel: travel stays 0
     private var keyInstances: [KeyInstance] = []
     private var aspect: Float = 16.0 / 9
     private var viewAzimuth: Double?
@@ -155,7 +155,7 @@ final class GoldenHourBeachRenderer: ThemeRenderer {
 
         post = PostSettings(
             bloom: 0.6, bloomThreshold: 0.85,
-            dof: quality == .lite ? 0 : 0.2, focusDepth: 0.13,
+            dof: quality == .lite ? 0 : 0.2, focusDepth: 0.14,
             grade: 0, grain: 0.02, vignette: 0.25,
             exposure: limited.exposure,
             warmth: MoodLook.warmthOffset(mood) + 0.08 * (1 - night),

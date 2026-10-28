@@ -17,10 +17,10 @@ enum GoldenHourBeachShaders {
     };
     struct BeachOut { float4 pos [[position]]; float2 ndc; };
 
-    constant float kWaterline = 10.0;   // metres from the camera to where the sea meets the sand
+    constant float kWaterline = 11.0;   // metres from the camera to where the sea meets the sand
     constant float kWetBand = 5.0;      // wet sand from here back toward the camera
-    constant float kBreak = 18.0;       // where the waves break
-    constant float kBoreSpeed = 4.0;    // white water rushing in from the break (m/s)
+    constant float kBreak = 22.0;       // where the waves break
+    constant float kBoreSpeed = 4.4;    // white water rushing in from the break (m/s)
 
     vertex BeachOut beach_vertex(uint vid [[vertex_id]]) {
         float2 p[3] = { float2(-1, -1), float2(3, -1), float2(-1, 3) };
@@ -75,7 +75,7 @@ enum GoldenHourBeachShaders {
             float a = -0.25 + float(f) * 0.36 + 0.25 * (h - 0.5) + 0.06 * sin(frondSway + float(f) * 1.7);
             float len = (0.26 + 0.1 * h) * scale;
             float2 dir = float2(cos(a), sin(a));
-            float droop = (0.12 + 0.1 * saturate(dir.y)) * scale;
+            float droop = (0.14 + 0.12 * saturate(dir.y)) * scale;
             float2 p0 = top;
             float2 p1 = top + dir * len * 0.4 + float2(0, 0.02 * scale);
             float2 p2 = top + dir * len * 0.75 - float2(0, droop * 0.45);
@@ -86,7 +86,7 @@ enum GoldenHourBeachShaders {
             if (d3.x < best.x) { best = d3; base = 2.0; }
             float t = (base + best.y) / 3.0;
             // Leaflets: wide in the middle, a comb of points along the edge.
-            float w = 0.034 * scale * sin(3.14159 * min(1.0, t * 1.1)) * (0.45 + 0.55 * abs(sin(t * 46.0 + h * 9.0)));
+            float w = 0.04 * scale * sin(3.14159 * min(1.0, t * 1.08)) * (0.62 + 0.38 * abs(sin(t * 24.0 + h * 9.0)));
             cover = max(cover, smoothstep(w + 0.002, w * 0.5, best.x) * step(0.04, t));
             cover = max(cover, smoothstep(0.006 * scale, 0.003 * scale, best.x));   // the midrib
         }
@@ -115,16 +115,16 @@ enum GoldenHourBeachShaders {
         // Dune grass: thin blades in tufts near the bottom corners.
         float edge = smoothstep(0.55, 0.9, abs(p.x));
         if (edge > 0.0 && p.y < base + 0.2) {
-            float x = q.x * 55.0;
+            float x = q.x * 38.0;
             float i = floor(x), fx = fract(x);
             float hb = hash13(float3(i, 7.0, 1.0));
-            float tuft = smoothstep(0.3, 0.7, vnoise3(float3(i * 0.08, 3.0, 2.0)));
-            float bladeH = (0.04 + 0.13 * hb) * edge * tuft * amount;
+            float tuft = smoothstep(0.45, 0.75, vnoise3(float3(i * 0.09, 3.0, 2.0)));
+            float bladeH = (0.03 + 0.12 * hb) * edge * tuft * amount;
             float y = (p.y - base) / max(bladeH, 1e-3);
             if (y >= 0.0 && y < 1.0) {
-                float lean = (0.25 + 0.6 * wind) * sin(o.phases.w + hb * 6.0) * y * y;
-                float width = 0.42 * (1.0 - y);
-                cover = max(cover, smoothstep(width, width * 0.6, abs(fx - 0.5 - lean)));
+                float lean = (0.5 * (hb - 0.5) + (0.25 + 0.6 * wind) * sin(o.phases.w + hb * 6.0)) * y * y * 1.6;
+                float width = 0.22 * (1.0 - y * 0.92);
+                cover = max(cover, smoothstep(width, width * 0.5, abs(fx - 0.5 - lean)));
             }
         }
         return cover;
@@ -190,36 +190,40 @@ enum GoldenHourBeachShaders {
             float3 foamBase = (horizon * 0.55 + 0.35) * (0.55 + 0.6 * lightW) + lightCol * 0.25 * lightW;
             float foamGold = b.shore.y;
             float3 foamCol = mix(foamBase, foamBase * float3(1.15, 0.95, 0.7) + o.sunColor.rgb * 0.3, foamGold);
-            if (f > kWaterline) {
+            float edge = kWaterline + 0.8 * (vnoise3(float3(s * 0.22, 5.0, 1.5 * sin(o.phases.w))) - 0.5);
+            if (f > edge) {
                 // The sea: swells steepen over the shallows; crests roll in, curl and break into white water.
                 float2 slope = oceanSlope(q, o);
                 float shoal = smoothstep(kBreak + 25.0, kBreak - 4.0, f);
                 slope *= 1.0 + 1.0 * shoal;
                 float white = 0.0;
                 for (int i = 0; i < 3; i++) {
-                    float ahead = b.crest[i].x, strength = b.crest[i].y;
-                    if (strength <= 0.0 || ahead < 0.0 || ahead > 45.0) continue;
-                    float cf = kBreak + ahead + 0.9 * sin(s * 0.06 + float(i) * 2.1);   // never ruler-straight
+                    float ahead = b.crest[i].x, strength = max(b.crest[i].y, 0.0);
+                    if (strength <= 0.0 || ahead < 0.0 || ahead > 65.0) continue;
+                    float cf = kBreak + ahead + 1.2 * sin(s * 0.05 + float(i) * 2.1);   // never ruler-straight
                     float x = f - cf;              // > 0 behind the crest, < 0 its face toward you
-                    float nearing = smoothstep(45.0, 8.0, ahead);
-                    float lip = exp(-(x * x) / 0.5);
-                    float face = exp(-((x + 1.3) * (x + 1.3)) / 1.6);
-                    slope.y += strength * nearing * (0.9 * face - 0.35 * lip);
-                    float curl = smoothstep(5.0, 0.0, ahead) * strength;
-                    float broken = 0.5 + 0.5 * vnoise3(float3(s * 0.22, ahead * 0.4, 1.0));
-                    white += curl * lip * broken * 1.4 + strength * nearing * lip * 0.12;
+                    float nearing = smoothstep(65.0, 10.0, ahead);
+                    float lip = exp(-(x * x) / 0.7);
+                    float face = exp(-((x + 1.6) * (x + 1.6)) / 2.2);
+                    slope.y += (0.3 + strength) * nearing * (1.0 * face - 0.4 * lip);
+                    // It whitens along the lip as it nears the break, in broken stretches first.
+                    float curl = smoothstep(10.0, 0.0, ahead) * (0.35 + strength);
+                    float broken = smoothstep(0.25, 0.7, vnoise3(float3(s * 0.18, ahead * 0.3, 1.0)) + smoothstep(4.0, 0.0, ahead));
+                    white += curl * lip * broken * 1.3 + (0.3 + strength) * nearing * lip * 0.1;
                 }
                 // The bore: white water rushing in from the break, foam spreading and fading behind it.
-                if (last > 0.0 && since >= 0.0 && since < 12.0) {
-                    float fb = max(kWaterline, kBreak - since * kBoreSpeed) + 0.7 * (vnoise3(float3(s * 0.3, 2.0, 0.0)) - 0.5);
+                if (last > 0.0 && since >= 0.0 && since < 14.0) {
+                    float fb = max(kWaterline, kBreak - since * kBoreSpeed) + 0.9 * (vnoise3(float3(s * 0.3, 2.0, 0.0)) - 0.5);
                     float behind = f - fb;
-                    float bore = exp(-(behind * behind) / 0.6);
-                    float trail = behind > 0.0 ? exp(-behind / (1.5 + since * 0.8)) * step(f, kBreak + 1.5) : 0.0;
-                    float lace = smoothstep(0.32, 0.72, vnoise3(float3(q * float2(0.8, 1.6), 2.0 * sin(o.phases.x) + since * 0.2)));
-                    white += last * exp(-since / 4.5) * (bore * 1.1 + trail * lace);
+                    float bore = exp(-(behind * behind) / 0.9) * step(since * kBoreSpeed, kBreak - kWaterline + 1.0);
+                    float trail = behind > 0.0 ? exp(-behind / (2.0 + since * 0.9)) * step(f, kBreak + 2.0) : 0.0;
+                    float lace = smoothstep(0.28, 0.7, vnoise3(float3(q * float2(0.8, 1.6), 2.0 * sin(o.phases.x) + since * 0.2)));
+                    white += (0.35 + last) * exp(-since / 5.0) * (bore * 1.2 + trail * (0.25 + 0.85 * lace));
                 }
                 // Lingering lace over the shallows.
                 white += 0.22 * shoal * smoothstep(0.58, 0.85, vnoise3(float3(q * float2(0.5, 1.1), 1.5 * cos(o.phases.z))));
+                // A thin swash line where the sea laps the sand.
+                white += 0.55 * exp(-(f - edge) / 0.35) * (0.5 + 0.5 * vnoise3(float3(s * 1.4, 3.0, 2.0 * sin(o.phases.y))));
                 white = saturate(white);
                 float3 nrm = oceanNormal(slope, fwd, rgt);
                 col = oceanShade(d, nrm, q, f, u, o);
@@ -258,13 +262,14 @@ enum GoldenHourBeachShaders {
                 float drift = smoothstep(0.6, 0.9, vnoise3(float3(q * float2(0.6, 7.0) + float2(3.0 * sin(o.phases.x), 0.0), 4.0)));
                 col += sandDry * sky * 0.12 * drift * b.b.y * (1.0 - wet);
                 // The wash: a thin sheet of water from the waterline up to its front, lacy foam along its edge.
-                if (f > front) {
-                    float thick = smoothstep(front, front + 2.5, f);
+                if (f > min(front, edge)) {
+                    float thick = smoothstep(front, front + 2.5, f) * smoothstep(edge - 3.0, edge, f) + smoothstep(edge - 0.6, edge, f) * 0.5;
+                    thick = saturate(thick);
                     float3 sheet = mix(refl, horizon * 0.6 + 0.15, 0.2);
                     col = mix(col, sheet, 0.25 + 0.4 * thick);
-                    float edge = exp(-(f - front) / 0.3);
+                    float rim = exp(-(f - front) / 0.3) * step(front, f);
                     float lacy = smoothstep(0.3, 0.7, vnoise3(float3(q * float2(1.8, 3.5), 2.0 * sin(o.phases.z))));
-                    col = mix(col, foamCol, saturate(edge * (0.45 + 0.5 * lacy) + (1.0 - thick) * lacy * 0.15));
+                    col = mix(col, foamCol, saturate(rim * (0.45 + 0.5 * lacy) + (1.0 - thick) * lacy * 0.15));
                 }
                 // Tide Lines: strokes traced by a finger, a soft groove with light welling up from it.
                 int count = int(b.b.z + 0.5);
@@ -281,11 +286,11 @@ enum GoldenHourBeachShaders {
                     float taper = 1.0 - 0.6 * smoothstep(0.6, 1.0, abs(along));
                     float dist2 = dx * dx + dy * dy;
                     float w = 0.022 * taper;
-                    float core = exp(-dist2 / (w * w)), halo = exp(-dist2 / 0.012) * 0.22;
+                    float core = exp(-dist2 / (w * w)), halo = exp(-dist2 / 0.008) * 0.14;
                     glow += lineColor(b.lineB[i].x) * (core * 1.4 + halo) * ln.w;
                     col *= 1.0 - 0.25 * exp(-dist2 / 0.004) * ln.w;    // the groove
                 }
-                col += glow * (1.1 + 0.9 * night);
+                col += glow * (1.1 + 0.3 * night);
                 depth = saturate(f / 60.0);
             }
             // Haze over the sea, thicker far away.
