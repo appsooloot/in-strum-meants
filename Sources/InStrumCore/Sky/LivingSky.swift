@@ -24,6 +24,16 @@ public struct SkyState: Equatable {
     /// Local hour at the sky's city (0…<24).
     public var hourOfDay = 0.0
     public var subsolar = GeoPoint(latitude: 0, longitude: 0)
+    /// Ice halos and sundogs, 0…1 (light cloud above all).
+    public var halo: Float = 0
+    /// Frost on glass, 0…1 (snow and blizzards any time; clear and cloudy skies only at night; rain melts it).
+    public var frost: Float = 0
+    /// How wet the world is, 0…1: rises in rain, dries over minutes, held at 0.85 after the rain.
+    public var wetness: Float = 0
+    /// The live gust, 0…1: the weather's gustiness times an envelope that comes every 3–8 s.
+    public var gust: Float = 0
+    /// 0…1: how pastel this dawn is (about one morning in three, gliding in and out).
+    public var dawnPastel: Float = 0
 
     public init() {}
 }
@@ -43,6 +53,10 @@ public final class LivingSky {
     private var rng: SeededRandom
     private var lightning: Float = 0
     private var nextFlash = 3.0
+    private var wetness: Float = 0
+    private var gustRng: SeededRandom
+    private var gustAge = 10.0, nextGust = 4.0
+    private var dawnPastel: Float = 0
 
     public init(settings: SkySettings, seed: UInt64 = 1, homeZone: TimeZone = .current) {
         self.settings = settings
@@ -50,7 +64,9 @@ public final class LivingSky {
         self.seed = seed
         weather = WeatherMachine(settings: settings, seed: seed)
         rng = SeededRandom(seed: seed &+ 0x11_9E37)
+        gustRng = SeededRandom(seed: seed &+ 0x6057)
         clock.place(cityID: settings.cityID, homeZone: homeZone)
+        nextGust = Double(gustRng.range(3, 8))
     }
 
     /// Starts over with these settings: the weather begins settled instead of blending from the old one
@@ -60,6 +76,11 @@ public final class LivingSky {
         weather = WeatherMachine(settings: settings, seed: seed)
         lightning = 0
         nextFlash = 3
+        wetness = 0
+        dawnPastel = 0
+        gustRng = SeededRandom(seed: seed &+ 0x6057)
+        gustAge = 10
+        nextGust = Double(gustRng.range(3, 8))
     }
 
     /// `hold` keeps the sun at a chosen altitude for worlds that hold the light; everything else keeps running.
@@ -90,6 +111,39 @@ public final class LivingSky {
         s.weatherBlend = weather.transitioning ? Float(weather.blend) : 0
         s.cloudCover = w.cloud; s.rain = w.rain; s.snow = w.snow; s.mist = w.mist; s.wind = w.wind
 
+        // Gusts: one every 3–8 s while the weather is gusty (a 0.5 s rise and a 1.5 s fall).
+        if w.gust > 0 {
+            nextGust -= dt
+            if nextGust <= 0 { gustAge = 0; nextGust = max(0.5, nextGust + Double(gustRng.range(3, 8))) }
+        }
+        gustAge += dt
+        s.gust = w.gust * Self.gustEnvelope(gustAge)
+        if w.snow >= 0.9 { s.mist = min(1, w.mist + 0.3 * s.gust) }   // a blizzard whites out with each gust
+
+        // Frost: night-only for clear and cloudy skies, any time for snow; rain melts it within seconds.
+        let darkness = 1 - SkyPalette.smoothstep(-12, -2, Float(s.sun.altitude))
+        var frost: Float = 0
+        for k in Set([weather.current, weather.next]) {
+            frost += weather.weight(of: k) * k.values.frost * (k.frostFormsOnlyAtNight ? darkness : 1)
+        }
+        s.frost = frost * (1 - SkyPalette.smoothstep(0, 0.05, w.rain))
+        s.halo = Self.halo(weather)
+
+        // Wetness: rain soaks (faster the harder it rains), dry weather dries it over minutes; after the rain stays wet.
+        if w.rain > 0.1 { wetness += (1 - wetness) * Float(1 - exp(-dt * Double(w.rain) / 90)) }
+        else { wetness *= Float(exp(-dt / 480)) }
+        wetness = max(wetness, 0.85 * weather.weight(of: .afterRain))
+        s.wetness = wetness
+
+        // Pastel dawns: about one morning in three, chosen by the local date and the city.
+        if hold.forcesPastel {
+            dawnPastel = 1
+        } else {
+            let target: Float = reading.hourOfDay < 12 && Self.dawnIsPastel(day: reading.day, cityID: settings.cityID) ? 1 : 0
+            dawnPastel += (target - dawnPastel) * Float(1 - exp(-dt / 20))
+        }
+        s.dawnPastel = dawnPastel
+
         // Lightning: a flash every 6–20 s while the storm holds.
         let storm = stormAmount()
         if storm > 0.5 {
@@ -102,11 +156,36 @@ public final class LivingSky {
         lightning *= Float(exp(-dt / 0.12))
 
         let moonUp = Float(max(0, sin(Astro.rad(s.moon.altitude)))) * Float(s.moonLit)
-        let colours = SkyPalette.colours(sunAltitude: s.sun.altitude, cloud: w.cloud, mist: w.mist, moonlight: moonUp)
+        let colours = SkyPalette.colours(sunAltitude: s.sun.altitude, cloud: w.cloud, mist: w.mist, moonlight: moonUp, pastel: dawnPastel)
         s.zenith = colours.zenith; s.horizon = colours.horizon
         let night = 1 - SkyPalette.smoothstep(-15, -4, Float(s.sun.altitude))
         s.starVisibility = night * (1 - 0.9 * w.cloud) * (1 - 0.6 * w.mist) * (1 - 0.3 * moonUp)
         return s
+    }
+
+    /// Halo strength: the weather's halo, with each light-cloud spell's own ice.
+    static func halo(_ m: WeatherMachine) -> Float {
+        let light = m.weight(of: .lightCloud)
+        return m.values.halo * (1 - light + light * m.ice)
+    }
+
+    static func gustEnvelope(_ age: Double) -> Float {
+        if age < 0.5 { let x = Float(age / 0.5); return x * x * (3 - 2 * x) }
+        if age < 2 { let x = Float((age - 0.5) / 1.5); return 1 - x * x * (3 - 2 * x) }
+        return 0
+    }
+
+    /// Whether this local day's dawn is pastel at this city (about one in three, the same every time).
+    public static func dawnIsPastel(day: Int, cityID: String?) -> Bool {
+        var h: UInt64 = 0xCBF2_9CE4_8422_2325   // FNV-1a: stable across launches, unlike Hasher
+        for b in (cityID ?? "home").utf8 { h ^= UInt64(b); h = h &* 0x0000_0100_0000_01B3 }
+        var r = SeededRandom(seed: (UInt64(bitPattern: Int64(day)) &* 0x9E37_79B9_7F4A_7C15) ^ h)
+        return r.next() % 3 == 0
+    }
+
+    /// Days since 1970-01-01 on the local calendar of `zone`.
+    static func localDay(_ instant: Date, zone: TimeZone) -> Int {
+        Int(floor((instant.timeIntervalSince1970 + Double(zone.secondsFromGMT(for: instant))) / 86_400))
     }
 
     private func stormAmount() -> Float {
@@ -121,7 +200,7 @@ public final class LivingSky {
 /// A world can hold the light at a favourite moment: only the sun's altitude is held (its direction, the moon,
 /// the clock and the weather keep running), and the Living Sky settings are never changed.
 public enum SkyHold: String, CaseIterable, Codable {
-    case follow = "Follow the sky", goldenHour = "Golden hour", blueHour = "Blue hour"
+    case follow = "Follow the sky", goldenHour = "Golden hour", blueHour = "Blue hour", pastelDawn = "Pastel dawn"
 
     /// The held sun altitude in degrees, or nil to follow the sky.
     public var altitude: Double? {
@@ -129,13 +208,17 @@ public enum SkyHold: String, CaseIterable, Codable {
         case .follow: return nil
         case .goldenHour: return 5
         case .blueHour: return -6
+        case .pastelDawn: return 1.5
         }
     }
+
+    /// Pastel dawn also makes the dawn pastel, whatever the day.
+    public var forcesPastel: Bool { self == .pastelDawn }
 
     /// The world parameter that chooses it.
     public static func spec(default d: SkyHold) -> ParamSpec {
         ParamSpec(id: "light.hold", name: "Hold the light", group: "Light",
-                  help: "Keep the world at golden hour or blue hour, or follow the Living Sky",
+                  help: "Keep the world at golden hour, blue hour or a pastel dawn, or follow the Living Sky",
                   kind: .choice(allCases.map(\.rawValue)), defaultValue: .choice(d.rawValue))
     }
 }
@@ -153,12 +236,36 @@ enum SkyPalette {
         Anchor(altitude: 20, zenith: [0.260, 0.520, 0.920], horizon: [0.700, 0.840, 0.970]),       // day
     ]
 
+    /// Pastel dawn: a lavender-blue zenith over a peach-pink horizon, for the sun between −10° and +8°.
+    static let pastelAnchors: [Anchor] = [
+        Anchor(altitude: -10, zenith: [0.10, 0.10, 0.25], horizon: [0.35, 0.25, 0.40]),
+        Anchor(altitude: -4, zenith: [0.30, 0.30, 0.55], horizon: [0.85, 0.55, 0.62]),
+        Anchor(altitude: -0.833, zenith: [0.46, 0.44, 0.74], horizon: [0.98, 0.66, 0.62]),
+        Anchor(altitude: 4, zenith: [0.45, 0.58, 0.85], horizon: [1.0, 0.78, 0.66]),
+        Anchor(altitude: 8, zenith: [0.32, 0.52, 0.88], horizon: [0.92, 0.82, 0.74]),
+    ]
+
+    /// 1 for the sun between −6° and +4°, easing to 0 at −10° and +8°.
+    static func pastelWindow(_ altitude: Float) -> Float {
+        smoothstep(-10, -6, altitude) * (1 - smoothstep(4, 8, altitude))
+    }
+
+    static func interpolate(_ table: [Anchor], _ alt: Float) -> (zenith: SIMD3<Float>, horizon: SIMD3<Float>) {
+        if alt <= table[0].altitude { return (table[0].zenith, table[0].horizon) }
+        for i in 0..<(table.count - 1) where alt < table[i + 1].altitude {
+            let s = smoothstep(table[i].altitude, table[i + 1].altitude, alt)
+            return (table[i].zenith + (table[i + 1].zenith - table[i].zenith) * s,
+                    table[i].horizon + (table[i + 1].horizon - table[i].horizon) * s)
+        }
+        return (table[table.count - 1].zenith, table[table.count - 1].horizon)
+    }
+
     static func smoothstep(_ a: Float, _ b: Float, _ x: Float) -> Float {
         let t = min(1, max(0, (x - a) / (b - a)))
         return t * t * (3 - 2 * t)
     }
 
-    static func colours(sunAltitude: Double, cloud: Float, mist: Float, moonlight: Float) -> (zenith: SIMD3<Float>, horizon: SIMD3<Float>) {
+    static func colours(sunAltitude: Double, cloud: Float, mist: Float, moonlight: Float, pastel: Float = 0) -> (zenith: SIMD3<Float>, horizon: SIMD3<Float>) {
         let alt = Float(sunAltitude)
         var z = anchors[0].zenith, h = anchors[0].horizon
         if alt >= anchors[anchors.count - 1].altitude {
@@ -170,6 +277,13 @@ enum SkyPalette {
                 h = anchors[i].horizon + (anchors[i + 1].horizon - anchors[i].horizon) * s
                 break
             }
+        }
+        // A pastel dawn: blend toward the pastel anchors inside the dawn window (exactly today's colours at 0).
+        let weight = pastel * pastelWindow(alt)
+        if weight > 0 {
+            let p = interpolate(pastelAnchors, alt)
+            z += (p.zenith - z) * weight
+            h += (p.horizon - h) * weight
         }
         // Moonlight: a cool lift.
         z += SIMD3<Float>(0.015, 0.022, 0.040) * moonlight
