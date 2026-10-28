@@ -82,7 +82,8 @@ struct MainView: View {
                 .help("Silence everything")
             Button { showVisuals.toggle() } label: { Label("Visuals", systemImage: "sparkles") }
                 .help("Theme, look and display settings")
-            Button { showSettings.toggle() } label: { Label("Sound", systemImage: "gearshape") }
+            Button { showSettings.toggle() } label: { Label("Sound & MIDI", systemImage: "gearshape") }
+                .help("Output, buffer, restart audio, MIDI keyboards and channel, touch")
                 .popover(isPresented: $showSettings, arrowEdge: .bottom) { SettingsPopover(model: model) }
             Image(systemName: "speaker.wave.2.fill").foregroundStyle(.secondary)
             Slider(value: Binding(get: { Double(volume) },
