@@ -129,7 +129,8 @@ enum WindowKitShaders {
             scatter = min(blur.sample(lin, suv, level(2.5)).rgb, float3(6.0)) * 1.25 + outside * 0.12;
         }
         float3 albedo = float3(0.88, 0.93, 1.0);
-        float3 col = albedo * (scatter * 0.9 + inside * 0.22 * (0.6 + 0.4 * streak));
+        // Frost scatters far more light than clear glass lets through: it reads white over the view, lit warm by the room.
+        float3 col = albedo * (scatter * 1.3 + 0.06 + inside * 0.25 * (0.6 + 0.4 * streak));
         // Faint ribs where the fronts paused, on the older frost.
         float ribs = 0.5 + 0.5 * sin(arrival * 260.0 + streak * 3.0);
         col *= 0.9 + 0.12 * ribs * age;
