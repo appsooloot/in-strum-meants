@@ -14,6 +14,7 @@ final class ThemeCanvas: NSObject, MTKViewDelegate {
     private var steinway: SteinwayRenderer?
     private var moonlitLake: MoonlitLakeRenderer?
     private var lounge: SpaceshipLoungeRenderer?
+    private var beach: GoldenHourBeachRenderer?
     private var autoQuality: AutoQuality
     private var lastTime: CFTimeInterval = 0
     private var seenVersion = -1
@@ -106,6 +107,10 @@ final class ThemeCanvas: NSObject, MTKViewDelegate {
             if lounge == nil { lounge = SpaceshipLoungeRenderer(device: device) }
             lounge?.update(l, params: director.parameters, quality: level, gentle: model.gentleVisuals, dt: dt, size: size)
             renderer = lounge
+        } else if let b = frame as? BeachFrame {
+            if beach == nil { beach = GoldenHourBeachRenderer(device: device) }
+            beach?.update(b, params: director.parameters, quality: level, gentle: model.gentleVisuals, dt: dt, size: size)
+            renderer = beach
         } else {
             renderer = nil
         }
