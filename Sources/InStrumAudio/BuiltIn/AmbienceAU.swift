@@ -46,7 +46,7 @@ public final class AmbienceAU: AUAudioUnit {
 
     public func setScene(_ scene: AmbienceScene) {
         state.withLockUnchecked { $0.scene = scene }
-        apply(thunder: scene.thunder)
+        apply(thunder: scene.thunder, wave: scene.wave)
     }
 
     /// Off fades every source out (and stops the work); on brings the scene back.
@@ -61,7 +61,7 @@ public final class AmbienceAU: AUAudioUnit {
         if changed { apply(thunder: nil) }
     }
 
-    private func apply(thunder: Double?) {
+    private func apply(thunder: Double?, wave: Double? = nil) {
         guard let a = box.ambience else { return }
         let s = state.withLockUnchecked { $0 }
         for source in AmbienceSource.allCases {
@@ -72,7 +72,10 @@ public final class AmbienceAU: AUAudioUnit {
         isd_ambience_set_closeness(a, Float(s.scene.closeness))
         isd_ambience_set_density(a, Float(s.scene.density))
         isd_ambience_set_activity(a, Float(max(s.scene.activity, s.playing ? 1 : 0)))
+        isd_ambience_set_speed(a, Float(s.scene.speed))
+        isd_ambience_set_surf_distance(a, Float(s.scene.surfDistance))
         if let distance = thunder, s.enabled { isd_ambience_trigger_thunder(a, Float(distance)) }
+        if let strength = wave, s.enabled { isd_ambience_trigger_wave(a, Float(strength)) }
     }
 
     static func cSource(_ s: AmbienceSource) -> ISDAmbienceSource {
@@ -89,6 +92,13 @@ public final class AmbienceAU: AUAudioUnit {
         case .chime: return ISD_AMB_CHIME
         case .hullTicks: return ISD_AMB_HULL_TICKS
         case .wind: return ISD_AMB_WIND
+        case .surf: return ISD_AMB_SURF
+        case .palms: return ISD_AMB_PALMS
+        case .gulls: return ISD_AMB_GULLS
+        case .road: return ISD_AMB_ROAD
+        case .engine: return ISD_AMB_ENGINE
+        case .windowWind: return ISD_AMB_WINDOW_WIND
+        case .passingCar: return ISD_AMB_PASSING_CAR
         }
     }
 

@@ -1,6 +1,7 @@
 /// The ambience sources a world can blend (spec §5).
 public enum AmbienceSource: String, Codable, CaseIterable {
     case water, crickets, breeze, owl, rainOnWater, rainOnGlass, dawnChorus, shipHum, airFlow, chime, hullTicks, wind
+    case surf, palms, gulls, road, engine, windowWind, passingCar
 }
 
 /// What a world wants to hear right now. Levels are 0…1; anything missing is silent.
@@ -16,15 +17,24 @@ public struct AmbienceScene: Equatable {
     public var closeness: Double
     /// 0.5…1.5: how often things happen (from the mood's energy).
     public var density: Double
+    /// One-shot: a wave breaks on the shore now, with this strength (0…1).
+    public var wave: Double?
+    /// A car's speed 0…1 (road, engine and window wind follow it).
+    public var speed: Double
+    /// 0 close, detailed surf … 1 a far, low roar.
+    public var surfDistance: Double
 
     public init(levels: [AmbienceSource: Double] = [:], nightCool: Double = 0, activity: Double = 0, thunder: Double? = nil,
-                closeness: Double = 0.5, density: Double = 1) {
+                closeness: Double = 0.5, density: Double = 1, wave: Double? = nil, speed: Double = 0, surfDistance: Double = 0) {
         self.levels = levels
         self.nightCool = nightCool
         self.activity = activity
         self.thunder = thunder
         self.closeness = closeness
         self.density = density
+        self.wave = wave
+        self.speed = speed
+        self.surfDistance = surfDistance
     }
 
     public static let silent = AmbienceScene()

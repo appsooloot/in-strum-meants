@@ -395,6 +395,7 @@ public final class AppModel: ObservableObject {
         var sent: AmbienceScene?
         var lastSend = -Double.infinity
         var pendingThunder: Double?
+        var pendingWave: Double?
         var closeness = 0.5
     }
     nonisolated private let ambienceLive = OSAllocatedUnfairLock(uncheckedState: AmbienceLive())
@@ -402,19 +403,23 @@ public final class AppModel: ObservableObject {
     public var ambienceSettings: AmbienceSettings { settings.ambience }
 
     /// From the render loop (any thread): hands the world's soundscape to the engine at most ten times a second,
-    /// and only when it has really changed (a level by > 0.01, the activity by > 0.05) or thunder is due.
-    /// The user's closeness leans the world's own closeness; a thunderclap held back by the throttle goes next time.
+    /// and only when it has really changed (a level by > 0.01, the activity by > 0.05, the speed by > 0.02) or
+    /// thunder or a wave is due. The user's closeness leans the world's own closeness; a thunderclap or a wave held
+    /// back by the throttle goes next time (two waves inside one tenth of a second go as the bigger one).
     public nonisolated func updateAmbience(_ s: AmbienceScene, at t: Double = ProcessInfo.processInfo.systemUptime) {
         let out: AmbienceScene? = ambienceLive.withLockUnchecked { a in
             var scene = s
             scene.closeness = min(1, max(0, s.closeness + (a.closeness - 0.5)))
             if let thunder = s.thunder { a.pendingThunder = thunder }
+            if let wave = s.wave { a.pendingWave = max(wave, a.pendingWave ?? 0) }
             scene.thunder = a.pendingThunder
+            scene.wave = a.pendingWave
             guard t - a.lastSend >= Self.ambienceInterval - 1e-9 else { return nil }
-            if scene.thunder == nil, let previous = a.sent, !Self.ambienceChanged(previous, scene) { return nil }
+            if scene.thunder == nil, scene.wave == nil, let previous = a.sent, !Self.ambienceChanged(previous, scene) { return nil }
             a.sent = scene
             a.lastSend = t
             a.pendingThunder = nil
+            a.pendingWave = nil
             return scene
         }
         if let out { engine.setAmbience(out) }
@@ -424,6 +429,7 @@ public final class AppModel: ObservableObject {
         let sources = Set(a.levels.keys).union(b.levels.keys)
         if sources.contains(where: { abs(a.level($0) - b.level($0)) > 0.01 }) { return true }
         if abs(a.activity - b.activity) > 0.05 { return true }
+        if abs(a.speed - b.speed) > 0.02 || abs(a.surfDistance - b.surfDistance) > 0.01 { return true }
         return abs(a.nightCool - b.nightCool) > 0.01 || abs(a.closeness - b.closeness) > 0.01 || abs(a.density - b.density) > 0.01
     }
 
