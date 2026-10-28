@@ -345,15 +345,17 @@ enum CardArt {
             let c = CGPoint(x: w * fx, y: h * fy)
             var star = Path()
             for k in 0..<6 {
-                let a = Double(k) * .pi / 3 + 0.2
-                let tip = CGPoint(x: c.x + r * cos(a), y: c.y + r * sin(a))
-                star.move(to: c); star.addLine(to: tip)
-                for s in [0.45, 0.7] {
-                    let p = CGPoint(x: c.x + r * s * cos(a), y: c.y + r * s * sin(a))
-                    let len = r * 0.28 * (1.1 - s)
-                    for side in [-1.0, 1.0] {
+                let a: CGFloat = CGFloat(k) * CGFloat.pi / 3 + 0.2
+                let ca: CGFloat = cos(a), sa: CGFloat = sin(a)
+                star.move(to: c); star.addLine(to: CGPoint(x: c.x + r * ca, y: c.y + r * sa))
+                for s: CGFloat in [0.45, 0.7] {
+                    let p = CGPoint(x: c.x + r * s * ca, y: c.y + r * s * sa)
+                    let len: CGFloat = r * 0.28 * (1.1 - s)
+                    for side: CGFloat in [-1, 1] {
+                        let b: CGFloat = a + side * CGFloat.pi / 3
+                        let cb: CGFloat = cos(b), sb: CGFloat = sin(b)
                         star.move(to: p)
-                        star.addLine(to: CGPoint(x: p.x + len * cos(a + side * .pi / 3), y: p.y + len * sin(a + side * .pi / 3)))
+                        star.addLine(to: CGPoint(x: p.x + len * cb, y: p.y + len * sb))
                     }
                 }
             }
