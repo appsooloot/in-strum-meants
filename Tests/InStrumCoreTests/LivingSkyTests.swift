@@ -109,7 +109,8 @@ final class LivingSkyTests: XCTestCase {
             prev = r
         }
         XCTAssertTrue(monotonic)
-        XCTAssertLessThanOrEqual(maxStep, 0.05)
+        XCTAssertLessThanOrEqual(maxStep, 0.1, "a picked weather takes hold over 12 s, smoothly")
+        XCTAssertGreaterThan(prev, 0.74, "and is fully in by the end of the minute")
         XCTAssertEqual(prev, 0.75, accuracy: 1e-3)
         XCTAssertEqual(sky.step(now: now, dt: 0).weather, .rain)
     }
@@ -298,7 +299,7 @@ extension LivingSkyTests {
         XCTAssertEqual(s.step(now: start, dt: 0).frost, 0.6, accuracy: 0.01)
         pick(s, .rain)
         var biggestDrop: Float = 0, last: Float = 0.6
-        let after = run(s, seconds: 65) { st in biggestDrop = max(biggestDrop, last - st.frost); last = st.frost }
+        let after = run(s, seconds: 65, dt: 1.0 / 30) { st in biggestDrop = max(biggestDrop, last - st.frost); last = st.frost }
         XCTAssertLessThanOrEqual(after.frost, 0.01)
         XCTAssertLessThan(biggestDrop, 0.15, "the frost melts over seconds, never vanishing in one frame")
     }

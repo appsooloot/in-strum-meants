@@ -74,6 +74,9 @@ public extension WeatherKind {
 /// Weather over time: every change blends over 60 s; random spells last 5–20 minutes and never repeat a kind back to back.
 struct WeatherMachine {
     static let transitionSeconds = 60.0
+    /// A weather you pick yourself takes hold in 12 s, so the change is plainly seen; random spells blend slowly.
+    static let pickedTransitionSeconds = 12.0
+    private var length = WeatherMachine.transitionSeconds
 
     private(set) var current: WeatherKind
     private(set) var next: WeatherKind
@@ -126,7 +129,7 @@ struct WeatherMachine {
         }
         switch mode {
         case .pick:
-            if settings.weather != (transitioning ? next : current) { begin(settings.weather) }
+            if settings.weather != (transitioning ? next : current) { begin(settings.weather, seconds: Self.pickedTransitionSeconds) }
         case .randomBeautiful:
             spellLeft -= dt
             if spellLeft <= 0, !transitioning {
@@ -137,12 +140,13 @@ struct WeatherMachine {
             }
         }
         if transitioning {
-            blend += dt / Self.transitionSeconds
+            blend += dt / length
             if blend >= 1 { current = next; blend = 0; transitioning = false }
         }
     }
 
-    private mutating func begin(_ kind: WeatherKind) {
+    private mutating func begin(_ kind: WeatherKind, seconds: Double = WeatherMachine.transitionSeconds) {
+        length = seconds
         if kind == .lightCloud { ice = mode == .randomBeautiful ? iceRng.range(0.5, 1) : WeatherKind.lightCloud.values.halo }
         from = values
         next = kind
