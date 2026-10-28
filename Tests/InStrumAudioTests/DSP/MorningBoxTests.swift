@@ -119,7 +119,12 @@ final class MorningBoxTests: XCTestCase {
     /// into the tick's band).
     private func quietBand(_ x: [Float], _ lo: Double, _ hi: Double) -> Double {
         let n = 1024, p = DSPTestKit.powerSpectrum(x, size: n), bin = R.sr / Double(n)
-        return p.enumerated().reduce(0) { Double($1.offset) * bin >= lo && Double($1.offset) * bin <= hi ? $0 + $1.element : $0 }
+        var sum = 0.0
+        for (k, e) in p.enumerated() {
+            let f = Double(k) * bin
+            if f >= lo && f <= hi { sum += e }
+        }
+        return sum
     }
 
     /// The celesta's felt tick (box 0): bright, and gone within a few milliseconds.
@@ -187,7 +192,12 @@ final class MorningBoxTests: XCTestCase {
             var sxy = 0.0, sxx = 0.0
             for (t, l) in zip(times, levels) { sxy += (t - mt) * (l - ml); sxx += (t - mt) * (t - mt) }
             let slope = sxy / sxx
-            let residual = zip(times, levels).map { t, l in pow(l - (ml + slope * (t - mt)), 2) }.reduce(0, +) / Double(times.count)
+            var residual = 0.0
+            for (t, l) in zip(times, levels) {
+                let e = l - (ml + slope * (t - mt))
+                residual += e * e
+            }
+            residual /= Double(times.count)
             return residual.squareRoot()
         }
         let still = wobble(0), hazy = wobble(1)
@@ -240,7 +250,8 @@ final class MorningBoxTests: XCTestCase {
         for v: Float in [0, 1] {
             var p: [Int: Float] = [:]
             for a in [ISD_P_BARS, ISD_P_BOX, ISD_P_BLOOM, ISD_P_BUILD, ISD_P_HAZE, ISD_P_SPACE, ISD_P_WIDTH] { p[Int(a)] = v }
-            let events = (0..<10).map { R.noteOn(Double($0) * 0.1, UInt8(30 + $0 * 7), 127) } + [R.pedal(0.5, 127)]
+            var events: [R.Event] = [R.pedal(0.5, 127)]
+            for i in 0..<10 { events.append(R.noteOn(Double(i) * 0.1, UInt8(30 + i * 7), 127)) }
             let out = R.render(morning, seconds: 5, params: p, events: events)
             XCTAssertTrue(out.l.allSatisfy { $0.isFinite && abs($0) <= 1 } && out.r.allSatisfy { $0.isFinite && abs($0) <= 1 }, "dials at \(v)")
         }

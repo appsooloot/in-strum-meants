@@ -193,7 +193,8 @@ final class CabinFeltTests: XCTestCase {
         for v: Float in [0, 1] {
             var p: [Int: Float] = [:]
             for a in [ISD_P_FELT, ISD_P_HORN, ISD_P_FIRE, ISD_P_WOOD, ISD_P_SPACE, ISD_P_WIDTH] { p[Int(a)] = v }
-            let events = (0..<10).map { R.noteOn(Double($0) * 0.1, UInt8(30 + $0 * 7), 127) } + [R.pedal(0.5, 127)]
+            var events: [R.Event] = [R.pedal(0.5, 127)]
+            for i in 0..<10 { events.append(R.noteOn(Double(i) * 0.1, UInt8(30 + i * 7), 127)) }
             let out = R.render(cabin, seconds: 5, params: p, events: events)
             XCTAssertTrue(out.l.allSatisfy { $0.isFinite && abs($0) <= 1 } && out.r.allSatisfy { $0.isFinite && abs($0) <= 1 }, "dials at \(v)")
         }
