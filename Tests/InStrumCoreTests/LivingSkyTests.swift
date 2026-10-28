@@ -405,6 +405,20 @@ extension LivingSkyTests {
         XCTAssertEqual(s, d)
     }
 
+    func testAdvancedPresetsDifferAndStayInRange() throws {
+        var seen: [SkySettings] = []
+        for p in SkySettings.AdvancedPreset.allCases {
+            var s = SkySettings(); s.cityID = "tokyo"; s.applyAdvanced(p)
+            XCTAssertEqual(s.cityID, "tokyo")
+            XCTAssertNotEqual(s, { var d = SkySettings(); d.cityID = "tokyo"; return d }(), "\(p) changes something")
+            let round = try JSONDecoder().decode(SkySettings.self, from: JSONEncoder().encode(s))
+            XCTAssertEqual(round, s, "\(p) survives saving and loading unclamped")
+            seen.append(s)
+        }
+        XCTAssertEqual(Set(seen.map { "\($0.windScale)-\($0.mistScale)-\($0.moonSize)" }).count, 3)
+        XCTAssertTrue(seen[0].calmRandom && !seen[1].calmRandom)
+    }
+
     func testRainMeltsFrost() {
         let s = sky(.snow)
         XCTAssertEqual(s.step(now: start, dt: 0).frost, 0.6, accuracy: 0.01)

@@ -76,6 +76,11 @@ struct SkyControls: View {
                     .labelsHidden()
                 }
                 DisclosureGroup("Advanced weather") {
+                    HStack {
+                        Button("Gentle") { update { $0.applyAdvanced(.gentle) } }
+                        Button("Dramatic") { update { $0.applyAdvanced(.dramatic) } }
+                        Button("Dreamy") { update { $0.applyAdvanced(.dreamy) } }
+                    }
                     Button("Reset Advanced to defaults") { update { $0.resetAdvanced() } }
                     Toggle("Calm random weather (no storms, blizzards, hail…)", isOn: Binding(get: { sky.calmRandom }, set: { v in update { $0.calmRandom = v } }))
                     labelled("A picked weather takes \(Int(sky.pickBlendSeconds.rounded())) s to arrive") {

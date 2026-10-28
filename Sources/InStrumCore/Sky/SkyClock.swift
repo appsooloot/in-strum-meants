@@ -44,6 +44,21 @@ public struct SkySettings: Codable, Equatable {
 
     public init() {}
 
+    public enum AdvancedPreset: String, CaseIterable { case gentle, dramatic, dreamy }
+
+    /// A one-tap look for the Advanced dials: Gentle (soft, calm), Dramatic (wild, bold) or Dreamy (misty, big moon, halos).
+    public mutating func applyAdvanced(_ p: AdvancedPreset) {
+        resetAdvanced()
+        switch p {
+        case .gentle:
+            calmRandom = true; windScale = 0.6; gustScale = 0.5; rainScale = 0.7; lightningFrequency = 0.5; pickBlendSeconds = 20
+        case .dramatic:
+            windScale = 1.4; gustScale = 1.5; lightningFrequency = 2; cloudScale = 1.3; rainScale = 1.3; frostScale = 1.2; pickBlendSeconds = 6
+        case .dreamy:
+            mistScale = 1.5; haloScale = 1.5; starScale = 1.4; moonSize = 1.6; windScale = 0.6; rainbowStrength = 1; pickBlendSeconds = 20
+        }
+    }
+
     /// Puts every Advanced weather and sky setting back to its designed value (keeps time, city and the weather choice).
     public mutating func resetAdvanced() {
         let d = SkySettings()
