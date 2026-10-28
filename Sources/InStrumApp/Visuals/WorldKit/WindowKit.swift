@@ -166,9 +166,10 @@ final class WindowGlassLayer {
         u[2] = SIMD4(inside, clean(glint.w, 2))
         u[3] = SIMD4(clean3(SIMD3(reflection.x, reflection.y, reflection.z), 4), clean(reflection.w, 0.3))
         u[4] = SIMD4(outside, hasField ? 1 : 0)
-        u[5] = SIMD4(Float(shown.count), Float(min(bars.count, Self.maxBars)), spec.material == .logWood ? 0 : 1,
-                     clean(spec.frameWidth, 0.5))
-        u[6] = SIMD4(self.aspect, quality == .lite ? 0 : 1, Float(FrostField.width), Float(FrostField.height))
+        let material: Float = spec.material == .logWood ? 0 : 1
+        let qualityCode: Float = quality == .lite ? 0 : 1
+        u[5] = SIMD4(Float(shown.count), Float(min(bars.count, Self.maxBars)), material, clean(spec.frameWidth, 0.5))
+        u[6] = SIMD4(self.aspect, qualityCode, Float(FrostField.width), Float(FrostField.height))
         for i in 0..<Self.maxBars { u[7 + i] = i < bars.count ? bars[i] : .zero }
         for i in 0..<Self.maxPatches {
             u[26 + i] = i < shown.count ? SIMD4(shown[i].x, shown[i].y, shown[i].radius, clean(shown[i].warmth)) : .zero
@@ -217,13 +218,16 @@ final class WindowGlassLayer {
         dripCount = drips.count
 
         // This frame's instances, in the next slot of the ring.
-        let light = 0.35 + 0.65 * min(1, simd_dot(outside, SIMD3(0.2126, 0.7152, 0.0722)) + 0.3 * simd_dot(inside, SIMD3(repeating: 0.33)))
+        let outsideLuma: Float = simd_dot(outside, SIMD3<Float>(0.2126, 0.7152, 0.0722))
+        let insideLuma: Float = simd_dot(inside, SIMD3<Float>(repeating: 0.33))
+        let light: Float = 0.35 + 0.65 * min(1, outsideLuma + 0.3 * insideLuma)
         instances.removeAll(keepingCapacity: true)
         let width = spec.rect.z - spec.rect.x, height = spec.rect.w - spec.rect.y
         for f in flakes {
             let p = spec.ndc(SIMD2(f.x, f.y))
-            let melt = 1 - max(0, (f.age / f.life - 0.6) / 0.4)
-            instances.append(SIMD4(p.x, p.y, f.size * width * (0.6 + 0.4 * melt), 0.9 * melt))
+            let melt: Float = 1 - max(0, (f.age / f.life - 0.6) / 0.4)
+            let size: Float = f.size * width * (0.6 + 0.4 * melt)
+            instances.append(SIMD4(p.x, p.y, size, 0.9 * melt))
             instances.append(SIMD4(f.rot, 0, 0, light))
         }
         for d in drips {
@@ -253,9 +257,11 @@ final class WindowGlassLayer {
             var clearing: Float = 0
             for p in patches {
                 let dx = s.x - p.x, dy = (s.y - p.y) * squash
-                let t = ((dx * dx + dy * dy).squareRoot() / p.radius - 0.55) / 0.45
-                let m = 1 - min(max(t, 0), 1) * min(max(t, 0), 1) * (3 - 2 * min(max(t, 0), 1))
-                clearing = max(clearing, min(max(p.warmth, 0), 1) * m)
+                let d: Float = (dx * dx + dy * dy).squareRoot()
+                let c: Float = min(max((d / p.radius - 0.55) / 0.45, 0), 1)
+                let m: Float = 1 - c * c * (3 - 2 * c)
+                let warmth: Float = min(max(p.warmth, 0), 1)
+                clearing = max(clearing, warmth * m)
             }
             if s.arrival < level * (1 - clearing) { frosted += 1 }
         }

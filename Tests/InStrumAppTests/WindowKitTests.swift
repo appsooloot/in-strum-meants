@@ -127,9 +127,14 @@ final class WindowKitTests: XCTestCase {
 
     /// Boxes inside a patch at the glass centre (radius 0.1 of the width) and just outside it, left and right.
     private func patchBoxes() -> (inside: (ClosedRange<Double>, ClosedRange<Double>), outside: [(ClosedRange<Double>, ClosedRange<Double>)]) {
-        let rx = 0.1 * 1.4, ry = 0.1 * (384.0 / 216.0) * 1.2
-        return ((-0.5 * rx)...(0.5 * rx), (-0.5 * ry)...(0.5 * ry),
-                [((1.25 * rx)...(1.7 * rx), -0.15...0.15), ((-1.7 * rx)...(-1.25 * rx), -0.15...0.15)])
+        let rx: Double = 0.1 * 1.4
+        let ry: Double = 0.1 * (384.0 / 216.0) * 1.2
+        let insideX: ClosedRange<Double> = (-0.5 * rx)...(0.5 * rx)
+        let insideY: ClosedRange<Double> = (-0.5 * ry)...(0.5 * ry)
+        let band: ClosedRange<Double> = -0.15...0.15
+        let right: ClosedRange<Double> = (1.25 * rx)...(1.7 * rx)
+        let left: ClosedRange<Double> = (-1.7 * rx)...(-1.25 * rx)
+        return ((insideX, insideY), [(right, band), (left, band)])
     }
 
     func testPatchesClearTheFrost() throws {
