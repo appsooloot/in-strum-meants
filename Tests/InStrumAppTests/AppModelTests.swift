@@ -232,13 +232,13 @@ final class AppModelTests: XCTestCase {
         let before = m.saveCount
         for i in 0..<60 { m.setAmbienceVolume(Double(i) / 60) }
         var s = SkySettings()
-        for i in 0..<60 { s.dayMinutes = Double(2 + i); m.setSky(s) }
+        for i in 0..<60 { s.dayMinutes = Double(2 + i * 58 / 59); m.setSky(s) }   // 2…60, the slider's range
         for i in 0..<60 { m.setAmbienceCloseness(Double(i) / 60) }
         XCTAssertEqual(m.saveCount, before, "dragging a slider never writes on every tick")
         try await Task.sleep(nanoseconds: 1_200_000_000)
         XCTAssertEqual(m.saveCount, before + 1, "one save once the drag settles")
         XCTAssertEqual(store.load().ambience.volume, 59.0 / 60, accuracy: 1e-9)
-        XCTAssertEqual(store.load().sky.dayMinutes, 61)
+        XCTAssertEqual(store.load().sky.dayMinutes, 60)
         // Discrete changes still save at once.
         m.setAmbienceEnabled(false)
         XCTAssertEqual(m.saveCount, before + 2)
