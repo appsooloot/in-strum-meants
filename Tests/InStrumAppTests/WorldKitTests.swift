@@ -959,3 +959,188 @@ final class SkyPreviewTests: XCTestCase {
         }
     }
 }
+
+/// Snowbound Cabin Window (Set 5's world) with Frost Grow and the Window Kit.
+@MainActor
+final class SnowboundCabinRendererTests: XCTestCase {
+    func testCabinShadersCompile() throws {
+        guard let device = MTLCreateSystemDefaultDevice() else { throw XCTSkip("No Metal device") }
+        let lib = try device.makeLibrary(source: SnowboundCabinShaders.source, options: nil)
+        for name in ["cabin_glass_vertex", "cabin_full_vertex", "cabin_scene_fragment", "cabin_spark_vertex", "cabin_spark_fragment",
+                     "cabin_room_fragment", "cabin_keys_vertex", "cabin_keys_fragment"] {
+            XCTAssertNotNil(lib.makeFunction(name: name), name)
+        }
+        let own = String(SnowboundCabinShaders.source.dropFirst(SkyShaders.common.count))
+        XCTAssertFalse(own.contains("pow("), "squares and powers are written out")
+    }
+
+    static func sky(hour: Double, weather: WeatherKind = .clear, phase: Double = 0.5) -> SkySettings {
+        var s = SkySettings(); s.timeMode = .frozen; s.frozenHour = hour; s.frozenPhase = phase; s.cityID = "melbourne"
+        s.weatherMode = .pick; s.weather = weather
+        return s
+    }
+
+    struct CabinShot { var image: CGImage; var renderer: SnowboundCabinRenderer; var frame: CabinFrame }
+
+    /// Steps the cabin at 60 fps (notes go down at `noteTime` and stay held) and renders the frame at `seconds`.
+    private func renderCabin(notes: [UInt8], velocity: Float = 1, noteTime: Double = 0.5, at seconds: Double,
+                             state: ThemeState = ThemeState(), sky: SkySettings = SnowboundCabinRendererTests.sky(hour: 22),
+                             quality: QualityLevel = .high,
+                             gentle: Bool = false, width: Int = 640, height: Int = 360,
+                             each: ((SnowboundCabinRenderer, CabinFrame) -> Void)? = nil) throws -> CabinShot {
+        guard let device = MTLCreateSystemDefaultDevice() else { throw XCTSkip("No Metal device") }
+        let preview = try XCTUnwrap(PreviewRenderer(width: width, height: height))
+        let r = try XCTUnwrap(SnowboundCabinRenderer(device: device))
+        XCTAssertTrue(r.awaitField(), "the frost field grows")
+        let d = SceneDirector(themeID: SnowboundCabinModel.id, state: state, reaction: ReactionPresets.expressivePianist)
+        let start = Date(timeIntervalSince1970: 1_793_000_000)
+        var elapsed = 0.0
+        d.clock = { start.addingTimeInterval(elapsed) }
+        d.sky.reset(settings: sky)
+        var frame: CabinFrame?
+        let size = CGSize(width: width, height: height)
+        let noteStep = Int((noteTime * 60).rounded())
+        for i in 1...Int(seconds * 60) {
+            let t = Double(i) / 60
+            elapsed = t
+            if i == max(1, noteStep), !notes.isEmpty { d.handle(notes.map { .noteOn(note: $0, velocity: velocity) }, at: t) }
+            frame = d.step(dt: 1.0 / 60, t: t, quality: quality) as? CabinFrame
+            if let frame {
+                r.update(frame, params: d.parameters, quality: quality, gentle: gentle, dt: 1.0 / 60, size: size)
+                each?(r, frame)
+            }
+        }
+        let f = try XCTUnwrap(frame)
+        return CabinShot(image: try XCTUnwrap(preview.capture(r)), renderer: r, frame: f)
+    }
+
+    func testCabinPreviewIsStructured() throws {
+        for q in [QualityLevel.lite, .high] {
+            for hour in [22.0, 18.9, 13.0] {
+                let shot = try renderCabin(notes: [], at: 1, sky: Self.sky(hour: hour), quality: q)
+                let s = PreviewRenderer.stats(shot.image)
+                XCTAssertGreaterThan(s.meanLuminance, 0.02, "\(q) \(hour)")
+                XCTAssertGreaterThan(s.variance, 0.002, "\(q) \(hour)")
+            }
+        }
+    }
+
+    func testFrostGrowsOnTheCabinGlass() throws {
+        let held = try renderCabin(notes: [48, 52, 55, 59], velocity: 0.5, at: 30)
+        let silent = try renderCabin(notes: [], at: 30)
+        XCTAssertGreaterThanOrEqual(held.renderer.glass.frostCoverage - silent.renderer.glass.frostCoverage, 0.15)
+        XCTAssertGreaterThan(held.frame.frostLevel, silent.frame.frostLevel)
+    }
+
+    /// The share of pixels in an NDC box whose luminance differs from the frost-free render by more than 0.05.
+    private func frosted(_ a: CGImage, _ bare: CGImage, x: ClosedRange<Double>, y: ClosedRange<Double>) -> Double {
+        let pa = FramePatch.pixels(a, x: x, y: y), pb = FramePatch.pixels(bare, x: x, y: y)
+        func luma(_ c: SIMD3<Double>) -> Double { 0.2126 * c.x + 0.7152 * c.y + 0.0722 * c.z }
+        var n = 0
+        for i in 0..<min(pa.count, pb.count) where abs(luma(pa[i]) - luma(pb[i])) > 0.05 { n += 1 }
+        return pa.isEmpty ? 0 : Double(n) / Double(pa.count)
+    }
+
+    func testNotesMeltPatches() throws {
+        // A snowy night (plenty of frost); one note held from 0.5 s melts a clear patch where its key sits.
+        let night = Self.sky(hour: 22, weather: .snow)
+        let shot = try renderCabin(notes: [60], velocity: 0.6, at: 5, sky: night)
+        let bare = try renderCabin(notes: [60], velocity: 0.6, at: 5, state: ThemeState(values: ["frost": .number(0)]), sky: night)
+        let patch = try XCTUnwrap(shot.frame.patches.first)
+        let rect = shot.renderer.windowRect
+        let cx = Double(rect.x + (rect.z - rect.x) * patch.x), cy = Double(rect.y + (rect.w - rect.y) * patch.y)
+        let ry = Double(patch.radius * (rect.w - rect.y)), rx = ry * 360 / 640
+        let inside = frosted(shot.image, bare.image, x: (cx - 0.5 * rx)...(cx + 0.5 * rx), y: (cy - 0.5 * ry)...(cy + 0.5 * ry))
+        let around = (frosted(shot.image, bare.image, x: (cx - 2.6 * rx)...(cx - 1.6 * rx), y: (cy - 0.5 * ry)...(cy + 0.5 * ry))
+                      + frosted(shot.image, bare.image, x: (cx + 1.6 * rx)...(cx + 2.6 * rx), y: (cy - 0.5 * ry)...(cy + 0.5 * ry))) / 2
+        XCTAssertLessThan(inside, around - 0.2, "inside \(inside), around \(around)")
+    }
+
+    func testCabinHonoursGentleVisuals() throws {
+        var plain: (flare: Float, glint: Float) = (0, 0), gentle: (flare: Float, glint: Float) = (0, 0)
+        _ = try renderCabin(notes: [60, 64, 67], at: 0.8) { r, _ in plain = (max(plain.flare, r.flareOut), max(plain.glint, r.glintOut)) }
+        _ = try renderCabin(notes: [60, 64, 67], at: 0.8, gentle: true) { r, _ in
+            gentle = (max(gentle.flare, r.flareOut), max(gentle.glint, r.glintOut))
+        }
+        XCTAssertGreaterThan(plain.flare, 0.3, "a chord flares the fire")
+        XCTAssertLessThanOrEqual(gentle.flare, plain.flare * 0.55)
+        XCTAssertLessThanOrEqual(gentle.glint, plain.glint * 0.55)
+    }
+
+    func testNoRainInsideTheCabin() throws {
+        let shot = try renderCabin(notes: [], at: 5, sky: Self.sky(hour: 22, weather: .rain))
+        XCTAssertEqual(shot.frame.sky.rain, 0)
+        XCTAssertGreaterThan(shot.frame.sky.snow, 0.5)
+        XCTAssertEqual(shot.renderer.weather.kind, 1, "snow, never rain streaks")
+        XCTAssertGreaterThan(shot.renderer.weather.particleCount, 0)
+        XCTAssertGreaterThan(shot.renderer.glass.stuckFlakeCount, 0, "flakes land on the glass")
+    }
+
+    func testCabinFramesAnyAspect() throws {
+        for (w, h) in [(864, 360), (360, 360)] {
+            let shot = try renderCabin(notes: [60, 64, 67], at: 1, width: w, height: h)
+            let r = shot.renderer.windowRect
+            let aspect = Float(w) / Float(h)
+            XCTAssertGreaterThanOrEqual(r.x - 0.05, -1, "\(w)×\(h)"); XCTAssertLessThanOrEqual(r.z + 0.05, 1, "\(w)×\(h)")
+            XCTAssertGreaterThanOrEqual(r.y, -1, "\(w)×\(h)"); XCTAssertLessThanOrEqual(r.w + 0.05 * aspect, 1, "\(w)×\(h)")
+            XCTAssertEqual(shot.renderer.keyRects.count, 88)
+            for k in shot.renderer.keyRects {
+                XCTAssertGreaterThanOrEqual(k.x, -1); XCTAssertLessThanOrEqual(k.z, 1)
+                XCTAssertGreaterThanOrEqual(k.y, -1); XCTAssertLessThanOrEqual(k.w, 1)
+            }
+            let s = PreviewRenderer.stats(shot.image)
+            XCTAssertGreaterThan(s.variance, 0.001, "\(w)×\(h)")
+        }
+    }
+
+    func testCabinBurstStaysInBudget() throws {
+        guard let device = MTLCreateSystemDefaultDevice() else { throw XCTSkip("No Metal device") }
+        let preview = try XCTUnwrap(PreviewRenderer(width: 640, height: 360))
+        let r = try XCTUnwrap(SnowboundCabinRenderer(device: device))
+        let d = SceneDirector(themeID: SnowboundCabinModel.id, state: ThemeState(), reaction: ReactionPresets.expressivePianist)
+        d.sky.reset(settings: Self.sky(hour: 22))
+        for q in [QualityLevel.lite, .high] {
+            let start = Date()
+            for i in 0..<60 {
+                let t = Double(i) / 60
+                if i < 60 { d.handle((0..<34).map { k in .noteOn(note: UInt8(21 + (i * 34 + k) % 88), velocity: 0.8) }, at: t) }
+                let f = try XCTUnwrap(d.step(dt: 1.0 / 60, t: t, quality: q) as? CabinFrame)
+                r.update(f, params: d.parameters, quality: q, gentle: false, dt: 1.0 / 60, size: CGSize(width: 640, height: 360))
+                XCTAssertLessThanOrEqual(r.patchCount, SnowboundCabinRenderer.patchBudget(q))
+                XCTAssertNotNil(preview.capture(r))
+            }
+            XCTAssertLessThan(Date().timeIntervalSince(start), 4, "\(q)")
+        }
+    }
+}
+
+extension WorldPreviewTests {
+    func testWriteCabinPreviews() throws {
+        guard let dir = ProcessInfo.processInfo.environment["PREVIEW_DIR"] else { throw XCTSkip("PREVIEW_DIR not set") }
+        guard MTLCreateSystemDefaultDevice() != nil else { throw XCTSkip("No Metal device") }
+        let url = URL(fileURLWithPath: dir, isDirectory: true)
+        try FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
+        let preview = try XCTUnwrap(PreviewRenderer(width: 1280, height: 720))
+        let follow = ThemeState()
+        let pastel = ThemeState(values: ["light.hold": .choice(SkyHold.pastelDawn.rawValue)])
+        let golden = ThemeState(values: ["light.hold": .choice(SkyHold.goldenHour.rawValue)])
+        let warp = ThemeState(values: ["visual": .choice("Galaxy Warp")])
+        let sky = SnowboundCabinRendererTests.sky
+        let cases: [(String, SkySettings, ThemeState, QualityLevel, Double)] = [
+            ("cabin-night", sky(22, .clear, 0.5), follow, .high, 5),
+            ("cabin-golden", sky(13, .clear, 0.5), golden, .high, 5),
+            ("cabin-noon-halo", sky(13, .lightCloud, 0.5), follow, .high, 5),
+            ("cabin-pastel-dawn", sky(13, .lightCloud, 0.5), pastel, .high, 5),
+            ("cabin-blizzard", sky(15, .blizzard, 0.5), follow, .high, 5),
+            ("cabin-snow", sky(21, .snow, 0.5), follow, .high, 5),
+            ("cabin-smooth", sky(22, .clear, 0.5), follow, .lite, 5),
+            ("cabin-frost-t30", sky(22, .clear, 0.5), follow, .high, 30),
+            ("cabin-warp-t7", sky(22, .clear, 0.5), warp, .high, 7),
+        ]
+        for (name, s, state, q, t) in cases {
+            let image = try XCTUnwrap(preview.render(themeID: SnowboundCabinModel.id, at: [t], state: state, quality: q, sky: s,
+                                                     mood: .hushedWarm).first)
+            try PreviewRenderer.writePNG(image, to: url.appendingPathComponent("\(name).png"))
+        }
+    }
+}
