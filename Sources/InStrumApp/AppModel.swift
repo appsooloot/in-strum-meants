@@ -85,6 +85,8 @@ public final class AppModel: ObservableObject {
             ?? ReactionPresets.expressivePianist
         self.offersSafeMode = launchGuard.beginLaunch()
         live.withLockUnchecked { $0.touch = loaded.touchCurve }
+        let closeness = loaded.ambience.closeness
+        ambienceLive.withLockUnchecked { $0.closeness = closeness }
     }
 
     // MARK: - Launch and instruments
@@ -99,6 +101,8 @@ public final class AppModel: ObservableObject {
             status = .needsInstrument(message: "Sound output couldn't start. Check your speakers or headphones, then reopen the app.")
             return
         }
+        engine.ambienceVolume = Float(settings.ambience.volume)
+        engine.ambienceEnabled = settings.ambience.enabled
         await engine.startAmbience()
         startAutosave()
         if offersSafeMode && skipPluginInSafeMode {
@@ -321,12 +325,66 @@ public final class AppModel: ObservableObject {
         autosave()
     }
 
-    // MARK: - Ambience (RED stubs)
+    // MARK: - Ambience
 
-    public nonisolated func updateAmbience(_ s: AmbienceScene, at t: Double = ProcessInfo.processInfo.systemUptime) {}
-    public func setAmbienceEnabled(_ on: Bool) {}
-    public func setAmbienceVolume(_ v: Double) {}
-    public func setAmbienceCloseness(_ c: Double) {}
+    /// At most this often (seconds) does a world's soundscape reach the engine.
+    nonisolated static let ambienceInterval = 0.1
+    private struct AmbienceLive {
+        var sent: AmbienceScene?
+        var lastSend = -Double.infinity
+        var pendingThunder: Double?
+        var closeness = 0.5
+    }
+    nonisolated private let ambienceLive = OSAllocatedUnfairLock(uncheckedState: AmbienceLive())
+
+    public var ambienceSettings: AmbienceSettings { settings.ambience }
+
+    /// From the render loop (any thread): hands the world's soundscape to the engine at most ten times a second,
+    /// and only when it has really changed (a level by > 0.01, the activity by > 0.05) or thunder is due.
+    /// The user's closeness leans the world's own closeness; a thunderclap held back by the throttle goes next time.
+    public nonisolated func updateAmbience(_ s: AmbienceScene, at t: Double = ProcessInfo.processInfo.systemUptime) {
+        let out: AmbienceScene? = ambienceLive.withLockUnchecked { a in
+            var scene = s
+            scene.closeness = min(1, max(0, s.closeness + (a.closeness - 0.5)))
+            if let thunder = s.thunder { a.pendingThunder = thunder }
+            scene.thunder = a.pendingThunder
+            guard t - a.lastSend >= Self.ambienceInterval - 1e-9 else { return nil }
+            if scene.thunder == nil, let previous = a.sent, !Self.ambienceChanged(previous, scene) { return nil }
+            a.sent = scene
+            a.lastSend = t
+            a.pendingThunder = nil
+            return scene
+        }
+        if let out { engine.setAmbience(out) }
+    }
+
+    nonisolated static func ambienceChanged(_ a: AmbienceScene, _ b: AmbienceScene) -> Bool {
+        let sources = Set(a.levels.keys).union(b.levels.keys)
+        if sources.contains(where: { abs(a.level($0) - b.level($0)) > 0.01 }) { return true }
+        if abs(a.activity - b.activity) > 0.05 { return true }
+        return abs(a.nightCool - b.nightCool) > 0.01 || abs(a.closeness - b.closeness) > 0.01 || abs(a.density - b.density) > 0.01
+    }
+
+    public func setAmbienceEnabled(_ on: Bool) {
+        settings.ambience.enabled = on
+        engine.ambienceEnabled = on
+        autosave()
+    }
+
+    /// 0…1.
+    public func setAmbienceVolume(_ v: Double) {
+        settings.ambience.volume = min(1, max(0, v))
+        engine.ambienceVolume = Float(settings.ambience.volume)
+        autosave()
+    }
+
+    /// 0 distant … 1 all around you.
+    public func setAmbienceCloseness(_ c: Double) {
+        settings.ambience.closeness = min(1, max(0, c))
+        let closeness = settings.ambience.closeness
+        ambienceLive.withLockUnchecked { $0.closeness = closeness; $0.sent = nil }   // resend with the new closeness
+        autosave()
+    }
 
     public func setGentleVisuals(_ on: Bool) {
         gentleVisuals = on; settings.gentleVisuals = on; visualsVersion += 1; autosave()

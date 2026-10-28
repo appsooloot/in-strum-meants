@@ -34,8 +34,8 @@ final class ThemeCanvas: NSObject, MTKViewDelegate {
         director.sky.reset(settings: model.skySettings)   // launch with the chosen weather, not a blend into it
     }
 
-    /// What the ambience should play for a frame (RED stub).
-    static func ambience(for frame: Any) -> AmbienceScene { AmbienceScene(levels: [.water: 1]) }
+    /// What the ambience should play for a frame: a world's own soundscape, silence for the other themes.
+    static func ambience(for frame: Any) -> AmbienceScene { (frame as? AmbienceProviding)?.ambience ?? .silent }
 
     func mtkView(_ view: MTKView, drawableSizeWillChange size: CGSize) {
         MainActor.assumeIsolated { stack?.resize(width: Int(size.width), height: Int(size.height)) }
@@ -87,6 +87,7 @@ final class ThemeCanvas: NSObject, MTKViewDelegate {
         hub.set(.width, sound.width, at: now)
         for (address, value) in model.drainDialChanges() { hub.set(.dial(address), value, at: now) }
         let frame = director.step(dt: dt, t: now, quality: level)
+        model.updateAmbience(Self.ambience(for: frame), at: now)
 
         let renderer: ThemeRenderer?
         if let g = frame as? GardenFrame {
