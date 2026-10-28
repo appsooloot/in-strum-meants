@@ -1144,3 +1144,209 @@ extension WorldPreviewTests {
         }
     }
 }
+
+/// Bedroom Window at Dawn (Set 6's world) with Curtain Light and the Window Kit.
+@MainActor
+final class BedroomDawnRendererTests: XCTestCase {
+    func testBedroomShadersCompile() throws {
+        guard let device = MTLCreateSystemDefaultDevice() else { throw XCTSkip("No Metal device") }
+        let lib = try device.makeLibrary(source: BedroomDawnShaders.source, options: nil)
+        for name in ["bed_glass_vertex", "bed_full_vertex", "bed_scene_fragment", "bed_room_fragment", "bed_shaft_fragment",
+                     "bed_curtain_vertex", "bed_curtain_fragment", "bed_sprite_vertex", "bed_sprite_fragment",
+                     "bed_keys_vertex", "bed_keys_fragment"] {
+            XCTAssertNotNil(lib.makeFunction(name: name), name)
+        }
+        let own = String(BedroomDawnShaders.source.dropFirst(SkyShaders.common.count))
+        XCTAssertFalse(own.contains("pow("), "squares and powers are written out")
+    }
+
+    nonisolated static func sky(hour: Double, weather: WeatherKind = .clear, phase: Double = 0.5) -> SkySettings {
+        var s = SkySettings(); s.timeMode = .frozen; s.frozenHour = hour; s.frozenPhase = phase; s.cityID = "melbourne"
+        s.weatherMode = .pick; s.weather = weather
+        return s
+    }
+
+    struct BedroomShot { var image: CGImage; var renderer: BedroomDawnRenderer; var frame: BedroomFrame }
+
+    /// Steps the bedroom at 60 fps (notes go down at 0.5 s and stay held) and renders the frame at `seconds`.
+    private func renderBedroom(notes: [UInt8], at seconds: Double, state: ThemeState = ThemeState(),
+                               sky: SkySettings = BedroomDawnRendererTests.sky(hour: 13), quality: QualityLevel = .high,
+                               gentle: Bool = false, width: Int = 640, height: Int = 360,
+                               skyEdit: ((inout SkyState) -> Void)? = nil,
+                               each: ((BedroomDawnRenderer, BedroomFrame) -> Void)? = nil) throws -> BedroomShot {
+        guard let device = MTLCreateSystemDefaultDevice() else { throw XCTSkip("No Metal device") }
+        let preview = try XCTUnwrap(PreviewRenderer(width: width, height: height))
+        let r = try XCTUnwrap(BedroomDawnRenderer(device: device))
+        XCTAssertTrue(r.awaitField())
+        let d = SceneDirector(themeID: BedroomDawnModel.id, state: state, reaction: ReactionPresets.expressivePianist)
+        let start = Date(timeIntervalSince1970: 1_793_000_000)
+        var elapsed = 0.0
+        d.clock = { start.addingTimeInterval(elapsed) }
+        d.sky.reset(settings: sky)
+        var frame: BedroomFrame?
+        let size = CGSize(width: width, height: height)
+        for i in 1...Int(seconds * 60) {
+            let t = Double(i) / 60
+            elapsed = t
+            if i == 30, !notes.isEmpty { d.handle(notes.map { .noteOn(note: $0, velocity: 0.8) }, at: t) }
+            frame = d.step(dt: 1.0 / 60, t: t, quality: quality) as? BedroomFrame
+            if let edit = skyEdit, frame != nil { edit(&frame!.sky) }
+            if let frame {
+                r.update(frame, params: d.parameters, quality: quality, gentle: gentle, dt: 1.0 / 60, size: size)
+                each?(r, frame)
+            }
+        }
+        let f = try XCTUnwrap(frame)
+        return BedroomShot(image: try XCTUnwrap(preview.capture(r)), renderer: r, frame: f)
+    }
+
+    private func luma(_ c: SIMD3<Double>) -> Double { 0.2126 * c.x + 0.7152 * c.y + 0.0722 * c.z }
+
+    func testBedroomPreviewIsStructured() throws {
+        let pastel = ThemeState()
+        let follow = ThemeState(values: ["light.hold": .choice(SkyHold.follow.rawValue)])
+        for q in [QualityLevel.lite, .high] {
+            for (state, hour) in [(pastel, 13.0), (follow, 13.0), (follow, 20.3), (follow, 23.0)] {
+                let shot = try renderBedroom(notes: [], at: 1, state: state, sky: Self.sky(hour: hour), quality: q)
+                let s = PreviewRenderer.stats(shot.image)
+                XCTAssertGreaterThan(s.meanLuminance, 0.02, "\(q) \(hour)")
+                XCTAssertGreaterThan(s.variance, 0.002, "\(q) \(hour)")
+            }
+        }
+    }
+
+    /// The floor below the window, in NDC.
+    private func floorBox(_ r: BedroomDawnRenderer) -> (ClosedRange<Double>, ClosedRange<Double>) {
+        let rect = r.windowRect
+        return (Double(rect.x - 0.3)...Double(rect.z + 0.3), Double(r.floorLine - 0.16)...Double(r.floorLine - 0.02))
+    }
+
+    func testHoldingNotesBrightensTheRoom() throws {
+        let held = try renderBedroom(notes: [60, 64, 67, 71], at: 4.5)
+        let silent = try renderBedroom(notes: [], at: 4.5)
+        let (x, y) = floorBox(held.renderer)
+        let a = luma(FramePatch.meanRGB(held.image, x: x, y: y)), b = luma(FramePatch.meanRGB(silent.image, x: x, y: y))
+        XCTAssertGreaterThanOrEqual(a, 1.15 * b, "held \(a), silent \(b)")
+    }
+
+    func testShaftsFallThroughThePanes() throws {
+        // The same dawn with and without Morning light: the difference is the shafts (and the floor patch).
+        let shot = try renderBedroom(notes: [], at: 1, state: ThemeState(values: ["light": .number(1)]))
+        let dark = try renderBedroom(notes: [], at: 1, state: ThemeState(values: ["light": .number(0)]))
+        XCTAssertGreaterThan(shot.renderer.shaftOut, 0.05, "the dawn sun shines in")
+        XCTAssertEqual(dark.renderer.shaftOut, 0)
+        let r = shot.renderer
+        let pane = try XCTUnwrap(r.glassPanesNDC().min { ($0.y, -$0.x) < ($1.y, -$1.x) })   // the bottom-right pane
+        let centre = SIMD2<Float>((pane.x + pane.z) / 2, (pane.y + pane.w) / 2)
+        let dir = r.beamDirection
+        var perp = SIMD2<Float>(-dir.y, dir.x)
+        if perp.x < 0 { perp = -perp }
+        let along = centre + dir * 0.25
+        let side = along + perp * 0.3
+        func gain(_ p: SIMD2<Float>) -> Double {
+            let x = Double(p.x - 0.015)...Double(p.x + 0.015), y = Double(p.y - 0.015)...Double(p.y + 0.015)
+            return luma(FramePatch.meanRGB(shot.image, x: x, y: y)) - luma(FramePatch.meanRGB(dark.image, x: x, y: y))
+        }
+        XCTAssertGreaterThan(gain(along), gain(side) + 0.01, "a beam below the pane, not beside it")
+    }
+
+    func testBedroomHonoursGentleVisuals() throws {
+        var plain: (glint: Float, glow: Float) = (0, 0), gentle: (glint: Float, glow: Float) = (0, 0)
+        _ = try renderBedroom(notes: [72, 84, 96], at: 3) { r, _ in plain = (max(plain.glint, r.glintOut), max(plain.glow, r.glowOut)) }
+        _ = try renderBedroom(notes: [72, 84, 96], at: 3, gentle: true) { r, _ in gentle = (max(gentle.glint, r.glintOut), max(gentle.glow, r.glowOut)) }
+        XCTAssertGreaterThan(plain.glow, 0.3)
+        XCTAssertLessThanOrEqual(gentle.glint, plain.glint * 0.55)
+        XCTAssertLessThanOrEqual(gentle.glow, plain.glow * 0.55)
+    }
+
+    func testStreetShinesAfterRain() throws {
+        let night = BedroomDawnRendererTests.sky(hour: 22)
+        let follow = ThemeState(values: ["light.hold": .choice(SkyHold.follow.rawValue)])
+        let wet = try renderBedroom(notes: [], at: 1, state: follow, sky: night) { $0.wetness = 0.9 }
+        let dry = try renderBedroom(notes: [], at: 1, state: follow, sky: night) { $0.wetness = 0 }
+        let rect = wet.renderer.windowRect
+        let h = Double(rect.w - rect.y)
+        let x = Double(rect.x + 0.02)...Double(rect.z - 0.02)
+        let y = (Double(rect.y) + 0.12 * h)...(Double(rect.y) + 0.3 * h)
+        let pw = FramePatch.pixels(wet.image, x: x, y: y).map(luma), pd = FramePatch.pixels(dry.image, x: x, y: y).map(luma)
+        func variance(_ v: [Double]) -> Double { let m = v.reduce(0, +) / Double(max(1, v.count)); return v.reduce(0) { $0 + ($1 - m) * ($1 - m) } / Double(max(1, v.count)) }
+        let mw = pw.reduce(0, +) / Double(max(1, pw.count)), md = pd.reduce(0, +) / Double(max(1, pd.count))
+        XCTAssertGreaterThan(mw + variance(pw) * 10, md + variance(pd) * 10, "wet \(mw) dry \(md)")
+    }
+
+    func testBedroomFramesAnyAspect() throws {
+        for (w, h) in [(864, 360), (360, 360)] {
+            let shot = try renderBedroom(notes: [60, 64, 67], at: 1.5, width: w, height: h)
+            let r = shot.renderer
+            let aspect = Float(w) / Float(h)
+            XCTAssertGreaterThanOrEqual(r.windowRect.x - 0.045, -1, "\(w)×\(h)")
+            XCTAssertLessThanOrEqual(r.windowRect.z + 0.045, 1, "\(w)×\(h)")
+            XCTAssertLessThanOrEqual(r.windowRect.w + 0.045 * aspect, 1, "\(w)×\(h)")
+            XCTAssertEqual(r.curtainPoints.count, 2 * 24 * 32)
+            for p in r.curtainPoints { XCTAssertTrue((-1...1).contains(p.x) && (-1...1).contains(p.y)) }
+            XCTAssertEqual(r.keyRects.count, 88)
+            for k in r.keyRects {
+                XCTAssertGreaterThanOrEqual(k.x, -1); XCTAssertLessThanOrEqual(k.z, 1)
+                XCTAssertGreaterThanOrEqual(k.y, -1); XCTAssertLessThanOrEqual(k.w, 1)
+            }
+            XCTAssertGreaterThan(r.shaftOut, 0.05, "\(w)×\(h): the shafts still fall")
+            XCTAssertGreaterThan(r.floorLine, -1, "\(w)×\(h): the floor is in view")
+            XCTAssertGreaterThan(PreviewRenderer.stats(shot.image).variance, 0.001)
+        }
+    }
+
+    func testBedroomBurstStaysInBudget() throws {
+        guard let device = MTLCreateSystemDefaultDevice() else { throw XCTSkip("No Metal device") }
+        let preview = try XCTUnwrap(PreviewRenderer(width: 640, height: 360))
+        let r = try XCTUnwrap(BedroomDawnRenderer(device: device))
+        let d = SceneDirector(themeID: BedroomDawnModel.id, state: ThemeState(), reaction: ReactionPresets.expressivePianist)
+        d.sky.reset(settings: Self.sky(hour: 13))
+        for q in [QualityLevel.lite, .high] {
+            let start = Date()
+            for i in 0..<60 {
+                let t = Double(i) / 60
+                d.handle((0..<34).map { k in .noteOn(note: UInt8(21 + (i * 34 + k) % 88), velocity: 0.8) }, at: t)
+                let f = try XCTUnwrap(d.step(dt: 1.0 / 60, t: t, quality: q) as? BedroomFrame)
+                r.update(f, params: d.parameters, quality: q, gentle: false, dt: 1.0 / 60, size: CGSize(width: 640, height: 360))
+                XCTAssertEqual(r.curtainVertexCount, 2 * 24 * 32)
+                XCTAssertNotNil(preview.capture(r))
+            }
+            XCTAssertLessThan(Date().timeIntervalSince(start), 4, "\(q)")
+        }
+        XCTAssertLessThanOrEqual(r.bufferAllocations, 3, "curtain vertices and sprites reuse a ring of three")
+    }
+}
+
+extension WorldPreviewTests {
+    func testWriteBedroomPreviews() throws {
+        guard let dir = ProcessInfo.processInfo.environment["PREVIEW_DIR"] else { throw XCTSkip("PREVIEW_DIR not set") }
+        guard MTLCreateSystemDefaultDevice() != nil else { throw XCTSkip("No Metal device") }
+        let url = URL(fileURLWithPath: dir, isDirectory: true)
+        try FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
+        let preview = try XCTUnwrap(PreviewRenderer(width: 1280, height: 720))
+        let pastel = ThemeState()
+        let follow = ThemeState(values: ["light.hold": .choice(SkyHold.follow.rawValue)])
+        let golden = ThemeState(values: ["light.hold": .choice(SkyHold.goldenHour.rawValue)])
+        let frost = ThemeState(values: ["visual": .choice("Frost Grow"), "light.hold": .choice(SkyHold.follow.rawValue)])
+        let open = ThemeState(values: ["window.open": .bool(true)])
+        let sky = BedroomDawnRendererTests.sky
+        let cases: [(String, SkySettings, ThemeState, QualityLevel, Double)] = [
+            ("bedroom-pastel-dawn", sky(13, .clear, 0.5), pastel, .high, 5),
+            ("bedroom-golden", sky(13, .clear, 0.5), golden, .high, 5),
+            ("bedroom-noon", sky(12.5, .lightCloud, 0.5), follow, .high, 5),
+            ("bedroom-night-fairy", sky(22.5, .clear, 0.5), follow, .high, 5),
+            ("bedroom-after-rain", sky(8.5, .afterRain, 0.5), follow, .high, 5),
+            ("bedroom-rain", sky(9, .rain, 0.5), follow, .high, 5),
+            ("bedroom-snow", sky(7.5, .snow, 0.5), follow, .high, 5),
+            ("bedroom-smooth", sky(13, .clear, 0.5), pastel, .lite, 5),
+            ("bedroom-light-t4", sky(13, .clear, 0.5), pastel, .high, 4),
+            ("bedroom-frost-t20", sky(6.5, .snow, 0.5), frost, .high, 20),
+            ("bedroom-window-open", sky(13, .clear, 0.5), open, .high, 5),
+        ]
+        for (name, s, state, q, t) in cases {
+            let image = try XCTUnwrap(preview.render(themeID: BedroomDawnModel.id, at: [t], state: state, quality: q, sky: s,
+                                                     mood: .softWaking).first)
+            try PreviewRenderer.writePNG(image, to: url.appendingPathComponent("\(name).png"))
+        }
+    }
+}
