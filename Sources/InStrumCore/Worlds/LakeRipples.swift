@@ -85,7 +85,7 @@ public struct LakeRipples {
 
         // A chord: three or more notes within 50 ms lift fireflies (once per chord).
         recent.append((t, x))
-        recent.removeAll { t - $0.t > Self.chordWindow }
+        while let first = recent.first, t - first.t > Self.chordWindow { recent.removeFirst() }
         if recent.count >= 3, t - lastChord > Self.chordWindow {
             lastChord = t
             let mean = recent.map(\.x).reduce(0, +) / Float(recent.count)

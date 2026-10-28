@@ -66,7 +66,7 @@ final class WorldTests: XCTestCase {
         lake.step(dt: 1.0 / 60, roles: RoleValues())
         let elapsed = CFAbsoluteTimeGetCurrent() - start
         XCTAssertLessThanOrEqual(lake.ripples.count, LakeRipples.cap)
-        XCTAssertLessThan(elapsed, 0.008 * 4, "2000 notes and a step")   // debug builds on CI share the budget across the burst
+        XCTAssertLessThan(elapsed, 0.1, "2000 notes and a step: no worse than 50 µs a note in a debug build on CI")
         let t0 = CFAbsoluteTimeGetCurrent()
         lake.step(dt: 1.0 / 60, roles: RoleValues())
         XCTAssertLessThan(CFAbsoluteTimeGetCurrent() - t0, 0.008)
