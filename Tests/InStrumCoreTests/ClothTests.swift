@@ -66,13 +66,14 @@ final class ClothTests: XCTestCase {
         var c = panel(seed: 9)
         var puffs: [Cloth.Puff] = []
         var worstOnClamp = 0
+        let onTheClamp: Float = Cloth.maxDisplacement - 1e-3
         for i in 0..<(10 * 60 * 60) {
             if i % 6 == 0 { puffs.append(Cloth.Puff(x: Float((i / 6) % 10) / 10, strength: 1, age: 0)) }
             for k in puffs.indices { puffs[k].age += 1.0 / 60 }
             puffs.removeAll { $0.age > 1.2 }
             c.step(dt: 1.0 / 60, wind: 1, puffs: puffs)
             var onClamp = 0
-            for (p, r) in zip(c.positions, c.restPositions) where simd_length(p - r) > Cloth.maxDisplacement - 1e-3 { onClamp += 1 }
+            for (p, r) in zip(c.positions, c.restPositions) where simd_length(p - r) > onTheClamp { onClamp += 1 }
             worstOnClamp = max(worstOnClamp, onClamp)
         }
         for (p, r) in zip(c.positions, c.restPositions) {
@@ -83,7 +84,12 @@ final class ClothTests: XCTestCase {
         run(&c, seconds: 5, wind: 0)
         let before = c.positions
         run(&c, seconds: 1.0 / 60, wind: 0)
-        let speed = zip(c.positions, before).map { Double(simd_length($0 - $1)) * 60 }.reduce(0, +) / Double(before.count)
+        var total: Double = 0
+        for (now, then) in zip(c.positions, before) {
+            let moved: Float = simd_length(now - then)
+            total += Double(moved) * 60
+        }
+        let speed: Double = total / Double(before.count)
         XCTAssertLessThan(speed, 0.01, "settled within 5 s (m/s)")
     }
 

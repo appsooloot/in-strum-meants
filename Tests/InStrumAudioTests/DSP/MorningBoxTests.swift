@@ -282,7 +282,8 @@ final class MorningBoxTests: XCTestCase {
             let f = midiHz(Double(n))
             XCTAssertGreaterThan(db(band(a, f * 0.971, f * 1.029)) - db(band(c, f * 0.971, f * 1.029)), -3, "chord note \(n)")
         }
-        let residual = (0..<full.count).map { full[$0] - heldOnly[$0] - alone[$0] }
+        var residual = [Float](repeating: 0, count: full.count)
+        for i in 0..<full.count { residual[i] = full[i] - heldOnly[i] - alone[i] }
         XCTAssertLessThan(DSPTestKit.maxJump(R.slice(residual, 1.999, 2.04)), 0.01)
     }
 
