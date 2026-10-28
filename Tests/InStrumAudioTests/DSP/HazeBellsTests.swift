@@ -102,7 +102,8 @@ final class HazeBellsTests: XCTestCase {
     }
 
     func testStealingIsClickFree() {
-        let events = [R.pedal(0, 127)] + (0..<30).map { R.noteOn(0.01 + Double($0) * 0.1, UInt8(48 + $0), 100) }
+        var events: [SynthRender.Event] = [R.pedal(0, 127)]
+        for i in 0..<30 { events.append(R.noteOn(0.01 + Double(i) * 0.1, UInt8(48 + i), 100)) }
         let out = R.render(bells, seconds: 4, params: dry, events: events)
         XCTAssertTrue(out.l.allSatisfy(\.isFinite) && out.r.allSatisfy(\.isFinite))
         XCTAssertLessThan(DSPTestKit.maxJump(out.l), 0.2)
@@ -146,7 +147,8 @@ final class HazeBellsTests: XCTestCase {
         let dials = [ISD_P_BELLS, ISD_P_ORGAN, ISD_P_ECHO, ISD_P_CRUSH, ISD_P_DRIFT, ISD_P_SPACE].map { Int($0) }
         for value: Float in [0, 1] {
             let p = Dictionary(uniqueKeysWithValues: dials.map { ($0, value) })
-            let events = [R.pedal(0, 127)] + (0..<12).map { R.noteOn(0.01 + Double($0) * 0.05, UInt8(36 + $0 * 5), 127) }
+            var events: [SynthRender.Event] = [R.pedal(0, 127)]
+            for i in 0..<12 { events.append(R.noteOn(0.01 + Double(i) * 0.05, UInt8(36 + i * 5), 127)) }
             let out = R.render(bells, seconds: 5, params: p, events: events)
             XCTAssertTrue(out.l.allSatisfy { $0.isFinite && abs($0) <= 1 } && out.r.allSatisfy { $0.isFinite && abs($0) <= 1 }, "dials at \(value)")
         }
