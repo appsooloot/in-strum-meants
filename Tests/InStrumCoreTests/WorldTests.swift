@@ -430,6 +430,15 @@ final class WorldTests: XCTestCase {
         for (name, scene) in scenes(raining) { XCTAssertEqual(scene.level(.drips), 0, name) }
     }
 
+    func testBirdsSingUnderARainbowEverywhereOutdoors() {
+        var shower = daySky(); shower.rain = 0.3; shower.rainbow = 1
+        for (name, scene) in scenes(shower) { XCTAssertGreaterThanOrEqual(scene.level(.dawnChorus), 0.4 - 1e-9, name) }
+        var none = daySky(); none.rain = 0.3
+        for (name, scene) in scenes(none) { XCTAssertEqual(scene.level(.dawnChorus), 0, accuracy: 0.0001, "\(name): no bow, no daytime birdsong") }
+        var storm = shower; storm.rain = 0.9
+        for (name, scene) in scenes(storm) { XCTAssertEqual(scene.level(.dawnChorus), 0, accuracy: 0.0001, "\(name): not in heavy rain") }
+    }
+
     func testBlizzardHowlsEverywhere() {
         var blizzard = daySky(); blizzard.snow = 1; blizzard.gust = 1; blizzard.wind = 1
         for (name, scene) in scenes(blizzard) { XCTAssertGreaterThanOrEqual(scene.level(.wind), 0.95, name) }
