@@ -397,6 +397,14 @@ extension LivingSkyTests {
         XCTAssertEqual(big.sunSize, 3, "clamped to 3×")
     }
 
+    func testResetAdvancedKeepsTheChoicesButRestoresTheDials() {
+        var s = SkySettings(); s.cityID = "tokyo"; s.weather = .hail; s.weatherMode = .pick; s.frozenHour = 5
+        s.windScale = 2; s.moonSize = 3; s.calmRandom = true; s.pickBlendSeconds = 99; s.lightningFrequency = 3
+        s.resetAdvanced()
+        var d = SkySettings(); d.cityID = "tokyo"; d.weather = .hail; d.weatherMode = .pick; d.frozenHour = 5
+        XCTAssertEqual(s, d)
+    }
+
     func testRainMeltsFrost() {
         let s = sky(.snow)
         XCTAssertEqual(s.step(now: start, dt: 0).frost, 0.6, accuracy: 0.01)

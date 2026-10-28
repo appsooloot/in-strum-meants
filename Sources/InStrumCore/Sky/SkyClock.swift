@@ -44,6 +44,17 @@ public struct SkySettings: Codable, Equatable {
 
     public init() {}
 
+    /// Puts every Advanced weather and sky setting back to its designed value (keeps time, city and the weather choice).
+    public mutating func resetAdvanced() {
+        let d = SkySettings()
+        pickBlendSeconds = d.pickBlendSeconds; randomBlendSeconds = d.randomBlendSeconds; spellMinutes = d.spellMinutes
+        rainbowStrength = d.rainbowStrength; dryingMinutes = d.dryingMinutes
+        windScale = d.windScale; mistScale = d.mistScale; haloScale = d.haloScale; frostScale = d.frostScale
+        rainScale = d.rainScale; snowScale = d.snowScale; gustScale = d.gustScale; calmRandom = d.calmRandom
+        lightningFrequency = d.lightningFrequency; cloudScale = d.cloudScale; starScale = d.starScale
+        moonSize = d.moonSize; sunSize = d.sunSize
+    }
+
     enum CodingKeys: String, CodingKey { case timeMode, dayMinutes, frozenHour, frozenPhase, cityID, weatherMode, weather, pickBlendSeconds, randomBlendSeconds, spellMinutes, rainbowStrength, dryingMinutes, windScale, mistScale, haloScale, frostScale, rainScale, snowScale, gustScale, calmRandom, lightningFrequency, cloudScale, starScale, moonSize, sunSize }
 
     /// Each field falls back on its own, and numbers are clamped, so one bad value never loses the rest.
