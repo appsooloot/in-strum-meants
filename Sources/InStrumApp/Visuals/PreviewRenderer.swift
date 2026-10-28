@@ -28,8 +28,15 @@ final class PreviewRenderer {
 
     /// Simulates the demo performance at 60 fps through the app's SceneDirector and captures
     /// a frame of `themeID` at each time (seconds).
-    func render(themeID: String, at times: [Double], state: ThemeState = ThemeState(), quality: QualityLevel = .high) -> [CGImage] {
+    /// `sky` overrides the Living Sky for worlds (frozen settings give repeatable frames); `mood` sets the set's mood.
+    func render(themeID: String, at times: [Double], state: ThemeState = ThemeState(), quality: QualityLevel = .high,
+                sky: SkySettings? = nil, mood: Mood = .neutral) -> [CGImage] {
         let director = SceneDirector(themeID: themeID, state: state, reaction: ReactionPresets.expressivePianist)
+        let start = Date(timeIntervalSince1970: 1_793_000_000)   // a fixed wall clock, so previews repeat
+        var elapsed = 0.0
+        director.clock = { start.addingTimeInterval(elapsed) }
+        if let sky { director.sky.settings = sky }
+        director.mood = mood
         var perf = PerformanceState()
         let script = ScriptedPerformance.demo
         var next = 0, time = 0.0
@@ -46,6 +53,7 @@ final class PreviewRenderer {
                     next += 1
                 }
                 director.handle(events, at: time)
+                elapsed = time
                 let frame = director.step(dt: dt, t: time, quality: quality)
                 let size = CGSize(width: width, height: height)
                 if let g = frame as? GardenFrame {
@@ -123,7 +131,17 @@ final class PreviewRenderer {
         return (mean, variance)
     }
 
-    static func brightestPatch(_ image: CGImage, radius: Int) -> Double { 0 }
+    /// Mean luminance of the square patch around the brightest pixel.
+    static func brightestPatch(_ image: CGImage, radius: Int) -> Double {
+        let l = luminances(image), w = image.width, h = image.height
+        guard let best = l.indices.max(by: { l[$0] < l[$1] }) else { return 0 }
+        let bx = best % w, by = best / w
+        var sum = 0.0, n = 0
+        for y in max(0, by - radius)...min(h - 1, by + radius) {
+            for x in max(0, bx - radius)...min(w - 1, bx + radius) { sum += l[y * w + x]; n += 1 }
+        }
+        return n > 0 ? sum / Double(n) : 0
+    }
 
     /// Mean absolute luminance difference (images must be the same size).
     static func difference(_ a: CGImage, _ b: CGImage) -> Double {

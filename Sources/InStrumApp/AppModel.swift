@@ -302,6 +302,25 @@ public final class AppModel: ObservableObject {
         quality = q; settings.quality = q; visualsVersion += 1; autosave()
     }
 
+    // MARK: - Sky and mood
+
+    /// The set's mood: shapes the world, the visual, the built-in instrument and the ambience.
+    @Published public private(set) var mood: Mood = .neutral
+
+    public func setMood(_ m: Mood) {
+        mood = m
+        engine.setMood(m)
+        visualsVersion += 1
+    }
+
+    public var skySettings: SkySettings { settings.sky }
+
+    public func setSkySettings(_ s: SkySettings) {
+        settings.sky = s
+        visualsVersion += 1
+        autosave()
+    }
+
     public func setGentleVisuals(_ on: Bool) {
         gentleVisuals = on; settings.gentleVisuals = on; visualsVersion += 1; autosave()
     }

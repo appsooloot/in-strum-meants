@@ -50,6 +50,8 @@ final class ThemeCanvas: NSObject, MTKViewDelegate {
         }
         autoQuality.setting = model.quality
         director.reaction = model.reaction
+        director.sky.settings = model.skySettings
+        director.mood = model.mood
     }
 
     @MainActor
