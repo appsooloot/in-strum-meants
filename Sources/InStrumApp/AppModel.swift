@@ -325,6 +325,14 @@ public final class AppModel: ObservableObject {
         autosave()
     }
 
+    // MARK: - Sets (RED stubs)
+
+    @Published public private(set) var activeSetID: String?
+    public var isSetModified: Bool { false }
+    public func applySet(_ id: String) async {}
+    public func restoreSet() async {}
+    public func setSky(_ s: SkySettings) {}
+
     // MARK: - Ambience
 
     /// At most this often (seconds) does a world's soundscape reach the engine.

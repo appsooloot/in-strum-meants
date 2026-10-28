@@ -144,6 +144,80 @@ final class AppModelTests: XCTestCase {
         XCTAssertEqual(ThemeCanvas.ambience(for: steinway.step(dt: 1.0 / 30, t: 0, quality: .lite)), .silent)
     }
 
+    // MARK: - Sets
+
+    private func visual(_ m: AppModel) -> String {
+        ThemeRegistry.parameterSet(for: m.themeID, state: m.themeState(for: m.themeID)).choice("visual")
+    }
+
+    func testApplySetLoadsEverything() async {
+        let m = makeModel()
+        await m.launch(skipPluginInSafeMode: false)
+        engine.ambienceEnabled = false
+        await m.applySet("moonlit-lake")
+        XCTAssertEqual(engine.loaded.last.flatMap { BuiltInCatalog.engine(for: $0) }, .feltGlass)
+        XCTAssertEqual(engine.applied.last?.id, "felt-glass")
+        XCTAssertEqual(engine.moods.last, .serene)
+        XCTAssertEqual(m.mood, .serene)
+        XCTAssertTrue(engine.ambienceEnabled)
+        XCTAssertEqual(m.themeID, MoonlitLakeModel.id)
+        XCTAssertEqual(visual(m), "Lake Ripples")
+        XCTAssertEqual(m.activeSetID, "moonlit-lake")
+        XCTAssertFalse(m.isSetModified)
+        XCTAssertEqual(store.load().activeSetID, "moonlit-lake")
+        // A second set swaps the engine too.
+        await m.applySet("spaceship-lounge")
+        XCTAssertEqual(engine.loaded.last.flatMap { BuiltInCatalog.engine(for: $0) }, .orbitPad)
+        XCTAssertEqual(engine.applied.last?.id, "orbit-pad")
+        XCTAssertEqual(engine.moods.last, .dreamy)
+        XCTAssertEqual(m.themeID, SpaceshipLoungeModel.id)
+        XCTAssertEqual(visual(m), "Galaxy Warp")
+        // The mood comes back with the set on the next launch.
+        engine = FakeEngine()
+        let again = makeModel()
+        XCTAssertEqual(again.activeSetID, "spaceship-lounge")
+        XCTAssertEqual(again.mood, .dreamy)
+        await again.launch(skipPluginInSafeMode: false)
+        XCTAssertEqual(engine.moods.last, .dreamy)
+    }
+
+    func testChangingAPartMarksModifiedAndRestoreReverts() async {
+        let m = makeModel()
+        await m.launch(skipPluginInSafeMode: false)
+        await m.applySet("moonlit-lake")
+        XCTAssertFalse(m.isSetModified)
+        m.saveThemeState(ThemeState(values: ["visual": .choice("Galaxy Warp")]), for: MoonlitLakeModel.id)
+        XCTAssertTrue(m.isSetModified)
+        await m.restoreSet()
+        XCTAssertFalse(m.isSetModified)
+        XCTAssertEqual(visual(m), "Lake Ripples")
+        // Other parts count too: the preset, the world, the ambience.
+        m.applyPatch(PatchLibrary.all.first { $0.id == "lullaby" }!)
+        XCTAssertTrue(m.isSetModified)
+        await m.restoreSet()
+        XCTAssertEqual(m.builtInPatch?.id, "felt-glass")
+        m.setTheme(ButterflyGardenModel.id)
+        XCTAssertTrue(m.isSetModified)
+        await m.restoreSet()
+        XCTAssertEqual(m.themeID, MoonlitLakeModel.id)
+        m.setAmbienceEnabled(false)
+        XCTAssertTrue(m.isSetModified)
+        await m.restoreSet()
+        XCTAssertFalse(m.isSetModified)
+        XCTAssertTrue(engine.ambienceEnabled)
+    }
+
+    func testSkySettingsPersist() {
+        let m = makeModel()
+        let version = m.visualsVersion
+        var s = SkySettings(); s.timeMode = .frozen; s.frozenHour = 5.5; s.cityID = "reykjavik"; s.weatherMode = .pick; s.weather = .snow
+        m.setSky(s)
+        XCTAssertEqual(m.skySettings, s)
+        XCTAssertGreaterThan(m.visualsVersion, version)
+        XCTAssertEqual(store.load().sky, s)
+        XCTAssertEqual(makeModel().skySettings, s)
+    }
+
     func testFirstLaunchAsksForInstrument() async {
         let m = makeModel()
         await m.launch(skipPluginInSafeMode: false)
