@@ -50,7 +50,39 @@ enum SkyShaders {
         float4 moonInfo;    // lit fraction, earthshine, moon radius (rad), sun radius (rad)
         float4 eq0, eq1, eq2;
         float4 weather;     // mist, wind, octaves, pixel angle (rad)
+        float4 extra;       // halo, dawn pastel, gust, wetness
     };
+
+    // ---------------------------------------------------------------- optics (mirrors HaloOptics)
+    float toDeg(float r) { return r * 57.2957795; }
+    float toRad(float d) { return d * 0.0174532925; }
+    float3 haloRing(float angleDeg, float radius) {
+        float x = angleDeg - radius;
+        float a = (x + 0.2) / 0.3, b = (x - 0.15) / 0.35;
+        float tail = smoothstep(-0.1, 0.3, x) * exp(-max(0.0, x - 0.1) / 1.5);
+        return exp(-a * a) * float3(1.0, 0.25, 0.05) + exp(-b * b) * float3(0.9, 0.85, 0.3) + tail * float3(0.55, 0.65, 0.85);
+    }
+    float sundogStrength(float altDeg) {
+        return altDeg < -1.0 ? 0.0 : 1.0 - smoothstep(30.0, 45.0, altDeg);
+    }
+    /// Two rainbow-tinted spots 22°/cos(alt) either side of the light at its altitude, each with a short white tail outward.
+    float3 sundogs(float3 d, float3 L, float lightAltDeg) {
+        float s = sundogStrength(lightAltDeg);
+        if (s <= 0.0) return float3(0);
+        float altD = toDeg(asin(clamp(d.z, -1.0, 1.0)));
+        float dAz = toDeg(atan2(d.x, d.y) - atan2(L.x, L.y));
+        dAz -= 360.0 * floor((dAz + 180.0) / 360.0);
+        float c = cos(toRad(lightAltDeg));
+        float x = (abs(dAz) - 22.0 / max(c, 0.2)) * c;   // degrees outward from the dog
+        float y = altD - lightAltDeg;
+        float core = exp(-(x * x) / 0.81 - (y * y) / 1.96);
+        float3 tint = mix(float3(1.0, 0.45, 0.2), float3(0.75, 0.85, 1.0), smoothstep(-0.8, 0.8, x));
+        float tail = x > 0.0 ? exp(-x / 7.0) * exp(-(y * y) / 0.25) * 0.35 : 0.0;
+        return (tint * core + float3(tail)) * s;
+    }
+    float beltOfVenus(float sunAltDeg) {
+        return smoothstep(-6.0, -4.0, sunAltDeg) * (1.0 - smoothstep(0.0, 1.0, sunAltDeg));
+    }
     float3 starField(float3 v, float pixelAngle, float time, float visibility) {
         const float scale = 90.0;
         float3 p = v * scale;
@@ -72,7 +104,8 @@ enum SkyShaders {
         float b = asin(clamp(dot(v, ngp), -1.0, 1.0));
         float band = exp(-(b * b) / (0.2 * 0.2));
         if (band < 0.01) return float3(0);
-        float centre = 0.3 + 0.7 * pow(0.5 + 0.5 * dot(v, gc), 2.0);
+        float toCentre = 0.5 + 0.5 * dot(v, gc);
+        float centre = 0.3 + 0.7 * toCentre * toCentre;
         float n = fbm3(v * 5.0, octaves);
         float lane = exp(-(b * b) / (0.035 * 0.035)) * smoothstep(0.35, 0.8, fbm3(v * 9.0 + 3.1, max(octaves - 1, 1)));
         float glow = band * centre * (0.35 + 0.9 * n) * (1.0 - 0.75 * lane);
@@ -135,6 +168,40 @@ enum SkyShaders {
             col += float3(0.7, 0.78, 0.95) * u.moonInfo.x * haze * (1.0 - moonMask) * saturate(M.z * 4.0 + 0.2);
         }
 
+        // Ice halos: the 22° ring (and the faint 46° one in heavy ice) with sundogs around the sun; paler, near
+        // colourless ones around a bright moon. A fraction of the sky's own brightness, so nothing flashes.
+        float halo = u.extra.x;
+        if (halo > 0.001 && alt > 0.0) {
+            float skyLum = dot(col, float3(0.2126, 0.7152, 0.0722));
+            if (sunAlt > -1.0) {
+                float ang = toDeg(sunAngle);
+                float3 h = haloRing(ang, 22.0) * 0.12 + haloRing(ang, 46.0) * 0.05 * saturate((halo - 0.7) / 0.3);
+                h += sundogs(d, S, sunAlt) * 0.8;
+                col += h * halo * saturate((sunAlt + 1.0) / 3.0) * (0.25 + skyLum);
+            }
+            if (M.z > 0.0 && u.moonInfo.x > 0.6) {
+                float moonAlt = toDeg(asin(clamp(M.z, -1.0, 1.0)));
+                float ang = toDeg(acos(clamp(mDot, -1.0, 1.0)));
+                float3 h = haloRing(ang, 22.0) * 0.10 + sundogs(d, M, moonAlt) * 0.35;
+                float l = dot(h, float3(0.2126, 0.7152, 0.0722));
+                col += mix(float3(l), h, 0.25) * float3(0.85, 0.9, 1.0) * halo * smoothstep(0.6, 0.9, u.moonInfo.x) * (0.04 + skyLum);
+            }
+        }
+
+        // The Belt of Venus: at twilight, a pink band 5–20° up opposite the sun over the blue-grey of Earth's shadow.
+        float belt = beltOfVenus(sunAlt);
+        if (belt > 0.0 && alt > 0.0) {
+            float2 hs = S.xy / max(length(S.xy), 1e-4), hd = d.xy / max(length(d.xy), 1e-4);
+            float away = saturate(-dot(hs, hd));
+            away *= away;
+            float altDeg = toDeg(alt);
+            float band = smoothstep(4.0, 7.0, altDeg) * (1.0 - smoothstep(16.0, 22.0, altDeg));
+            col += float3(1.0, 0.62, 0.70) * 0.12 * belt * (1.0 + u.extra.y) * band * away;
+            float shadow = (1.0 - smoothstep(2.0, 5.0, altDeg)) * away * belt;
+            float l = dot(col, float3(0.2126, 0.7152, 0.0722));
+            col = mix(col, l * float3(0.8, 0.86, 1.02), 0.6 * shadow) * (1.0 - 0.25 * shadow);
+        }
+
         // Clouds: a drifting layer lit by the sun or the moon.
         if (cloudCover > 0.01 && alt > 0.0) {
             float2 uv = d.xy / (d.z + 0.12) * 0.55 + float2(time * 0.004 * (0.3 + u.weather.y), time * 0.0015);
@@ -149,6 +216,9 @@ enum SkyShaders {
             float baseLum = dot(mix(u.zenith.rgb, u.horizon.rgb, 0.4), float3(0.2126, 0.7152, 0.0722));
             float3 base = mix(mix(u.zenith.rgb * 0.7 + 0.02, u.horizon.rgb * 0.9, 0.4), baseLum * float3(0.92, 0.97, 1.06), 0.5);
             float3 lightCol = day ? mix(float3(1.0, 0.62, 0.38), float3(1.0, 0.98, 0.95), saturate(sunAlt / 20.0)) : float3(0.55, 0.62, 0.8);
+            // Pastel dawns light the cloud undersides pink.
+            float pastel = u.extra.y * smoothstep(-10.0, -6.0, sunAlt) * (1.0 - smoothstep(4.0, 8.0, sunAlt));
+            lightCol = mix(lightCol, float3(1.0, 0.68, 0.78), 0.7 * pastel);
             float3 cloud = base * (0.55 + 0.45 * lightAmt) + lightCol * lightAmt * (0.25 + 0.9 * facing) * (1.0 - 0.6 * density);
             col = mix(col, cloud, density * (1.0 - moonMask * 0.0));
         }
@@ -188,7 +258,8 @@ enum SkyShaders {
     }
 
     // ---------------------------------------------------------------- weather
-    // instance: pos.xy (NDC), size.x (length or radius), size.y (alpha); kind: 0 rain streak, 1 snow, 2 bead on glass
+    // instance: pos.xy (NDC), size.x (length or radius), size.y (alpha); kind: 0 rain streak, 1 snow, 2 bead on glass,
+    // 3 a ground streamer (blowing snow)
     struct Particle { float4 posSize; };
     struct WeatherU { float4 params; };   // x aspect, y kind, z tilt (dx per dy), w brightness
     struct WeatherOut { float4 pos [[position]]; float2 uv; float alpha; float kind; };
@@ -206,6 +277,8 @@ enum SkyShaders {
             float2 side = float2(-dir.y, dir.x);
             offset = dir * q.y * len * 0.5 + side * q.x * w;
             offset.x /= u.params.x;
+        } else if (kind > 2.5) {
+            offset = float2(q.x * p.z * 0.5, q.y * 0.0035);
         } else {
             offset = q * p.z;
             offset.x /= u.params.x;
@@ -228,6 +301,10 @@ enum SkyShaders {
             float r = length(in.uv);
             a = smoothstep(1.0, 0.3, r) * in.alpha;
             col = float3(0.95, 0.97, 1.0);
+        } else if (in.kind > 2.5) {      // a ground streamer: a long thin wisp, thickest at its head
+            float along = 0.5 + 0.5 * in.uv.x;
+            a = (1.0 - in.uv.y * in.uv.y) * smoothstep(0.0, 0.35, along) * smoothstep(1.0, 0.75, along) * in.alpha;
+            col = float3(0.92, 0.95, 1.0);
         } else {                          // a drop on glass: bright rim, darker lens
             float r = length(in.uv * float2(1.0, 0.85));
             float rim = smoothstep(1.0, 0.82, r) - smoothstep(0.82, 0.55, r) * 0.6;
@@ -253,7 +330,8 @@ enum SkyShaders {
 
     fragment float4 ring_fragment(RingOut in [[stage_in]], constant WeatherU& u [[buffer(0)]]) {
         float r = length(in.uv);
-        float ring = exp(-pow((r - 0.85) / 0.08, 2.0));
+        float q = (r - 0.85) / 0.08;
+        float ring = exp(-q * q);
         float a = ring * in.alpha;
         return float4(float3(0.75, 0.8, 0.9) * u.params.w * a, a);
     }
