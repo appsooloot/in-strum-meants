@@ -36,7 +36,7 @@ final class SkyLayer {
         pipeline = p
     }
 
-    static func enu(_ dir: SkyDirection) -> SIMD3<Float> {
+    nonisolated static func enu(_ dir: SkyDirection) -> SIMD3<Float> {
         let az = dir.azimuth * .pi / 180, alt = dir.altitude * .pi / 180
         return SIMD3<Float>(Float(sin(az) * cos(alt)), Float(cos(az) * cos(alt)), Float(sin(alt)))
     }
