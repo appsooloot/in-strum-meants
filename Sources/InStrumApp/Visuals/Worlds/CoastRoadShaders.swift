@@ -104,8 +104,8 @@ enum CoastRoadShaders {
             col = scrub * (ambient * (1.1 - 0.5 * depthIn) + lightCol * lightW * 0.3 * (1.0 - depthIn));
             col += horizon * 0.12 * exp(-(scrubY - p.y) / 0.008) * (0.5 + 0.5 * leaves);
             // The lamps' pools of light on the scrub.
-            float pool = exp(-(lampDx * lampDx) / 0.35) * exp(-max(scrubY - p.y, 0.0) / 0.25);
-            col += lampCol * pool * lampsLit * 0.35;
+            float pool = exp(-(lampDx * lampDx) / 0.06) * exp(-max(scrubY - p.y, 0.0) / 0.18);
+            col += lampCol * scrub * pool * lampsLit * 6.0 + lampCol * pool * lampsLit * 0.03;
             depth = 0.25;
             // Guardrail posts streaming past, blurred by speed.
             float postDx = (fract(p.x / kPostSpacing + u.b.z) - 0.5) * kPostSpacing;
