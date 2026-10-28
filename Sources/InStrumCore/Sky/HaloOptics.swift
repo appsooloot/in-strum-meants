@@ -36,3 +36,33 @@ public enum HaloOptics {
         return t * t * (3 - 2 * t)
     }
 }
+
+/// Rainbow optics: the primary bow 40.5°–42.5° from the antisolar point (red outside), a fainter secondary 50.5°–53.5°
+/// with the colours reversed (red inside), and Alexander's dark band between. The sky shader mirrors `bow`.
+public enum RainbowOptics {
+    /// 0 at the violet edge to 1 at the red edge across the primary bow; nil outside it.
+    public static func primaryPosition(angle: Double) -> Double? {
+        let t = (angle - 40.5) / 2.0
+        return t >= 0 && t <= 1 ? t : nil
+    }
+    /// 0 at the red edge to 1 at the violet edge across the secondary bow; nil outside it.
+    public static func secondaryPosition(angle: Double) -> Double? {
+        let t = (angle - 50.5) / 3.0
+        return t >= 0 && t <= 1 ? t : nil
+    }
+    /// Spectrum at `t` (0 violet … 1 red).
+    public static func spectrum(_ t: Double) -> SIMD3<Float> {
+        func g(_ x: Double, _ c: Double, _ w: Double) -> Float { Float(exp(-((x - c) / w) * ((x - c) / w))) }
+        return SIMD3(g(t, 0.88, 0.2), g(t, 0.5, 0.18), g(t, 0.12, 0.2))
+    }
+    /// Light added at `angle` degrees from the antisolar point (before the sky's strength): the primary at 1,
+    /// the secondary at 0.35, nothing between them or beyond.
+    public static func bow(angle: Double) -> SIMD3<Float> {
+        if let t = primaryPosition(angle: angle) { return spectrum(t) * edge(t) }
+        if let t = secondaryPosition(angle: angle) { return spectrum(1 - t) * edge(t) * 0.35 }
+        return SIMD3(0, 0, 0)
+    }
+    static func edge(_ t: Double) -> Float {
+        Float(HaloOptics.smoothstep(0, 0.12, t) * (1 - HaloOptics.smoothstep(0.88, 1, t)))
+    }
+}

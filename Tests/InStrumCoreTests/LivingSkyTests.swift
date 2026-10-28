@@ -236,7 +236,7 @@ extension LivingSkyTests {
     }
 
     func testNewWeatherValues() {
-        XCTAssertEqual(WeatherKind.allCases, [.clear, .lightCloud, .overcast, .mist, .drizzle, .rain, .storm, .snow, .blizzard, .afterRain])
+        XCTAssertEqual(WeatherKind.allCases, [.clear, .lightCloud, .overcast, .mist, .drizzle, .rain, .storm, .snow, .blizzard, .afterRain, .sunShower])
         // cloud, rain, snow, mist, wind, halo, frost, gust (spec §6.1)
         let table: [WeatherKind: [Float]] = [
             .clear: [0, 0, 0, 0.1, 0.1, 0, 0.15, 0],
@@ -249,6 +249,7 @@ extension LivingSkyTests {
             .snow: [0.85, 0, 0.8, 0.3, 0.25, 0.2, 0.6, 0.2],
             .blizzard: [1, 0, 1, 0.6, 1, 0, 0.9, 1],
             .afterRain: [0.45, 0, 0, 0.55, 0.1, 0, 0, 0],
+            .sunShower: [0.5, 0.3, 0, 0.25, 0.2, 0, 0, 0.1],
         ]
         for k in WeatherKind.allCases {
             let v = k.values
@@ -262,6 +263,29 @@ extension LivingSkyTests {
         XCTAssertEqual(sky(.clear, hour: 13).step(now: start, dt: 0).frost, 0, accuracy: 1e-6)
         XCTAssertEqual(sky(.clear, hour: 2).step(now: start, dt: 0).frost, 0.15, accuracy: 0.01)
         XCTAssertEqual(sky(.snow, hour: 13).step(now: start, dt: 0).frost, 0.6, accuracy: 0.01)
+    }
+
+    func testRainbowsNeedSunAndShowerLight() {
+        func window(_ alt: Double) -> Float {
+            func ss(_ a: Float, _ b: Float, _ x: Float) -> Float { let t = min(1, max(0, (x - a) / (b - a))); return t * t * (3 - 2 * t) }
+            return ss(1, 6, Float(alt)) * (1 - ss(32, 42, Float(alt)))
+        }
+        var sawFull = false, sawNone = false
+        for hour in [7.0, 9, 11, 13, 15, 17, 19] {
+            let st = sky(.sunShower, hour: hour).step(now: start, dt: 0)
+            XCTAssertEqual(st.rainbow, window(st.sun.altitude), accuracy: 1e-4, "hour \(hour), sun \(st.sun.altitude)°")
+            if st.rainbow > 0.99 { sawFull = true }
+            if st.rainbow == 0 { sawNone = true }
+        }
+        XCTAssertTrue(sawFull, "a sun-shower with a mid-height sun shows the full bow at some hour of the day")
+        XCTAssertTrue(sawNone, "and none with the sun too high or down")
+        XCTAssertEqual(sky(.sunShower, hour: 2).step(now: start, dt: 0).rainbow, 0, "no bow at night")
+        for hour in [9.0, 16] {
+            let st = sky(.afterRain, hour: hour).step(now: start, dt: 0)
+            XCTAssertEqual(st.rainbow, 0.75 * window(st.sun.altitude), accuracy: 1e-4, "after the rain a fainter bow")
+            XCTAssertEqual(sky(.rain, hour: hour).step(now: start, dt: 0).rainbow, 0, "heavy rain under thick cloud: no bow")
+            XCTAssertEqual(sky(.clear, hour: hour).step(now: start, dt: 0).rainbow, 0)
+        }
     }
 
     func testRainMeltsFrost() {

@@ -80,6 +80,18 @@ enum SkyShaders {
         float tail = x > 0.0 ? exp(-x / 7.0) * exp(-(y * y) / 0.25) * 0.35 : 0.0;
         return (tint * core + float3(tail)) * s;
     }
+    /// Rainbow light at `angleDeg` from the antisolar point (mirrors RainbowOptics.bow).
+    float3 spectrum(float t) {
+        float a = (t - 0.88) / 0.2, b = (t - 0.5) / 0.18, c = (t - 0.12) / 0.2;
+        return float3(exp(-a * a), exp(-b * b), exp(-c * c));
+    }
+    float3 rainbowBow(float angleDeg) {
+        float t1 = (angleDeg - 40.5) / 2.0;
+        if (t1 >= 0.0 && t1 <= 1.0) return spectrum(t1) * smoothstep(0.0, 0.12, t1) * (1.0 - smoothstep(0.88, 1.0, t1));
+        float t2 = (angleDeg - 50.5) / 3.0;
+        if (t2 >= 0.0 && t2 <= 1.0) return spectrum(1.0 - t2) * smoothstep(0.0, 0.12, t2) * (1.0 - smoothstep(0.88, 1.0, t2)) * 0.35;
+        return float3(0.0);
+    }
     float beltOfVenus(float sunAltDeg) {
         return smoothstep(-6.0, -4.0, sunAltDeg) * (1.0 - smoothstep(0.0, 1.0, sunAltDeg));
     }
@@ -117,6 +129,7 @@ enum SkyShaders {
     float3 skyRadiance(float3 d, constant SkyU& u, thread float& moonMask) {
         float alt = asin(clamp(d.z, -1.0, 1.0));
         int octaves = int(u.weather.z + 0.5);
+        float rainbow = (u.weather.z - float(octaves)) / 0.45;   // the fraction carries the rainbow
         float time = u.forward.w, mist = u.weather.x, cloudCover = u.horizon.w, starVis = u.zenith.w;
         float3 S = u.sun.xyz, M = u.moon.xyz;
         float sunAlt = u.sun.w;
@@ -221,6 +234,15 @@ enum SkyShaders {
             lightCol = mix(lightCol, float3(1.0, 0.68, 0.78), 0.7 * pastel);
             float3 cloud = base * (0.55 + 0.45 * lightAmt) + lightCol * lightAmt * (0.25 + 0.9 * facing) * (1.0 - 0.6 * density);
             col = mix(col, cloud, density * (1.0 - moonMask * 0.0));
+        }
+
+        // Rainbows: the primary bow 42° and the secondary 51° from the point opposite the sun, a little light
+        // added to the sky (and dimmed where cloud is thick), so nothing flashes.
+        if (rainbow > 0.002 && sunAlt > 0.0) {
+            float anti = toDeg(acos(clamp(dot(d, -S), -1.0, 1.0)));
+            float3 bow = rainbowBow(anti);
+            float inside = anti < 41.5 ? 0.05 * smoothstep(20.0, 41.5, anti) : 0.0;   // the sky inside the bow is a touch brighter
+            col += (bow * 0.30 + float3(inside)) * rainbow * (1.0 - 0.5 * cloudCover);
         }
 
         // Sun disc last (clouds can hide it softly).

@@ -909,6 +909,7 @@ final class SkyPreviewTests: XCTestCase {
             ("sky-storm-glass", 15.0, 0.5, .storm, .glass),
             ("sky-blizzard-ground", 13.0, 0.5, .blizzard, .ground(horizonY: -0.33)),
             ("sky-after-rain-ground", 9.5, 0.5, .afterRain, .ground(horizonY: -0.33)),
+            ("sky-sun-shower-rainbow", 16.6, 0.5, .sunShower, .ground(horizonY: -0.33)),
         ]
         for (name, hour, phase, weather, surface) in cases {
             var s = SkySettings(); s.timeMode = .frozen; s.frozenHour = hour; s.frozenPhase = phase; s.cityID = "melbourne"

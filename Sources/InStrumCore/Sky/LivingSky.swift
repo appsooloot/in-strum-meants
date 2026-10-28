@@ -34,6 +34,8 @@ public struct SkyState: Equatable {
     public var gust: Float = 0
     /// 0…1: how pastel this dawn is (about one morning in three, gliding in and out).
     public var dawnPastel: Float = 0
+    /// 0…1: how clearly a rainbow stands opposite the sun (sun-showers, and after the rain, with the sun 1°–42° up).
+    public var rainbow: Float = 0
 
     public init() {}
 }
@@ -128,6 +130,7 @@ public final class LivingSky {
         }
         s.frost = frost * (1 - SkyPalette.smoothstep(0, 0.05, w.rain))
         s.halo = Self.halo(weather)
+        s.rainbow = Self.rainbow(weather, sunAltitude: s.sun.altitude)
 
         // Wetness: rain soaks (faster the harder it rains), dry weather dries it over minutes; after the rain stays wet.
         if w.rain > 0.1 { wetness += (1 - wetness) * Float(1 - exp(-dt * Double(w.rain) / 90)) }
@@ -168,6 +171,14 @@ public final class LivingSky {
     static func halo(_ m: WeatherMachine) -> Float {
         let light = m.weight(of: .lightCloud)
         return max(0, m.values.halo + light * (m.ice - WeatherKind.lightCloud.values.halo))
+    }
+
+    /// A rainbow needs sun and rain-light together: sun-showers full, "after the rain" three-quarters, and only
+    /// with the sun between about 1° and 42° up (the bow sits 42° from the antisolar point).
+    static func rainbow(_ m: WeatherMachine, sunAltitude alt: Double) -> Float {
+        let amount = min(1, m.weight(of: .sunShower) + 0.75 * m.weight(of: .afterRain))
+        let a = Float(alt)
+        return amount * SkyPalette.smoothstep(1, 6, a) * (1 - SkyPalette.smoothstep(32, 42, a))
     }
 
     static func gustEnvelope(_ age: Double) -> Float {

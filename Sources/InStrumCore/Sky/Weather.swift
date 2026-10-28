@@ -1,6 +1,6 @@
 import Foundation
 
-public enum WeatherKind: String, Codable, CaseIterable { case clear, lightCloud, overcast, mist, drizzle, rain, storm, snow, blizzard, afterRain }
+public enum WeatherKind: String, Codable, CaseIterable { case clear, lightCloud, overcast, mist, drizzle, rain, storm, snow, blizzard, afterRain, sunShower }
 
 /// Pick one yourself, or let the sky wander through beautiful weathers. (`.real` comes later.)
 public enum WeatherMode: String, Codable, CaseIterable { case pick, randomBeautiful }
@@ -31,6 +31,7 @@ public extension WeatherKind {
         case .snow: return WeatherValues(cloud: 0.85, rain: 0, snow: 0.8, mist: 0.3, wind: 0.25, halo: 0.2, frost: 0.6, gust: 0.2)
         case .blizzard: return WeatherValues(cloud: 1, rain: 0, snow: 1, mist: 0.6, wind: 1, frost: 0.9, gust: 1)
         case .afterRain: return WeatherValues(cloud: 0.45, rain: 0, snow: 0, mist: 0.55, wind: 0.1)
+        case .sunShower: return WeatherValues(cloud: 0.5, rain: 0.3, snow: 0, mist: 0.25, wind: 0.2, gust: 0.1)
         }
     }
 
@@ -54,6 +55,7 @@ public extension WeatherKind {
         case .storm, .snow: return 0.5
         case .blizzard: return 0.3
         case .afterRain: return 1.5
+        case .sunShower: return 1
         case .overcast: return 0
         }
     }

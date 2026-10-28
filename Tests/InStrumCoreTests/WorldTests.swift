@@ -483,6 +483,9 @@ extension WorldTests {
         var drizzle = sky(sun: 20, hour: 13); drizzle.rain = 0.3; drizzle.weather = .drizzle
         XCTAssertEqual(SnowboundCabinModel.coldSky(drizzle).snow, 0.3, accuracy: 1e-6, "drizzle is light snow")
         XCTAssertEqual(SnowboundCabinModel.coldSky(drizzle).weather, .snow)
+        var shower = sky(sun: 20, hour: 13); shower.rain = 0.3; shower.rainbow = 1; shower.weather = .sunShower
+        XCTAssertEqual(SnowboundCabinModel.coldSky(shower).rainbow, 0, "snow makes no rainbow")
+        XCTAssertEqual(SnowboundCabinModel.coldSky(shower).weather, .snow)
     }
 
     /// Snow that was rain still frosts the glass, and a storm turned blizzard frosts it hard and whites out with each

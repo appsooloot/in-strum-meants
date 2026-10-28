@@ -74,7 +74,8 @@ final class SkyLayer {
         u[6] = SIMD4(Self.enu(s.moon), Float(s.moonPhase))
         u[7] = SIMD4(Float(s.moonLit), 0.04, Float(moonRadiusDegrees * .pi / 180), Float(sunRadiusDegrees * .pi / 180))
         u[8] = SIMD4(east, 0); u[9] = SIMD4(north, 0); u[10] = SIMD4(upEq, 0)
-        u[11] = SIMD4(s.mist, s.wind, quality == .lite ? 2 : 3, pixelAngle)
+        // z carries the octave count in its whole part and the rainbow (×0.45) in its fraction; the shader rounds it back.
+        u[11] = SIMD4(s.mist, s.wind, (quality == .lite ? 2 : 3) + 0.45 * min(1, max(0, s.rainbow)), pixelAngle)
         u[12] = SIMD4(s.halo, s.dawnPastel, s.gust, s.wetness)
     }
 

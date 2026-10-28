@@ -32,4 +32,18 @@ final class HaloOpticsTests: XCTestCase {
         XCTAssertEqual(HaloOptics.beltOfVenus(sunAltitude: 2), 0)
         XCTAssertEqual(HaloOptics.beltOfVenus(sunAltitude: -7), 0)
     }
+
+    func testRainbowBowsAreRedOutsideAndReversedInTheSecondary() {
+        let primaryInner = RainbowOptics.bow(angle: 40.9), primaryOuter = RainbowOptics.bow(angle: 42.1)
+        XCTAssertGreaterThan(primaryOuter.x, primaryOuter.z, "red outside the primary")
+        XCTAssertGreaterThan(primaryInner.z, primaryInner.x, "violet inside the primary")
+        let secInner = RainbowOptics.bow(angle: 50.9), secOuter = RainbowOptics.bow(angle: 53.1)
+        XCTAssertGreaterThan(secInner.x, secInner.z, "red inside the secondary (reversed)")
+        XCTAssertGreaterThan(secOuter.z, secOuter.x, "violet outside the secondary")
+        let mid = RainbowOptics.bow(angle: 41.5)
+        XCTAssertGreaterThan(mid.x + mid.y + mid.z, 3 * secInner.x, "the primary is brighter than the secondary")
+        for a in [30.0, 40.0, 46.0, 48.5, 54.0, 70.0] {
+            XCTAssertEqual(RainbowOptics.bow(angle: a), SIMD3<Float>(0, 0, 0), "nothing at \(a)° (Alexander's dark band between the bows)")
+        }
+    }
 }
