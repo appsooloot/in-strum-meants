@@ -30,6 +30,7 @@ final class ThemeCanvas: NSObject, MTKViewDelegate {
                                       reaction: model.reaction)
         self.autoQuality = AutoQuality(setting: model.quality)
         super.init()
+        director.sky.reset(settings: model.skySettings)   // launch with the chosen weather, not a blend into it
     }
 
     func mtkView(_ view: MTKView, drawableSizeWillChange size: CGSize) {

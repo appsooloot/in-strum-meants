@@ -83,9 +83,12 @@ final class MoonlitLakeRenderer: ThemeRenderer {
         }
         let keysShow = p.number("keys.show") > 0.5
         let keyTop: Float = keysShow ? -1 + 2 * Float(p.number("keys.height")) : -1
-        let horizonY = keyTop + (1 - keyTop) * 0.4
+        // A high moon tilts the view up a little (lower horizon, wider lens) so it stays in the picture.
+        let lift = Float(s.moon.altitude > -5 && s.sun.altitude < 2 ? Self.smooth(22, 50, s.moon.altitude) : 0)
+        let horizonY = keyTop + (1 - keyTop) * (0.4 - 0.14 * lift)
         sky.viewAzimuth = viewAzimuth
         sky.horizonY = horizonY
+        sky.verticalFOV = 62 + 10 * Double(lift)
         sky.update(s, quality: quality, size: size, time: time)
         weather.gentle = gentle
         weather.update(s, quality: quality, size: size, dt: dt, surface: .water(horizonY: horizonY))
@@ -124,7 +127,7 @@ final class MoonlitLakeRenderer: ThemeRenderer {
             let fade = left * left * Float(Self.smooth(0, 0.08, Double(a)))
             let speed = 0.6 + 0.5 * r.strength
             let radius = speed * a
-            let amp = 0.022 * r.strength * fade / (1 + radius).squareRoot()
+            let amp = 0.03 * r.strength * fade / (1 + radius).squareRoot()
             let width = 0.18 + 0.22 * radius
             let k = 2 * Float.pi / (0.45 + 0.25 * radius)
             let pt = Self.lakePoint(x: r.x, depth: r.depth, tanH: cam.tanH)
@@ -152,10 +155,10 @@ final class MoonlitLakeRenderer: ThemeRenderer {
             let blink = 0.55 + 0.45 * sin(f.age * 2.3 + f.hue * 50)
             let alpha = alive * blink
             if let c = project(SIMD3(ground.x, ground.y, height - 1)) {
-                fireflies.append(SIMD4(c.x, c.y, min(0.04, max(0.008, 0.12 / c.z)), alpha))
+                fireflies.append(SIMD4(c.x, c.y, min(0.06, max(0.012, 0.2 / c.z)), alpha))
             }
             if let c = project(SIMD3(ground.x, ground.y, -height - 1)) {
-                fireflies.append(SIMD4(c.x, c.y, min(0.05, max(0.01, 0.14 / c.z)), alpha * 0.3))
+                fireflies.append(SIMD4(c.x, c.y, min(0.07, max(0.014, 0.24 / c.z)), alpha * 0.3))
             }
         }
 

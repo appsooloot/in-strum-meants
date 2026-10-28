@@ -35,7 +35,7 @@ final class PreviewRenderer {
         let start = Date(timeIntervalSince1970: 1_793_000_000)   // a fixed wall clock, so previews repeat
         var elapsed = 0.0
         director.clock = { start.addingTimeInterval(elapsed) }
-        if let sky { director.sky.settings = sky }
+        if let sky { director.sky.reset(settings: sky) }   // settled weather from the first frame
         director.mood = mood
         var perf = PerformanceState()
         let script = ScriptedPerformance.demo

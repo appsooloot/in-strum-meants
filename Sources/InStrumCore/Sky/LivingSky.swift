@@ -37,6 +37,7 @@ public final class LivingSky {
     public var timeZone: TimeZone { clock.timeZone }
 
     private let homeZone: TimeZone
+    private let seed: UInt64
     private var clock = SkyClock()
     private var weather: WeatherMachine
     private var rng: SeededRandom
@@ -46,6 +47,7 @@ public final class LivingSky {
     public init(settings: SkySettings, seed: UInt64 = 1, homeZone: TimeZone = .current) {
         self.settings = settings
         self.homeZone = homeZone
+        self.seed = seed
         weather = WeatherMachine(settings: settings, seed: seed)
         rng = SeededRandom(seed: seed &+ 0x11_9E37)
         clock.place(cityID: settings.cityID, homeZone: homeZone)
@@ -55,6 +57,9 @@ public final class LivingSky {
     /// (launch and previews; setting `settings` later blends as usual).
     public func reset(settings: SkySettings) {
         self.settings = settings
+        weather = WeatherMachine(settings: settings, seed: seed)
+        lightning = 0
+        nextFlash = 3
     }
 
     public func step(now: Date, dt rawDt: Double) -> SkyState {

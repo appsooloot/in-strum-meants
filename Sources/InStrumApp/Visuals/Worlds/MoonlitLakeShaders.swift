@@ -24,11 +24,11 @@ enum MoonlitLakeShaders {
     // Ridge heights (radians) around the horizon: periodic in azimuth, so no seam anywhere.
     float ridgeFar(float az) {
         float n = fbm3(float3(cos(az) * 2.2, sin(az) * 2.2, 3.7), 3);
-        return (1.6 + 4.2 * n * n) * 0.0174533;
+        return (2.0 + 7.0 * n * n) * 0.0174533;
     }
     float ridgeNear(float az) {
         float n = fbm3(float3(cos(az) * 4.0 + 9.0, sin(az) * 4.0, 1.3), 2);
-        return (0.4 + 2.2 * n) * 0.0174533;
+        return (0.6 + 2.6 * n) * 0.0174533;
     }
     // Pines along the near ridge: one tree per cell, a stacked-tier silhouette.
     float pines(float az) {
@@ -57,9 +57,10 @@ enum MoonlitLakeShaders {
             return zenith * 0.09 + horizon * 0.05 + l.lightColor.rgb * rim * 0.02 * l.light.w;
         }
         if (alt < far) {
-            float3 c = mix(horizon, zenith, 0.55) * 0.42 + horizon * 0.08;
-            float haze = saturate(0.35 + 0.6 * mist) * (0.6 + 0.4 * exp(-max(alt, 0.0) / 0.02));
-            return mix(c, horizon * (1.02 + 0.1 * night), haze * 0.7);
+            // Aerial perspective: the far ridge is a hazy silhouette, darker than the sky, lighter than the pines.
+            float3 c = mix(horizon, zenith, 0.5) * 0.28;
+            float haze = saturate(0.3 + 0.5 * mist) * (0.55 + 0.45 * exp(-max(alt, 0.0) / 0.02));
+            return mix(c, horizon * (1.0 + 0.1 * night), haze * 0.55);
         }
         hit = false;
         return float3(0);
@@ -143,9 +144,9 @@ enum MoonlitLakeShaders {
             }
             // A calm lake still breathes: small wind-driven waves.
             float drift = l.lightColor.w, wind = l.b.y;
-            float2 wq = q * float2(1.1, 0.55) + float2(time * 0.12 * drift, time * 0.05 * drift);
+            float2 wq = q * float2(2.6, 1.3) + float2(time * 0.15 * drift, time * 0.06 * drift);
             float2 calm = float2(vnoise3(float3(wq, time * 0.15)), vnoise3(float3(wq * 1.7 + 5.0, time * 0.2))) - 0.5;
-            slope += calm * (0.05 + 0.3 * wind);
+            slope += calm * (0.035 + 0.25 * wind);
             slope /= (1.0 + f * 0.015);   // far rings fade into the mirror
             float3 nrm = normalize(float3(-(slope.x * rgt.x + slope.y * fwd.x), -(slope.x * rgt.y + slope.y * fwd.y), 1.0));
             float3 rd = reflect(d, nrm);
@@ -174,7 +175,7 @@ enum MoonlitLakeShaders {
             col += l.lightColor.rgb * spec * l.light.w * (0.35 + 0.65 * glitter);
 
             // Ring crests catch the moonlight even off the path.
-            col += float3(0.85, 0.9, 1.0) * glow * (0.04 + 0.1 * night) / (1.0 + f * 0.06) * (0.4 + l.light.w * 0.3);
+            col += float3(0.85, 0.9, 1.0) * glow * (0.06 + 0.14 * night) / (1.0 + f * 0.06) * (0.4 + l.light.w * 0.3);
 
             // Mist lying on the water, thicker far away.
             col = mix(col, mistCol, saturate(mist * (0.15 + 0.85 * (1.0 - exp(-f / 30.0)))) * 0.8);
@@ -203,7 +204,7 @@ enum MoonlitLakeShaders {
         float r2 = dot(in.uv, in.uv);
         float core = exp(-r2 * 18.0), halo = exp(-r2 * 3.5) * 0.25;
         float a = (core + halo) * in.alpha;
-        return float4(float3(1.0, 0.86, 0.42) * 3.0 * a, 0.0);
+        return float4(float3(1.0, 0.86, 0.42) * 4.0 * a, 0.0);
     }
 
     // Keys: rect (x0, y0, x1, y1) and info (isBlack, glow, pressed, light).

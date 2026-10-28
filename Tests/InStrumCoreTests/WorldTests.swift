@@ -84,7 +84,7 @@ final class WorldTests: XCTestCase {
     private func lakeFrame(hour: Double, weather: WeatherKind = .clear, notes: [UInt8] = []) -> LakeFrame? {
         let d = SceneDirector(themeID: MoonlitLakeModel.id, state: ThemeState(), reaction: ReactionPresets.expressivePianist)
         var s = SkySettings(); s.timeMode = .frozen; s.frozenHour = hour; s.cityID = "melbourne"; s.weatherMode = .pick; s.weather = weather
-        d.sky.settings = s
+        d.sky.reset(settings: s)
         d.mood = .serene
         var frame: LakeFrame?
         for i in 0..<90 {   // three seconds for the sky to settle; the notes land in the last third of a second
