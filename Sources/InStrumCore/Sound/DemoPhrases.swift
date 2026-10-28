@@ -50,6 +50,29 @@ public enum DemoPhrases {
         return m.sorted
     }()
 
+    /// B-minor colours (Bm, Gmaj7, Em9, F♯) at 132 BPM: low chords held under the pedal while eighth-note bell
+    /// arpeggios ring and echo above them, then one soft chord left to drift.
+    public static let hazeBells: Phrase = {
+        var m = Builder()
+        let eighth = 60.0 / 132 / 2
+        let sections: [(low: [UInt8], arp: [UInt8])] = [
+            ([47, 54, 62], [71, 74, 78, 85, 83, 78, 74, 69]),
+            ([43, 50, 59], [67, 71, 74, 78, 81, 78, 74, 71]),
+            ([40, 47, 55], [76, 79, 83, 86, 83, 79, 78, 76]),
+            ([42, 49, 58], [78, 82, 85, 88, 85, 82, 78, 73]),
+        ]
+        for (i, section) in sections.enumerated() {
+            let t = 0.2 + Double(i) * 4.5
+            m.pedal(t - 0.03, down: false); m.pedal(t + 0.02, down: true)
+            for (k, n) in section.low.enumerated() { m.note(t + Double(k) * 0.03, n, 70, 4.2) }
+            for (k, n) in section.arp.enumerated() { m.note(t + 0.4 + Double(k) * eighth, n, UInt8(72 + (k % 3) * 10), eighth * 0.8) }
+        }
+        m.pedal(18.17, down: false); m.pedal(18.22, down: true)
+        for (k, n) in [71, 74, 78].enumerated() { m.note(18.3 + Double(k) * 0.05, UInt8(n), 64, 2.5) }
+        m.pedal(21.5, down: false)
+        return m.sorted
+    }()
+
     private struct Builder {
         var events: Phrase = []
         mutating func note(_ t: Double, _ n: UInt8, _ v: UInt8, _ length: Double) {

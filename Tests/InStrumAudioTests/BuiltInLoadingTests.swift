@@ -44,4 +44,11 @@ final class BuiltInLoadingTests: XCTestCase {
                              "moodEnergy", "moodWarmth", "moodBrightness", "moodSpace", "moodMotion"])
         XCTAssertNil(au.parameterTree?.parameter(withAddress: AUParameterAddress(ISD_P_DEBUG_NO_VIBRATO)))
     }
+
+    func testF_HazeBellsShowsItsDials() throws {
+        let au = try BuiltInInstrumentAU(componentDescription: BuiltInCatalog.description(for: .hazeBells), options: [])
+        let ids = Set(au.parameterTree?.allParameters.map(\.identifier) ?? [])
+        XCTAssertEqual(ids, ["fineTune", "transpose", "bells", "organ", "echo", "crush", "drift", "space",
+                             "moodEnergy", "moodWarmth", "moodBrightness", "moodSpace", "moodMotion"])
+    }
 }

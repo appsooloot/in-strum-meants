@@ -29,6 +29,14 @@ final class CPUBudgetTests: XCTestCase {
         XCTAssertLessThan(seconds / 10, 0.05, "Honey Tape used \(String(format: "%.1f", seconds * 10))% of real time")
     }
 
+    func testHazeBellsBudget() {
+        var run = [R.pedal(0, 127)]
+        for i in 0..<24 { run.append(R.noteOn(0.05 + Double(i) * 0.2, UInt8(48 + i * 2 % 36), 100)) }
+        let p: [Int: Float] = [Int(ISD_P_ECHO): 1, Int(ISD_P_ORGAN): 0.5]
+        let seconds = bestOfThree { _ = R.render(ISD_ENGINE_HAZE_BELLS, seconds: 10, params: p, events: run) }
+        XCTAssertLessThan(seconds / 10, 0.04, "Haze Bells used \(String(format: "%.1f", seconds * 10))% of real time")
+    }
+
     func testCombinedBudget() {
         var felt = [R.pedal(0, 127)]
         for n: UInt8 in [36, 43, 48, 52, 55, 60, 64, 67, 71, 72, 76, 79, 83, 84, 88, 91] { felt.append(R.noteOn(0, n, 90)) }

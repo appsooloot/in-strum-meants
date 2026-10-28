@@ -26,7 +26,10 @@ public enum CreditLibrary {
     public static let musicToWatchBoysTo = Credit(id: "music-to-watch-boys-to", song: "Music to Watch Boys To", artist: "Lana Del Rey",
                                                   album: "Honeymoon", year: 2015, trackNumber: 2, key: "C♯ minor", tempoBPM: 132,
                                                   line: "The hazy, flute-like synths that drift through it.")
-    public static let all: [Credit] = [comeBackToEarth, innerbloom, musicToWatchBoysTo]
+    public static let highByTheBeach = Credit(id: "high-by-the-beach", song: "High by the Beach", artist: "Lana Del Rey",
+                                              album: "Honeymoon", year: 2015, trackNumber: 5, key: "B minor", tempoBPM: 132,
+                                              line: "Its dreamy synth bells and airy organ, from a song born on drives along the coast.")
+    public static let all: [Credit] = [comeBackToEarth, innerbloom, musicToWatchBoysTo, highByTheBeach]
 
     public static func credit(id: String) -> Credit? { all.first { $0.id == id } }
 }

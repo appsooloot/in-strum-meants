@@ -4,6 +4,7 @@
 #include "FeltGlass.hpp"
 #include "OrbitPad.hpp"
 #include "HoneyTape.hpp"
+#include "HazeBells.hpp"
 #include <algorithm>
 #include <atomic>
 #include <cmath>
@@ -62,6 +63,22 @@ const ISDParamInfo kHoneyTapeParams[] = {
     {ISD_P_DEBUG_NO_VIBRATO, "debugNoVibrato", "No vibrato (test)", 0.f, 1.f, 0.f, 3},
 };
 
+const ISDParamInfo kHazeBellsParams[] = {
+    {ISD_P_FINE_TUNE, "fineTune", "Fine tune", -50.f, 50.f, 0.f, 1},
+    {ISD_P_TRANSPOSE, "transpose", "Transpose", -12.f, 12.f, 0.f, 2},
+    {ISD_P_BELLS, "bells", "Bells", 0.f, 1.f, 0.80f, 0},
+    {ISD_P_ORGAN, "organ", "Organ", 0.f, 1.f, 0.25f, 0},
+    {ISD_P_ECHO, "echo", "Echo", 0.f, 1.f, 0.35f, 0},
+    {ISD_P_CRUSH, "crush", "Crush", 0.f, 1.f, 0.15f, 0},
+    {ISD_P_DRIFT, "drift", "Drift", 0.f, 1.f, 0.30f, 0},
+    {ISD_P_SPACE, "space", "Space", 0.f, 1.f, 0.50f, 0},
+    {ISD_P_MOOD_ENERGY, "moodEnergy", "Mood energy", 0.f, 1.f, 0.5f, 0},
+    {ISD_P_MOOD_WARMTH, "moodWarmth", "Mood warmth", 0.f, 1.f, 0.5f, 0},
+    {ISD_P_MOOD_BRIGHTNESS, "moodBrightness", "Mood brightness", 0.f, 1.f, 0.5f, 0},
+    {ISD_P_MOOD_SPACE, "moodSpace", "Mood space", 0.f, 1.f, 0.5f, 0},
+    {ISD_P_MOOD_MOTION, "moodMotion", "Mood motion", 0.f, 1.f, 0.5f, 0},
+};
+
 struct ParamTable { const ISDParamInfo *items; int count; };
 
 ParamTable table(ISDEngine engine) {
@@ -69,6 +86,7 @@ ParamTable table(ISDEngine engine) {
     case ISD_ENGINE_FELT_GLASS: return {kFeltGlassParams, (int)(sizeof kFeltGlassParams / sizeof kFeltGlassParams[0])};
     case ISD_ENGINE_ORBIT_PAD: return {kOrbitPadParams, (int)(sizeof kOrbitPadParams / sizeof kOrbitPadParams[0])};
     case ISD_ENGINE_HONEY_TAPE: return {kHoneyTapeParams, (int)(sizeof kHoneyTapeParams / sizeof kHoneyTapeParams[0])};
+    case ISD_ENGINE_HAZE_BELLS: return {kHazeBellsParams, (int)(sizeof kHazeBellsParams / sizeof kHazeBellsParams[0])};
     default: return {nullptr, 0};
     }
 }
@@ -148,6 +166,7 @@ ISDSynth *isd_synth_create(ISDEngine engine, double sampleRate, int maxFrames) {
     case ISD_ENGINE_FELT_GLASS: s->engine = std::make_unique<isd::FeltGlass>(sampleRate); break;
     case ISD_ENGINE_ORBIT_PAD: s->engine = std::make_unique<isd::OrbitPad>(sampleRate); break;
     case ISD_ENGINE_HONEY_TAPE: s->engine = std::make_unique<isd::HoneyTape>(sampleRate); break;
+    case ISD_ENGINE_HAZE_BELLS: s->engine = std::make_unique<isd::HazeBells>(sampleRate); break;
     default: delete s; return nullptr;
     }
     return s;
