@@ -15,6 +15,7 @@ final class SpaceshipLoungeRenderer: ThemeRenderer {
     private let space, frame, keys: MTLRenderPipelineState
     private var u = [SIMD4<Float>](repeating: .zero, count: 14)
     private var keyInstances: [KeyInstance] = []
+    private var limiter = FlashLimiter()
     private(set) var post = PostSettings()
     /// Streak and field brightness after the flash limiter (gentle visuals halve it).
     private(set) var streakScale: Float = 1
@@ -127,7 +128,11 @@ final class SpaceshipLoungeRenderer: ThemeRenderer {
 
         // Galaxy Warp streams from just above Earth.
         warp.centre = SIMD2(0.05, min(top - 0.25, earthTop + 0.35))
-        warp.update(f.warp, trails: Float(p.number("warp.trails")), nebula: Float(p.number("nebula")),
+        let mood = f.mood
+        limiter.gentle = gentle
+        let limited = limiter.limit(exposure: MoodLook.exposure(mood) * 1.15, sparkle: 1, dt: dt)
+        streakScale = limited.sparkle
+        warp.update(f.warp, trails: Float(p.number("warp.trails")), nebula: Float(p.number("nebula")), intensity: streakScale,
                     quality: quality, size: size, dt: dt, time: time)
 
         keyInstances.removeAll(keepingCapacity: true)
@@ -141,12 +146,11 @@ final class SpaceshipLoungeRenderer: ThemeRenderer {
             }
         }
 
-        let mood = f.mood
         post = PostSettings(
             bloom: 0.7, bloomThreshold: 0.9,
             dof: quality == .lite ? 0 : 0.25, focusDepth: 0.95,
             grade: 0, grain: 0.02, vignette: 0.35,
-            exposure: MoodLook.exposure(mood) * 1.15,
+            exposure: limited.exposure,
             warmth: MoodLook.warmthOffset(mood),
             time: time, quality: quality)
     }

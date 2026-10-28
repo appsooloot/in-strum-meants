@@ -339,9 +339,15 @@ public final class AppModel: ObservableObject {
         return settings.ambience != set.ambience
     }
 
+    private var applyingSet = false
+
     /// Everything at once: the world and its visual, the built-in instrument and preset, the ambience and the mood.
+    /// A tap while a set (or an instrument) is still loading is ignored, so two quick taps can't interleave.
     public func applySet(_ id: String) async {
-        guard let set = SetLibrary.set(id: id), let patch = PatchLibrary.all.first(where: { $0.id == set.patchID }) else { return }
+        guard !isLoading, !applyingSet, let set = SetLibrary.set(id: id),
+              let patch = PatchLibrary.all.first(where: { $0.id == set.patchID }) else { return }
+        applyingSet = true
+        defer { applyingSet = false }
         setTheme(set.worldID)
         var state = themeState(for: set.worldID)
         state.values["visual"] = .choice(set.visual)
@@ -378,7 +384,7 @@ public final class AppModel: ObservableObject {
     public func setSky(_ s: SkySettings) {
         settings.sky = s
         visualsVersion += 1
-        autosave()
+        scheduleSave()   // the day-length, time and moon sliders drag this
     }
 
     // MARK: - Ambience
@@ -422,24 +428,27 @@ public final class AppModel: ObservableObject {
     }
 
     public func setAmbienceEnabled(_ on: Bool) {
+        objectWillChange.send()   // `settings` isn't published: tell the controls and the set badge
         settings.ambience.enabled = on
         engine.ambienceEnabled = on
         autosave()
     }
 
-    /// 0…1.
+    /// 0…1. A slider drags this at 60 Hz, so the save waits for the drag to settle.
     public func setAmbienceVolume(_ v: Double) {
+        objectWillChange.send()
         settings.ambience.volume = min(1, max(0, v))
         engine.ambienceVolume = Float(settings.ambience.volume)
-        autosave()
+        scheduleSave()
     }
 
     /// 0 distant … 1 all around you.
     public func setAmbienceCloseness(_ c: Double) {
+        objectWillChange.send()
         settings.ambience.closeness = min(1, max(0, c))
         let closeness = settings.ambience.closeness
         ambienceLive.withLockUnchecked { $0.closeness = closeness; $0.sent = nil }   // resend with the new closeness
-        autosave()
+        scheduleSave()
     }
 
     public func setGentleVisuals(_ on: Bool) {

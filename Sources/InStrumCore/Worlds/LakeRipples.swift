@@ -93,8 +93,14 @@ public struct LakeRipples {
         }
     }
 
-    /// The `limit` rings worth drawing when the budget is smaller than the cap (RED stub: the newest).
-    public static func visible(_ ripples: [Ripple], limit: Int) -> [Ripple] { Array(ripples.suffix(limit)) }
+    /// The `limit` rings worth drawing when the budget is smaller than the cap: the strongest and freshest stay,
+    /// the faint, nearly spent ones go (they are the least visible), in their original order.
+    public static func visible(_ ripples: [Ripple], limit: Int) -> [Ripple] {
+        guard ripples.count > limit else { return ripples }
+        func score(_ r: Ripple) -> Float { r.strength * max(0, 1 - r.age / max(r.lifetime, 1e-3)) }
+        let keep = Set(ripples.indices.sorted { score(ripples[$0]) > score(ripples[$1]) }.prefix(max(0, limit)))
+        return ripples.indices.filter { keep.contains($0) }.map { ripples[$0] }
+    }
 
     public mutating func noteOff(_ note: UInt8) { held.remove(note) }
 

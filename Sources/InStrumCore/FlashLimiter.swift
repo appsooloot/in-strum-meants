@@ -14,6 +14,9 @@ public struct FlashLimiter {
 
     public init(gentle: Bool = false) { self.gentle = gentle }
 
+    /// Gentle visuals halve sparkle: glints, fireflies, streaks and the like.
+    public static func sparkleScale(gentle: Bool) -> Float { gentle ? 0.5 : 1 }
+
     public mutating func limit(exposure: Float, sparkle: Float, dt: Double) -> (exposure: Float, sparkle: Float) {
         time += dt
         flashes.removeAll { time - $0 >= 1 }
@@ -30,6 +33,6 @@ public struct FlashLimiter {
            flashes.last.map({ time - $0 > Self.window }) ?? true {
             flashes.append(time)
         }
-        return (output, gentle ? sparkle * 0.5 : sparkle)
+        return (output, sparkle * Self.sparkleScale(gentle: gentle))
     }
 }

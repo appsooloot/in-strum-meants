@@ -133,7 +133,8 @@ final class WarpLayer {
     /// Radial position (p-space units from the vanishing point) for a distance 0…1.6: accelerating outward.
     private static func radial(_ d: Float) -> Float { 1.4 * d }
 
-    func update(_ w: WarpFrame, trails: Float, nebula: Float, quality: QualityLevel, size: CGSize, dt: Double, time t: Float) {
+    /// `intensity` scales the streaks and the field (the flash limiter's sparkle; 0.5 on gentle visuals).
+    func update(_ w: WarpFrame, trails: Float, nebula: Float, intensity: Float = 1, quality: QualityLevel, size: CGSize, dt: Double, time t: Float) {
         aspect = Float(max(1, size.width) / max(1, size.height))
         time = t
         let fdt = Float(min(dt, 0.1))
@@ -152,7 +153,7 @@ final class WarpLayer {
             let fade = min(1, d / 0.15)
             let h = c + dir * r, tl = c + dir * rt
             instances.append(Instance(a: SIMD4(h.x, h.y, tl.x, tl.y),
-                                      b: SIMD4(0.0022 + 0.003 * d, s.brightness * fade * (0.5 + 0.6 * warp), s.hue, 0)))
+                                      b: SIMD4(0.0022 + 0.003 * d, s.brightness * fade * (0.5 + 0.6 * warp) * intensity, s.hue, 0)))
         }
         // Note streaks.
         for s in w.streaks {
@@ -160,7 +161,7 @@ final class WarpLayer {
             let head = c + s.direction * Self.radial(s.distance)
             let tail = c + s.direction * Self.radial(max(0, s.distance - len))
             let fade = min(1, max(0, (GalaxyWarp.maxAge - s.age) / 1.5))
-            instances.append(Instance(a: SIMD4(head.x, head.y, tail.x, tail.y), b: SIMD4(0.004 + 0.006 * s.brightness, 1.6 * s.brightness * fade, s.hue, 0)))
+            instances.append(Instance(a: SIMD4(head.x, head.y, tail.x, tail.y), b: SIMD4(0.004 + 0.006 * s.brightness, 1.6 * s.brightness * fade * intensity, s.hue, 0)))
         }
         instanceCount = instances.count
 

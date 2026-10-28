@@ -617,7 +617,7 @@ public:
             v.delay = 0.5f + 5.5f * v.d;
             v.t = -v.delay;
             v.dur = 1.f + 3.f * (0.3f + 0.7f * v.d) * (0.8f + 0.2f * rng.uniform());
-            v.level = 1.f - 0.6f * v.d;
+            v.level = 1.f - 0.75f * v.d;
             v.rolls = 2 + (int)(rng.uniform() * 2.99f);
             for (int i = 0; i < v.rolls; ++i) {
                 v.at[i] = (i == 0 ? 0.f : (0.15f + 0.6f * rng.uniform()) * v.dur);
@@ -743,9 +743,14 @@ void Ambience::processBlock(float *left, float *right, int n) {
         any = true;
     }
     if (thunder->active()) {
+        // A near clap peaks about −7 dBFS (RMS ≈ −18) and a far one sits near the beds; never into the limiter.
+        constexpr float kThunderGain = 0.11f;
         std::fill(tl, tl + n, 0.f); std::fill(tr, tr + n, 0.f);
         thunder->render(tl, tr, n, (float)sr);
-        for (int t = 0; t < n; ++t) { dl[t] += tl[t]; dr[t] += tr[t]; sl[t] += 0.7f * tl[t]; sr2[t] += 0.7f * tr[t]; }
+        for (int t = 0; t < n; ++t) {
+            const float xl = tl[t] * kThunderGain, xr = tr[t] * kThunderGain;
+            dl[t] += xl; dr[t] += xr; sl[t] += 0.7f * xl; sr2[t] += 0.7f * xr;
+        }
         any = true;
     }
     // Air absorption and width on the direct sound.

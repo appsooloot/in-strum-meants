@@ -32,7 +32,8 @@ public struct GalaxyWarp {
     /// Hues for chord qualities: major warm violet, minor deep blue, tense magenta.
     public static let majorHue: Float = 0.78, minorHue: Float = 0.63, tenseHue: Float = 0.9
     public static let maxAge: Float = 7
-    /// New streaks admitted per step (RED stub: not enforced yet).
+    /// New streaks admitted per step: a MIDI burst streams out over a few frames instead of filling the window
+    /// in one (flash safety); the rest wait in a queue capped at `cap`.
     public static let maxSpawnsPerStep = 40
     /// Warp speed reaches 90% of a rise in 0.6 s and falls 90% in 2.5 s.
     static let riseTau = 0.6 / log(10.0), fallTau = 2.5 / log(10.0)
@@ -50,6 +51,7 @@ public struct GalaxyWarp {
     public private(set) var nebulaHue: Float = GalaxyWarp.majorHue
 
     private var held = Set<UInt8>()
+    private var pending: [Streak] = []
     private var rng = SeededRandom(seed: 0x6A1A)
 
     public init() {}
@@ -61,11 +63,11 @@ public struct GalaxyWarp {
         let p = (Float(min(108, max(21, note))) - 21) / 87
         for _ in 0..<count {
             let a = Self.angle(for: note) + rng.range(-0.15, 0.15)
-            streaks.append(Streak(direction: SIMD2(cos(a), sin(a)), distance: rng.range(0.03, 0.12),
+            pending.append(Streak(direction: SIMD2(cos(a), sin(a)), distance: rng.range(0.03, 0.12),
                                   speed: (0.5 + 0.7 * v) * rng.range(0.85, 1.15), brightness: 0.35 + 0.65 * v,
                                   hue: 0.55 + 0.25 * p + rng.range(-0.03, 0.03)))
         }
-        if streaks.count > Self.cap { streaks.removeFirst(streaks.count - Self.cap) }
+        if pending.count > Self.cap { pending.removeFirst(pending.count - Self.cap) }
     }
 
     public mutating func noteOff(_ note: UInt8) { held.remove(note) }
@@ -102,6 +104,13 @@ public struct GalaxyWarp {
             streaks[i].age += fdt
         }
         streaks.removeAll { $0.distance > 1.6 || $0.age > Self.maxAge }
+        // Launch this frame's share of the queue.
+        let launch = min(pending.count, Self.maxSpawnsPerStep)
+        if launch > 0 {
+            streaks.append(contentsOf: pending.prefix(launch))
+            pending.removeFirst(launch)
+            if streaks.count > Self.cap { streaks.removeFirst(streaks.count - Self.cap) }
+        }
         return WarpFrame(streaks: streaks, warpSpeed: warpSpeed, nebula: nebula, nebulaHue: nebulaHue)
     }
 }

@@ -15,6 +15,8 @@ struct SetsGallery: View {
                         restore: { Task { await model.restoreSet() } })
             }
         }
+        .allowsHitTesting(!model.isLoading)
+        .opacity(model.isLoading ? 0.7 : 1)
     }
 
     /// Each set's card colours (original, from its world and mood).

@@ -21,6 +21,7 @@ final class MoonlitLakeRenderer: ThemeRenderer {
     private var keyInstances: [KeyInstance] = []
     private var aspect: Float = 16.0 / 9
     private var viewAzimuth: Double?
+    private var limiter = FlashLimiter()
     private(set) var post = PostSettings()
     private(set) var rippleCount = 0
     /// The glitter and firefly strength after the flash limiter (gentle visuals halve them).
@@ -100,9 +101,11 @@ final class MoonlitLakeRenderer: ThemeRenderer {
         let cam = sky.camera(latitude: s.latitude, aspect: aspect)
         // Galaxy Warp streams out of the sky above the lake (the ridges and water draw over it).
         showWarp = frame.warp != nil
+        limiter.gentle = gentle
+        fireflyScale = FlashLimiter.sparkleScale(gentle: gentle)
         if let w = frame.warp {
             warp.centre = SIMD2(0, horizonY + (1 - horizonY) * 0.45)
-            warp.update(w, trails: 0.6, nebula: 0.7, quality: quality, size: size, dt: dt, time: time)
+            warp.update(w, trails: 0.6, nebula: 0.7, intensity: fireflyScale, quality: quality, size: size, dt: dt, time: time)
         }
 
         // The light on the water: the moon at night, the sun by day.
@@ -125,12 +128,15 @@ final class MoonlitLakeRenderer: ThemeRenderer {
 
         let mood = frame.mood
         let mist = min(1, Float(p.number("mist")) * MoodLook.hazeScale(mood) * 0.8 + s.mist)
-        let glitter = Float(p.number("glitter")) * (0.25 + 0.75 * frame.glitter)
+        // Glints and the exposure go through the flash limiter (gentle visuals halve the sparkle).
+        let exposure = MoodLook.exposure(mood) * (1 + 0.9 * night) * weather.exposureBoost
+        let limited = limiter.limit(exposure: exposure, sparkle: Float(p.number("glitter")) * (0.25 + 0.75 * frame.glitter), dt: dt)
+        let glitter = limited.sparkle
         glitterOut = glitter
 
         // Ripples → wave packets.
         let budget = Self.rippleBudget(quality)
-        let ripples = frame.ripples.suffix(budget)
+        let ripples = LakeRipples.visible(frame.ripples, limit: budget)
         rippleCount = ripples.count
         for i in 0..<LakeRipples.cap { lakeU[4 + i] = .zero; lakeU[4 + LakeRipples.cap + i] = .zero }
         for (i, r) in ripples.enumerated() {
@@ -165,7 +171,7 @@ final class MoonlitLakeRenderer: ThemeRenderer {
             let height = 2.5 * f.position.y
             let alive = min(1, f.age / 0.6) * min(1, max(0, f.lifetime - f.age) / 1.2)
             let blink = 0.55 + 0.45 * sin(f.age * 2.3 + f.hue * 50)
-            let alpha = alive * blink
+            let alpha = alive * blink * fireflyScale
             if let c = project(SIMD3(ground.x, ground.y, height - 1)) {
                 fireflies.append(SIMD4(c.x, c.y, min(0.06, max(0.012, 0.2 / c.z)), alpha))
             }
@@ -190,7 +196,7 @@ final class MoonlitLakeRenderer: ThemeRenderer {
             bloom: 0.55, bloomThreshold: 0.9,
             dof: quality == .lite ? 0 : 0.3, focusDepth: 0.25,
             grade: 0, grain: 0.025, vignette: 0.3,
-            exposure: MoodLook.exposure(mood) * (1 + 0.9 * night) * weather.exposureBoost,
+            exposure: limited.exposure,
             warmth: MoodLook.warmthOffset(mood) - 0.1 * night,
             time: time, quality: quality)
     }
