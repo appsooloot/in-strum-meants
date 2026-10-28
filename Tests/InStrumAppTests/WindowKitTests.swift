@@ -205,11 +205,11 @@ final class WindowKitTests: XCTestCase {
         wood(Double(spec.rect.z) + 0.025, -0.3, "right frame")
         wood(0.2, Double(spec.rect.w) + 0.025 * 16 / 9, "top frame")
         for b in spec.bars() {
-            let mid = Double(b.x + b.y) / 2
+            let mid: Float = (b.x + b.y) / 2
             if b.z < 0.5 {
-                wood(Double(spec.ndc(SIMD2(mid, 0)).x), 0.3, "vertical bar")
+                wood(Double(spec.ndc(SIMD2<Float>(mid, 0)).x), 0.3, "vertical bar")
             } else {
-                wood(-0.47, Double(spec.ndc(SIMD2(0, mid)).y), "horizontal bar")
+                wood(-0.47, Double(spec.ndc(SIMD2<Float>(0, mid)).y), "horizontal bar")
             }
         }
         // Glass at frost 0 leaves the view exactly as it was.
