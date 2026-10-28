@@ -47,6 +47,39 @@ final class LivingSkyTests: XCTestCase {
         XCTAssertGreaterThan(g.horizon.x, g.horizon.z * 1.4, "warm horizon \(g.horizon)")
     }
 
+    /// Golden hour holds the sun 5° up whatever the clock says: the light (and the warm horizon) stay put.
+    func testGoldenHourHoldsWhateverTheClock() {
+        var s = SkySettings(); s.timeMode = .frozen; s.cityID = "melbourne"; s.weatherMode = .pick; s.weather = .clear
+        for hour in [2.0, 13.0] {
+            s.frozenHour = hour
+            let st = LivingSky(settings: s, homeZone: melbourneZone).step(now: start, dt: 0, hold: .goldenHour)
+            XCTAssertEqual(st.sun.altitude, 5, accuracy: 1e-9, "at \(hour):00")
+            XCTAssertGreaterThan(st.horizon.x, st.horizon.z * 1.4, "warm horizon at \(hour):00")
+        }
+    }
+
+    func testBlueHourHolds() {
+        var s = SkySettings(); s.timeMode = .frozen; s.cityID = "melbourne"; s.weatherMode = .pick; s.weather = .clear
+        s.frozenHour = 13
+        let blue = LivingSky(settings: s, homeZone: melbourneZone).step(now: start, dt: 0, hold: .blueHour)
+        let day = LivingSky(settings: s, homeZone: melbourneZone).step(now: start, dt: 0)
+        s.frozenHour = 2
+        let night = LivingSky(settings: s, homeZone: melbourneZone).step(now: start, dt: 0)
+        XCTAssertEqual(blue.sun.altitude, -6, accuracy: 1e-9)
+        XCTAssertGreaterThan(luminance(blue.zenith), luminance(night.zenith))
+        XCTAssertLessThan(luminance(blue.zenith), luminance(day.zenith))
+    }
+
+    func testFollowIsThePlainSky() {
+        var s = SkySettings(); s.timeMode = .quick; s.cityID = "melbourne"
+        let a = LivingSky(settings: s, seed: 4, homeZone: melbourneZone), b = LivingSky(settings: s, seed: 4, homeZone: melbourneZone)
+        var now = start
+        for _ in 0..<30 {
+            now = now.addingTimeInterval(2)
+            XCTAssertEqual(a.step(now: now, dt: 2, hold: .follow), b.step(now: now, dt: 2))
+        }
+    }
+
     func testCloudsGreyTheSky() {
         var s = SkySettings(); s.timeMode = .frozen; s.cityID = "melbourne"; s.frozenHour = 13; s.weatherMode = .pick
         s.weather = .clear
