@@ -16,6 +16,7 @@ final class ThemeCanvas: NSObject, MTKViewDelegate {
     private var lounge: SpaceshipLoungeRenderer?
     private var beach: GoldenHourBeachRenderer?
     private var road: CoastRoadRenderer?
+    private var cabin: SnowboundCabinRenderer?
     private var autoQuality: AutoQuality
     private var lastTime: CFTimeInterval = 0
     private var seenVersion = -1
@@ -116,6 +117,10 @@ final class ThemeCanvas: NSObject, MTKViewDelegate {
             if road == nil { road = CoastRoadRenderer(device: device) }
             road?.update(r, params: director.parameters, quality: level, gentle: model.gentleVisuals, dt: dt, size: size)
             renderer = road
+        } else if let c = frame as? CabinFrame {
+            if cabin == nil { cabin = SnowboundCabinRenderer(device: device) }
+            cabin?.update(c, params: director.parameters, quality: level, gentle: model.gentleVisuals, dt: dt, size: size)
+            renderer = cabin
         } else {
             renderer = nil
         }

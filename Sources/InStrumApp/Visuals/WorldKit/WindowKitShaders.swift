@@ -16,7 +16,7 @@ enum WindowKitShaders {
         float4 reflection;  // the room's glow rgb, strength
         float4 light;       // outside light rgb (the scene's average), field ready (0/1)
         float4 b;           // patch count, bar count, material (0 log wood, 1 painted sash), frame width (NDC x)
-        float4 c;           // aspect (w/h), quality (0 Smooth), field cells across, field cells down
+        float4 c;           // aspect (w/h), quality (0 Smooth), sparkle scale (gentle visuals halve glints), unused
         float4 bars[19];    // lo, hi (window coordinates), kind (0 vertical: x; 1 horizontal: y)
         float4 patches[48]; // x, y (window, y up), radius (of the width), warmth
     };
@@ -84,7 +84,7 @@ enum WindowKitShaders {
         bool onBar;
         float4 pane = paneAt(w, u, onBar);
         if (onBar) return float4(0);
-        float2 cells = u.c.zw;
+        float2 cells = float2(384.0, 216.0);          // the frost field's grid
         float2 cp = float2(w.x, 1.0 - w.y) * cells;   // cell space, rows down as the field is stored
         float3 inside = u.glint.rgb;
         float3 outside = u.light.rgb;
@@ -104,11 +104,16 @@ enum WindowKitShaders {
 
         float arrival;
         float2 grad = float2(0, 1);
+        float vein = 0.0;
         if (u.light.w > 0.5) {
             float2 fuv = float2(w.x, 1.0 - w.y), e = 1.0 / cells;
             arrival = field.sample(lin, fuv).r;
-            grad = float2(field.sample(lin, fuv + float2(e.x, 0)).r - field.sample(lin, fuv - float2(e.x, 0)).r,
-                          field.sample(lin, fuv + float2(0, e.y)).r - field.sample(lin, fuv - float2(0, e.y)).r);
+            float xp = field.sample(lin, fuv + float2(e.x, 0)).r, xm = field.sample(lin, fuv - float2(e.x, 0)).r;
+            float yp = field.sample(lin, fuv + float2(0, e.y)).r, ym = field.sample(lin, fuv - float2(0, e.y)).r;
+            grad = float2(xp - xm, yp - ym);
+            // The needles arrived before the cells beside them: a one-cell high-pass finds them, so the frost keeps
+            // its fern veins everywhere, not only at the front.
+            vein = saturate((0.25 * (xp + xm + yp + ym) - arrival) * 40.0);
         } else {
             arrival = fallbackArrival(w, pane, cells);
         }
@@ -129,19 +134,19 @@ enum WindowKitShaders {
             scatter = min(blur.sample(lin, suv, level(2.5)).rgb, float3(6.0)) * 1.25 + outside * 0.12;
         }
         float3 albedo = float3(0.88, 0.93, 1.0);
-        // Frost scatters far more light than clear glass lets through: it reads white over the view, lit warm by the room.
-        float3 col = albedo * (scatter * 1.3 + 0.06 + inside * 0.25 * (0.6 + 0.4 * streak));
-        // Faint ribs where the fronts paused, on the older frost.
+        // Frost scatters far more light than clear glass lets through: it reads white over the view, lit by the room.
+        float3 col = albedo * (scatter * 1.3 + 0.02 + inside * 0.45 * (0.6 + 0.4 * streak));
+        // Faint ribs where the fronts paused, and brighter fern veins along the needles, on the older frost.
         float ribs = 0.5 + 0.5 * sin(arrival * 260.0 + streak * 3.0);
-        col *= 0.9 + 0.12 * ribs * age;
-        float alpha = cover * mix(0.42, 0.9, age);
+        col *= (0.9 + 0.12 * ribs * age) * (0.85 + 0.4 * vein);
+        float alpha = cover * mix(0.42, 0.9, age) * mix(0.72 + 0.28 * streak, 1.0, vein);
 
         // Glints: hashed facets that twinkle with the light falling on them (warm room light, sun or moon outside).
         float2 gp = floor(in.pos.xy * 0.5);
         float hsh = h21(gp + 0.5);
         float tw = 0.5 + 0.5 * sin(time * (1.3 + 2.7 * h21(gp + 7.7)) + hsh * 40.0);
         tw *= tw; tw *= tw; tw *= tw;
-        float sparkle = step(0.985, hsh) * tw * cover * age;
+        float sparkle = step(0.985, hsh) * tw * cover * age * u.c.z;
         float3 glints = (inside * 1.4 + outside * u.glint.w * 1.6) * sparkle * 1.8;
 
         // Condensation: a soft fog band along the bottom of the pane.
@@ -271,7 +276,7 @@ enum WindowKitShaders {
             float diff = saturate(dot(n, normalize(float3(-0.55, -0.45, 0.7))));
             float grain = vn2(float2(along * 2.2, across * 9.0)) * 0.6 + vn2(float2(along * 6.0, across * 23.0) + 3.1) * 0.4;
             float rings = 0.5 + 0.5 * sin(across * 7.0 + grain * 5.0);
-            float3 albedo = mix(float3(0.22, 0.12, 0.06), float3(0.36, 0.22, 0.12), grain * 0.7 + rings * 0.3);
+            float3 albedo = mix(float3(0.2, 0.13, 0.08), float3(0.34, 0.23, 0.15), grain * 0.7 + rings * 0.3);
             float chink = 1.0 - smoothstep(0.82, 0.98, abs(across));
             col = albedo * (inside * (0.25 + 0.95 * diff * roomFall) + u.light.rgb * 0.08 * nz) * mix(0.35, 1.0, chink);
         } else {

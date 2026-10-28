@@ -144,7 +144,7 @@ final class WindowGlassLayer {
 
     func update(spec: WindowSpec, frost: Float, patches: [GlassPatch], condensation: Float, wetDrips: Float, snow: Float,
                 reflection: SIMD4<Float>, glint: SIMD4<Float>, quality: QualityLevel, dt: Double,
-                outsideLight: SIMD3<Float> = SIMD3(0.75, 0.8, 0.86), aspect: Float = 16.0 / 9) {
+                outsideLight: SIMD3<Float> = SIMD3(0.75, 0.8, 0.86), aspect: Float = 16.0 / 9, sparkle: Float = 1) {
         func clean(_ v: Float, _ hi: Float = 1) -> Float { v.isFinite ? min(max(v, 0), hi) : 0 }
         func clean3(_ v: SIMD3<Float>, _ hi: Float) -> SIMD3<Float> { SIMD3(clean(v.x, hi), clean(v.y, hi), clean(v.z, hi)) }
         let step = dt.isFinite ? min(max(dt, 0), 0.1) : 0
@@ -169,7 +169,7 @@ final class WindowGlassLayer {
         let material: Float = spec.material == .logWood ? 0 : 1
         let qualityCode: Float = quality == .lite ? 0 : 1
         u[5] = SIMD4(Float(shown.count), Float(min(bars.count, Self.maxBars)), material, clean(spec.frameWidth, 0.5))
-        u[6] = SIMD4(self.aspect, qualityCode, Float(FrostField.width), Float(FrostField.height))
+        u[6] = SIMD4(self.aspect, qualityCode, clean(sparkle, 2), 0)
         for i in 0..<Self.maxBars { u[7 + i] = i < bars.count ? bars[i] : .zero }
         for i in 0..<Self.maxPatches {
             u[26 + i] = i < shown.count ? SIMD4(shown[i].x, shown[i].y, shown[i].radius, clean(shown[i].warmth)) : .zero

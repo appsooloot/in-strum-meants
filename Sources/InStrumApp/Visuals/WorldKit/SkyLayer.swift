@@ -119,7 +119,8 @@ final class WeatherLayer {
     private var streamerInstances: [SIMD4<Float>] = []
     private var rng = SeededRandom(seed: 0xD20F5)
     private var limiter = FlashLimiter()
-    private var kind: Float = 0
+    /// 0 rain streaks, 1 snow flakes (tests check a cold world never rains).
+    private(set) var kind: Float = 0
     /// Sideways drift per unit of fall: snow leans harder in gusts.
     private(set) var tilt: Float = 0
     private var aspect: Float = 16.0 / 9
