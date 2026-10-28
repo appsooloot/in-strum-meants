@@ -124,16 +124,17 @@ jobs:
 
           **Install:** download the **.dmg** below and open it, drag *In Strum Meants* onto *Applications* (choose **Replace** if asked), then right-click the app → **Open** → **Open** (first time only). The .zip is a fallback.
 
-          **New in this build — Sets 3 & 4.** Open **Sets** to find two new cards beside Moonlit Lake and Spaceship Lounge:
+          **New in this build — Sound & MIDI.** The gear button at the top right is now **Sound & MIDI**:
 
-          - **Golden Hour Beach** (after Lana Del Rey's "Music to Watch Boys To") — warm, hazy, nostalgic. A wide beach facing a low sun: long swells curl and break, the wash slides up the sand, and **Tide Lines** writes each note as a glowing line in the wet sand for the tide to erase (the pedal writes deeper lines that survive one wash; chords make the next wave break in golden foam). Instrument: **Honey Tape** — breathy flute and soft strings through warm tape. Ambience: surf in step with the waves, palms in the wind.
-          - **Coast Road** (after Lana Del Rey's "High by the Beach") — hazy, restless, free. The passenger window high above the sea at blue hour: guardrail posts and lamps streaming past, white water at the cliff base, and **Coast Lights** turning notes into passing lights (low notes on the road edge, middle on the guardrail, high on the lamps). Play harder and the car speeds up; chords bloom the glitter on the sea in the chord's colour. Instrument: **Haze Bells** — tuning-fork bells over an airy organ through a lo-fi haze. Ambience: road, engine and window rush with the surf far below.
+          - **Output** — choose where the sound goes by name (speakers, headphones, an audio interface), or leave it on *Mac default output*. A green dot shows the sound is playing, and at what rate.
+          - **Restart audio** — brings the sound straight back if it cuts out. The app also checks itself every 2 seconds: if the sound stops it restarts it, and if your chosen output disappears it plays to the Mac default output until it comes back.
+          - **Test sound** — plays middle C, to check the sound without the keyboard.
+          - **Audio buffer** now goes up to **1024** (safest). Crackles or dropouts? Choose 512 or 1024.
+          - **MIDI keyboards** — every connected keyboard, each with an on/off switch and a dot that lights when it sends a note. **Rescan** reconnects them, and **Channel** listens to one MIDI channel only (or All channels). The on-screen keys still play whatever the channel.
 
-          Both worlds can **Hold the light** (golden hour, blue hour, or follow the real sky) in the world's settings. Gulls on the beach are off until they pass your ear test (turn them up under Beach → Gulls).
+          **If the sound cuts in and out:** open Sound & MIDI, choose 512 or 1024, pick your output by name, then press Restart audio. Wired speakers or headphones are steadier than Bluetooth.
 
-          **Hear it first:** the *-demo.m4a* and *-ambience.m4a* files below are short original clips rendered on the build machine (never the songs' melodies).
-
-          **Ear-and-eye checklist:** **play-along test** with "Music to Watch Boys To" (Honey Tape) and "High by the Beach" (Haze Bells) — it should blend or harmonise, never clash (Fine tune in the instrument window if it sits off-pitch) · wow and tape feel · bell strike and echo · surf in step with the waves · road feel (speed rising and settling, never queasy) · smoothness on the Smooth setting · the two new Inspired-by cards.
+          Sets 1 to 4 (Moonlit Lake, Spaceship Lounge, Golden Hour Beach, Coast Road) are unchanged.
 
           **Check each build:** instant key response · soft vs hard feels right · pedal (optional) lingers · visuals land with notes · unplugging stops all sound · reopening restores your instrument and set.
           NOTES

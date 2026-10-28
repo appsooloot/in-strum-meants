@@ -28,6 +28,18 @@ final class AudioEngineTests: XCTestCase {
         return e
     }
 
+    func testListsOutputDevicesWithNames() {
+        let devices = AudioEngine.listOutputDevices()
+        XCTAssertEqual(Set(devices.map(\.uid)).count, devices.count, "each output once")
+        XCTAssertTrue(devices.allSatisfy { !$0.name.isEmpty && !$0.uid.isEmpty })
+    }
+
+    func testAnUnknownOutputIsRefused() async throws {
+        let e = try await makeEngine()
+        XCTAssertFalse(e.selectOutputDevice(uid: "no-such-device"))
+        XCTAssertNil(e.checkHealth(), "offline rendering never needs fixing")
+    }
+
     func testCatalogContainsAppleDLSSynthAndOnlyInstruments() {
         let all = PluginCatalog.instruments()
         XCTAssertTrue(all.contains { $0.description.componentSubType == kAudioUnitSubType_DLSSynth })

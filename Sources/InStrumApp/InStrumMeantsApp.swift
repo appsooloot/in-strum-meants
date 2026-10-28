@@ -24,6 +24,7 @@ final class AppContainer: ObservableObject {
             onSourcesChanged: { names, removed in
                 Task { @MainActor in model.midiSourcesChanged(names: names, removed: removed) }
             })
+        model.midi = midi   // hands over the keyboards switched off in Sound & MIDI
         if let names = midi?.sourceNames, !names.isEmpty { model.midiSourcesChanged(names: names, removed: false) }
     }
 }

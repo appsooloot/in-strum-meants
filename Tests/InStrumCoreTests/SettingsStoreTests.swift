@@ -37,6 +37,25 @@ final class SettingsStoreTests: XCTestCase {
         XCTAssertEqual(s.masterVolume, AppSettings.default.masterVolume)
         XCTAssertNil(s.instrument)
     }
+    func testSoundAndMIDISettingsRoundTrip() throws {
+        var s = AppSettings.default
+        s.outputDeviceUID = "BuiltInSpeakerDevice"; s.midiChannel = 3; s.disabledMIDISources = ["IAC Bus 1"]; s.bufferFrames = 1024
+        let store = SettingsStore(directory: dir)
+        try store.save(s)
+        XCTAssertEqual(store.load(), s)
+    }
+    func testOlderFilesFollowTheDefaultOutputAndEveryKeyboard() throws {
+        try Data(#"{"themeID":"moonlit-lake","bufferFrames":512}"#.utf8).write(to: settingsURL)
+        let s = SettingsStore(directory: dir).load()
+        XCTAssertNil(s.outputDeviceUID)
+        XCTAssertNil(s.midiChannel)
+        XCTAssertEqual(s.disabledMIDISources, [])
+        XCTAssertEqual(s.bufferFrames, 512)
+    }
+    func testABadMIDIChannelMeansAllChannels() throws {
+        try Data(#"{"midiChannel":42}"#.utf8).write(to: settingsURL)
+        XCTAssertNil(SettingsStore(directory: dir).load().midiChannel)
+    }
     func testSaveCreatesMissingDirectory() throws {
         let nested = dir.appendingPathComponent("a/b")
         try SettingsStore(directory: nested).save(.default)
