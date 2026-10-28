@@ -48,6 +48,13 @@ final class InspiredByCardTests: XCTestCase {
         XCTAssertEqual(CardArt.highByTheBeach.pulse(for: CreditLibrary.highByTheBeach), 60.0 / 132, accuracy: 1e-9)
     }
 
+    /// "Dunno"'s motes twinkle on its beat, 82 BPM.
+    func testDunnoCardTwinklesAtTempo() throws {
+        let art = try XCTUnwrap(CardArt.art(for: CreditLibrary.dunno.id))
+        XCTAssertNotEqual(art, CardArt.art(for: CreditLibrary.stay.id))
+        XCTAssertEqual(art.pulse(for: CreditLibrary.dunno), 60.0 / 82, accuracy: 1e-9)
+    }
+
     func testCardsDrawTheirArtAndBreatheWithTheTempo() throws {
         for c in CreditLibrary.all {
             let a = try XCTUnwrap(Self.render(c, at: 0.2), c.id)

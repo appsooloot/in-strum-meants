@@ -743,6 +743,19 @@ final class AppModelTests: XCTestCase {
         XCTAssertEqual(credit?.trackNumber, 3); XCTAssertEqual(credit?.key, "F♯ major"); XCTAssertEqual(credit?.tempoBPM, 134)
     }
 
+    func testMorningBoxPresetsCarryTheirCredit() {
+        let presets = PatchLibrary.patches(for: .morningBox)
+        XCTAssertEqual(presets.map(\.id), ["morning-box", "music-box", "wall-of-light", "snooze"])
+        for p in presets { XCTAssertTrue(p.displayName.hasSuffix("· after \"Dunno\""), p.displayName) }
+        XCTAssertEqual(PatchLibrary.defaultPatch(for: .morningBox).id, "morning-box")
+        XCTAssertEqual(presets.first { $0.id == "music-box" }?.values["box"], 1)
+        XCTAssertEqual(presets.first { $0.id == "wall-of-light" }?.values["build"], 0.90)
+        let credit = CreditLibrary.credit(id: "dunno")
+        XCTAssertEqual(credit?.song, "Dunno"); XCTAssertEqual(credit?.artist, "Mac Miller")
+        XCTAssertEqual(credit?.album, "Swimming"); XCTAssertEqual(credit?.year, 2018)
+        XCTAssertEqual(credit?.trackNumber, 10); XCTAssertEqual(credit?.key, "C♯ major"); XCTAssertEqual(credit?.tempoBPM, 82)
+    }
+
     func testHazeBellsPresetsCarryTheirCredit() {
         let presets = PatchLibrary.patches(for: .hazeBells)
         XCTAssertEqual(presets.map(\.id), ["haze-bells", "church-keys", "night-drive", "lo-fi"])

@@ -53,6 +53,7 @@ final class DemoRenderTests: XCTestCase {
             ("honey-tape", ISD_ENGINE_HONEY_TAPE, DemoPhrases.honeyTape),
             ("haze-bells", ISD_ENGINE_HAZE_BELLS, DemoPhrases.hazeBells),
             ("cabin-felt", ISD_ENGINE_CABIN_FELT, DemoPhrases.cabinFelt),
+            ("morning-box", ISD_ENGINE_MORNING_BOX, DemoPhrases.morningBox),
         ]
         var written = 0
         for (name, engine, phrase) in demos {
