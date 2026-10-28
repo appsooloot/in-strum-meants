@@ -321,6 +321,13 @@ public final class AppModel: ObservableObject {
         autosave()
     }
 
+    // MARK: - Ambience (RED stubs)
+
+    public nonisolated func updateAmbience(_ s: AmbienceScene, at t: Double = ProcessInfo.processInfo.systemUptime) {}
+    public func setAmbienceEnabled(_ on: Bool) {}
+    public func setAmbienceVolume(_ v: Double) {}
+    public func setAmbienceCloseness(_ c: Double) {}
+
     public func setGentleVisuals(_ on: Bool) {
         gentleVisuals = on; settings.gentleVisuals = on; visualsVersion += 1; autosave()
     }

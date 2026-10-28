@@ -76,6 +76,74 @@ final class AppModelTests: XCTestCase {
         XCTAssertTrue(engine.startedBeforeAmbience)
     }
 
+    // MARK: - Worlds drive the ambience
+
+    func testAmbienceForwardingIsThrottled() {
+        let m = makeModel()
+        let lake = AmbienceScene(levels: [.water: 0.8, .crickets: 0.6], activity: 0.2)
+        for i in 0..<60 { m.updateAmbience(lake, at: Double(i) / 60) }
+        XCTAssertEqual(engine.scenes.count, 1, "an unchanging scene is sent once")
+        engine.scenes.removeAll()
+        for i in 0..<60 {
+            var s = lake
+            s.levels[.water] = 0.5 + Double(i) * 0.005
+            m.updateAmbience(s, at: 1 + Double(i) / 60)
+        }
+        XCTAssertLessThanOrEqual(engine.scenes.count, 10, "at most 10 a second")
+        XCTAssertGreaterThanOrEqual(engine.scenes.count, 5, "but changes do get through")
+        // Tiny wobbles don't count; thunder always counts and is never lost to the throttle.
+        let sent = engine.scenes.last ?? lake
+        engine.scenes.removeAll()
+        var wobble = sent; wobble.levels[.water] = (sent.levels[.water] ?? 0) + 0.005
+        m.updateAmbience(wobble, at: 3)
+        XCTAssertTrue(engine.scenes.isEmpty, "a 0.005 wobble is not a change")
+        var clap = wobble; clap.thunder = 0.4
+        m.updateAmbience(clap, at: 3.01)
+        m.updateAmbience(wobble, at: 3.05)
+        var near = wobble; near.thunder = 0.7
+        m.updateAmbience(near, at: 3.06)   // too soon: held back, not dropped
+        m.updateAmbience(wobble, at: 3.2)
+        XCTAssertEqual(engine.scenes.compactMap(\.thunder), [0.4, 0.7])
+    }
+
+    func testAmbienceSettingsPersist() async {
+        let m = makeModel()
+        m.setAmbienceVolume(0.4)
+        m.setAmbienceCloseness(0.8)
+        m.setAmbienceEnabled(false)
+        XCTAssertEqual(engine.ambienceVolume, 0.4, accuracy: 1e-6)
+        XCTAssertFalse(engine.ambienceEnabled)
+        let loaded = store.load().ambience
+        XCTAssertEqual(loaded.volume, 0.4, accuracy: 1e-9)
+        XCTAssertEqual(loaded.closeness, 0.8, accuracy: 1e-9)
+        XCTAssertFalse(loaded.enabled)
+        // A fresh launch hands them to the engine.
+        engine = FakeEngine()
+        let again = makeModel()
+        await again.launch(skipPluginInSafeMode: false)
+        XCTAssertEqual(engine.ambienceVolume, 0.4, accuracy: 1e-6)
+        XCTAssertFalse(engine.ambienceEnabled)
+        // Closeness leans the world's own closeness toward you.
+        again.updateAmbience(AmbienceScene(levels: [.water: 0.8], closeness: 0.5), at: 0)
+        XCTAssertEqual(engine.scenes.last?.closeness ?? 0, 0.8, accuracy: 1e-9)
+    }
+
+    func testNonWorldThemesSilenceAmbience() throws {
+        let m = makeModel()
+        let lakeDirector = SceneDirector(themeID: MoonlitLakeModel.id, state: ThemeState(), reaction: ReactionPresets.expressivePianist)
+        let lake = ThemeCanvas.ambience(for: lakeDirector.step(dt: 1.0 / 30, t: 0, quality: .lite))
+        XCTAssertGreaterThan(lake.level(.water), 0.5)
+        m.updateAmbience(lake, at: 0)
+        let garden = SceneDirector(themeID: ButterflyGardenModel.id, state: ThemeState(), reaction: ReactionPresets.expressivePianist)
+        let quiet = ThemeCanvas.ambience(for: garden.step(dt: 1.0 / 30, t: 0, quality: .lite))
+        XCTAssertEqual(quiet, .silent)
+        m.updateAmbience(quiet, at: 0.5)
+        XCTAssertEqual(engine.scenes.count, 2)
+        XCTAssertTrue(engine.scenes.last?.levels.isEmpty ?? false, "switching to Butterfly Garden sends silence")
+        let steinway = SceneDirector(themeID: MidnightSteinwayModel.id, state: ThemeState(), reaction: ReactionPresets.expressivePianist)
+        XCTAssertEqual(ThemeCanvas.ambience(for: steinway.step(dt: 1.0 / 30, t: 0, quality: .lite)), .silent)
+    }
+
     func testFirstLaunchAsksForInstrument() async {
         let m = makeModel()
         await m.launch(skipPluginInSafeMode: false)

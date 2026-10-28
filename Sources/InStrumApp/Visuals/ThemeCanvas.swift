@@ -34,6 +34,9 @@ final class ThemeCanvas: NSObject, MTKViewDelegate {
         director.sky.reset(settings: model.skySettings)   // launch with the chosen weather, not a blend into it
     }
 
+    /// What the ambience should play for a frame (RED stub).
+    static func ambience(for frame: Any) -> AmbienceScene { AmbienceScene(levels: [.water: 1]) }
+
     func mtkView(_ view: MTKView, drawableSizeWillChange size: CGSize) {
         MainActor.assumeIsolated { stack?.resize(width: Int(size.width), height: Int(size.height)) }
     }
