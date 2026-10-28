@@ -54,7 +54,8 @@ enum CoastRoadShaders {
     /// Where the scrub meets the sky or sea on screen (y), by x (aspect units) and the mid layer's scroll.
     float scrubLine(float x, float scroll, float base) {
         float n = vnoiseP(float3((x + scroll) * 1.6, 2.0, 1.0), 64.0) * 0.07
-                + vnoiseP(float3((x + scroll) * 5.0, 5.0, 3.0), 200.0) * 0.025;
+                + vnoiseP(float3((x + scroll) * 5.0, 5.0, 3.0), 200.0) * 0.03
+                + vnoiseP(float3((x + scroll) * 22.0, 8.0, 2.0), 880.0) * 0.016;   // bush tops
         return base + n;
     }
 
@@ -95,9 +96,13 @@ enum CoastRoadShaders {
         float depth = 1.0;
         if (p.y < scrubY) {
             // The scrub along the cliff edge, then the guardrail and the road edge.
-            float n = vnoiseP(float3((p.x + u.b.y) * 9.0, p.y * 9.0, 2.0), 360.0);
-            float3 scrub = float3(0.05, 0.06, 0.035) * (0.6 + 0.6 * n);
-            col = scrub * (ambient + lightCol * lightW * 0.35) + scrub * float3(0.25, 0.22, 0.12) * (1.0 - night) * 0.3;
+            // Coastal scrub: clumps of dark bushes, leafy texture, a rim of sky light along the tops.
+            float clumps = vnoiseP(float3((p.x + u.b.y) * 6.0, p.y * 7.0, 2.0), 240.0);
+            float leaves = vnoiseP(float3((p.x + u.b.y) * 40.0, p.y * 40.0, 5.0), 1600.0);
+            float3 scrub = float3(0.03, 0.04, 0.024) * (0.45 + 0.7 * clumps) * (0.75 + 0.5 * leaves);
+            float depthIn = saturate((scrubY - p.y) / 0.12);
+            col = scrub * (ambient * (1.1 - 0.5 * depthIn) + lightCol * lightW * 0.3 * (1.0 - depthIn));
+            col += horizon * 0.12 * exp(-(scrubY - p.y) / 0.008) * (0.5 + 0.5 * leaves);
             // The lamps' pools of light on the scrub.
             float pool = exp(-(lampDx * lampDx) / 0.35) * exp(-max(scrubY - p.y, 0.0) / 0.25);
             col += lampCol * pool * lampsLit * 0.35;
@@ -105,12 +110,14 @@ enum CoastRoadShaders {
             // Guardrail posts streaming past, blurred by speed.
             float postDx = (fract(p.x / kPostSpacing + u.b.z) - 0.5) * kPostSpacing;
             float blur = 0.004 + 0.05 * speed;
-            float postCover = smoothstep(0.011 + blur, 0.011, abs(postDx)) * (0.011 / (0.011 + blur * 0.5)) * step(p.y, railY);
-            // The rail: a galvanised beam with a soft highlight from the sky and the lamps.
-            float beam = smoothstep(0.022, 0.016, abs(p.y - railY + 0.005));
-            float3 metal = float3(0.08, 0.085, 0.09) * (ambient * 1.6 + lightCol * lightW * 0.4)
+            float postCover = smoothstep(0.015 + blur, 0.015, abs(postDx)) * (0.015 / (0.015 + blur * 0.5)) * step(p.y, railY);
+            // The rail: a galvanised W-beam with two grooves, catching the sky and the lamps.
+            float ry = p.y - railY + 0.005;
+            float beam = smoothstep(0.03, 0.024, abs(ry));
+            float grooves = 0.75 + 0.25 * cos(ry * 200.0);
+            float3 metal = float3(0.22, 0.23, 0.25) * grooves * (ambient * 1.4 + lightCol * lightW * 0.4)
                          + lampCol * lampsLit * 0.12 * exp(-(lampDx * lampDx) / 0.6);
-            float shine = exp(-pow((p.y - railY - 0.008) / 0.005, 2.0));
+            float shine = exp(-pow((p.y - railY - 0.016) / 0.005, 2.0));
             col = mix(col, metal, max(beam, postCover * 0.95));
             col += (horizon * 0.25 + lampCol * lampsLit * 0.3) * shine * beam;
             // The road's edge below the rail.

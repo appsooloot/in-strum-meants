@@ -173,7 +173,8 @@ final class CoastRoadRenderer: ThemeRenderer {
             case .lamp: y = headY - 0.16 + 0.2 * l.height
             }
             let x = 1.04 - 2.08 * l.x
-            let trail = l.trail * (0.08 + 0.5 * frame.speed)
+            // Lamp-head lights glow round; road and rail lights streak with speed.
+            let trail = l.trail * (0.08 + 0.5 * frame.speed) * (l.lane == .lamp ? 0.35 : 1)
             let radius: Float = l.lane == .road ? 0.008 : (l.lane == .rail ? 0.011 : 0.014)
             let c = Self.colour(hue: l.hue)
             lightInstances.append(SIMD4(x, y, trail, radius))
