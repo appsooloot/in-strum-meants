@@ -15,6 +15,7 @@ enum SnowboundCabinShaders {
         float4 d;        // frame width (NDC x), sill height (NDC y), quality (0 Smooth), sparkle scale
         float4 light;    // the outside light rgb (the scene's average), snow
         float4 fire;     // the fire's colour rgb, the candle's flicker 0…1
+        float4 e;        // the window's bar count, unused…
         float4 bars[19]; // the Window Kit's bars: lo, hi (window coordinates), kind (0 vertical, 1 horizontal)
     };
 
@@ -80,7 +81,9 @@ enum SnowboundCabinShaders {
     float4 cabinPane(float2 w, constant CabinU& c, thread bool& onBar) {
         float4 p = float4(0, 0, 1, 1);
         onBar = false;
+        int nBars = int(c.e.x);
         for (int i = 0; i < 19; i++) {
+            if (i >= nBars) break;
             float4 bar = c.bars[i];
             if (bar.y <= bar.x) continue;
             float v = bar.z < 0.5 ? w.x : w.y;

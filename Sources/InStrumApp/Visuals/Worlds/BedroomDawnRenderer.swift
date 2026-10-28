@@ -10,7 +10,7 @@ import InStrumCore
 @MainActor
 final class BedroomDawnRenderer: ThemeRenderer {
     /// Dust motes drawn (fewer on Smooth).
-    static func moteBudget(_ q: QualityLevel) -> Int { q == .lite ? 200 : 400 }
+    static func moteBudget(_ q: QualityLevel) -> Int { CurtainLight.moteBudget(q) }
     static func patchBudget(_ q: QualityLevel) -> Int { q == .lite ? 24 : 48 }
     static let fieldSeed: UInt64 = 0xBED5
     /// Degrees the view turns left of a low sun, so it rises right of the middle bar and the beams slant.
@@ -45,7 +45,7 @@ final class BedroomDawnRenderer: ThemeRenderer {
     private var spriteOffset = 0, spriteCount = 0
     private var limiter = FlashLimiter()
     private var quality: QualityLevel = .high
-    private var viewAzimuth: Double?
+    private(set) var viewAzimuth: Double?
     private var spec: WindowSpec?
     private var birds: [(x: Float, y: Float, phase: Float, flying: Bool, age: Float, stay: Float, vx: Float)] = []
     private var birdClock: Float = 6
@@ -158,9 +158,19 @@ final class BedroomDawnRenderer: ThemeRenderer {
         self.spec = spec
         let horizonY = spec.rect.y + (spec.rect.w - spec.rect.y) * 0.42
 
-        // Face the low sun (rising between the chimneys, or wherever the held light puts it), else east.
-        // The sun sits a little right of the middle bar, so its beams slant down across the room.
-        let target = s.sun.altitude > -12 && s.sun.altitude < 25 ? s.sun.azimuth - Self.sunOffset : 90
+        // A held light: face its (low) sun, which sits a little right of the middle bar so its beams slant down across
+        // the room. Following the sky: turn toward the morning sun while it's low in the east, gliding back to east as
+        // it climbs, and look east the rest of the day, so the view never swings round.
+        let east = 90.0
+        let sunTarget = s.sun.azimuth - Self.sunOffset
+        let target: Double
+        if SkyHold(rawValue: p.choice("light.hold")) ?? .follow != .follow {
+            target = sunTarget
+        } else {
+            let eastness = Self.smooth(0, 0.35, sin(s.sun.azimuth * .pi / 180))
+            let low = Self.smooth(-14, -8, s.sun.altitude) * (1 - Self.smooth(15, 30, s.sun.altitude))
+            target = east + ((sunTarget - east + 540).truncatingRemainder(dividingBy: 360) - 180) * eastness * low
+        }
         if let az = viewAzimuth {
             let diff = (target - az + 540).truncatingRemainder(dividingBy: 360) - 180
             viewAzimuth = az + diff * (1 - exp(-min(dt, 0.1) / 4))
@@ -212,7 +222,7 @@ final class BedroomDawnRenderer: ThemeRenderer {
         let toWidth = glassH / max(glassW * aspect, 1e-3)
         let patches = FrostGrow.visible(frame.patches, limit: Self.patchBudget(quality))
             .map { GlassPatch(x: $0.x, y: $0.y, radius: $0.radius * toWidth, warmth: $0.warmth) }
-        let morning: Float = s.hourOfDay < 11 ? 1 : 0.4
+        let morning: Float = s.hourOfDay < 11 || BedroomDawnModel.heldDawn(p) ? 1 : 0.4
         let condensation = min(0.6, 0.12 + 0.6 * s.frost) * morning
         let roomLight = SIMD3<Float>(1.0, 0.78, 0.55) * (0.15 + 0.4 * fairyLevel * night) + outside * 0.3
         glass.update(spec: spec, frost: frame.frostLevel, patches: patches, condensation: condensation,
@@ -235,7 +245,7 @@ final class BedroomDawnRenderer: ThemeRenderer {
         bedU[6] = SIMD4(outside, min(1, sunUp * (1 - 0.6 * s.cloudCover)))
         bedU[7] = SIMD4(tint, motesSetting)
         bedU[8] = SIMD4(s.wind, fairyLevel, floor, 0.1)
-        bedU[9] = SIMD4(patchDepth, 0, 0, 0)
+        bedU[9] = SIMD4(patchDepth, Float(min(19, spec.bars().count)), 0, 0)
         for i in 0..<3 {
             if i < birds.count {
                 let b = birds[i]

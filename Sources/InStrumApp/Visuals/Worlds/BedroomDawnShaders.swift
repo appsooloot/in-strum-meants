@@ -18,7 +18,7 @@ enum BedroomDawnShaders {
         float4 light;    // outside light rgb, sun strength 0…1 (the room uses the direct sun, b.w)
         float4 tint;     // the glow's tint rgb, dust motes setting
         float4 e;        // wind, fairy lights level, floor line (NDC y), sill height
-        float4 f;        // the floor patch's depth (window heights per floor depth), unused…
+        float4 f;        // the floor patch's depth (window heights per floor depth), the window's bar count, unused…
         float4 birds[3]; // x (scene units), y (NDC), wing phase, flying 0/1 (x < -9: none)
         float4 bars[19]; // the Window Kit's bars: lo, hi (window coordinates), kind
     };
@@ -45,7 +45,9 @@ enum BedroomDawnShaders {
     // Inside a pane (not on a bar or outside the glass), in window coordinates.
     bool inPane(float2 w, constant BedU& c) {
         if (w.x <= 0.0 || w.x >= 1.0 || w.y <= 0.0 || w.y >= 1.0) return false;
+        int nBars = int(c.f.y);
         for (int i = 0; i < 19; i++) {
+            if (i >= nBars) break;
             float4 bar = c.bars[i];
             if (bar.y <= bar.x) continue;
             float v = bar.z < 0.5 ? w.x : w.y;
@@ -392,6 +394,9 @@ enum BedroomDawnShaders {
         if (strength < 0.002) discard_fragment();
         float2 v = c.beam.xy;
         float len = c.beam.z;
+        // Only pixels the window can reach along the beams: the glass swept down along v.
+        float2 lo = c.rect.xy + min(float2(0.0), v * len), hi = c.rect.zw + max(float2(0.0), v * len);
+        if (p.x < lo.x || p.x > hi.x || p.y < lo.y || p.y > hi.y) discard_fragment();   // outside every beam
         int n = c.d.y > 0.5 ? 14 : 7;
         float sum = 0.0;
         for (int i = 0; i < 14; i++) {

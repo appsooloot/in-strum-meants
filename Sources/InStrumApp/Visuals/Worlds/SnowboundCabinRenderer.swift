@@ -29,7 +29,7 @@ final class SnowboundCabinRenderer: ThemeRenderer {
     let glass: WindowGlassLayer
     private var showWarp = false
     private let scene, sparks, room, keys: MTLRenderPipelineState
-    private var cabinU = [SIMD4<Float>](repeating: .zero, count: 7 + 19)
+    private var cabinU = [SIMD4<Float>](repeating: .zero, count: 8 + 19)
     private var keyInstances: [KeyInstance] = []
     private var sparkInstances: [SIMD4<Float>] = []
     private var sparkList: [(x: Float, y: Float, age: Float, life: Float, size: Float)] = []
@@ -193,7 +193,8 @@ final class SnowboundCabinRenderer: ThemeRenderer {
         let candle: Float = 0.5 + 0.5 * wobble
         cabinU[6] = SIMD4(fireCol, candle)
         let bars = spec.bars()
-        for i in 0..<19 { cabinU[7 + i] = i < bars.count ? bars[i] : .zero }
+        cabinU[7] = SIMD4(Float(min(19, bars.count)), 0, 0, 0)
+        for i in 0..<19 { cabinU[8 + i] = i < bars.count ? bars[i] : .zero }
 
         // Keys: dark wood-black keys in the firelight, ember amber where you play.
         keyInstances.removeAll(keepingCapacity: true)

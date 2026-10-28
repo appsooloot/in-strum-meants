@@ -6,6 +6,12 @@ import InStrumCore
 enum CardArt {
     case comeBackToEarth, innerbloom, musicToWatchBoysTo, highByTheBeach, stay, dunno
 
+    /// The Stay card's six-armed frost stars (x, y as fractions of the card, radius in points at 600 × 360): round the
+    /// edges, clear of the liner notes (top right), the title block (bottom left) and the Listen button.
+    static let stayFrost: [(CGFloat, CGFloat, CGFloat)] = [(0.05, 0.10, 16), (0.13, 0.05, 9), (0.03, 0.24, 8),
+                                                         (0.955, 0.22, 13), (0.90, 0.15, 7), (0.04, 0.55, 10),
+                                                         (0.10, 0.60, 6), (0.955, 0.70, 13), (0.88, 0.76, 7)]
+
     static func art(for creditID: String) -> CardArt? {
         switch creditID {
         case CreditLibrary.comeBackToEarth.id: return .comeBackToEarth
@@ -342,10 +348,8 @@ enum CardArt {
         glow.stroke(line, with: .color(gold.opacity(0.18 * breath)), style: StrokeStyle(lineWidth: 9, lineCap: .round))
         ctx.stroke(line, with: .color(gold.opacity(0.9)),
                    style: StrokeStyle(lineWidth: 1.8, lineCap: .round, dash: [26, 5], dashPhase: -t / pulse * 8))
-        // Six-armed frost in the corners.
-        let frost: [(CGFloat, CGFloat, CGFloat)] = [(0.05, 0.10, 16), (0.13, 0.05, 9), (0.03, 0.24, 8), (0.95, 0.10, 14),
-                                                    (0.87, 0.05, 8), (0.06, 0.90, 12), (0.15, 0.95, 7), (0.94, 0.88, 15), (0.84, 0.95, 8)]
-        for (fx, fy, r) in frost {
+        // Six-armed frost round the edges, clear of the words.
+        for (fx, fy, r) in Self.stayFrost {
             let c = CGPoint(x: w * fx, y: h * fy)
             var star = Path()
             for k in 0..<6 {
@@ -402,9 +406,8 @@ enum CardArt {
                     startPoint: CGPoint(x: pane.minX, y: pane.minY), endPoint: CGPoint(x: pane.maxX, y: pane.maxY)))
             }
         }
-        // One diagonal beam from the window down across the room.
+        // One diagonal beam from the window down across the room: warm light over the room, never clipped to white.
         var light = ctx
-        light.blendMode = .plusLighter
         var beam = Path()
         beam.move(to: CGPoint(x: win.minX, y: win.minY + 10))
         beam.addLine(to: CGPoint(x: win.minX + 4, y: win.maxY))
@@ -413,7 +416,7 @@ enum CardArt {
         beam.closeSubpath()
         let beatNow = (t / pulse).truncatingRemainder(dividingBy: 1)
         let beamGlow = 0.80 + 0.20 * exp(-beatNow * 3)   // the light breathes on the beat
-        light.fill(beam, with: .linearGradient(Gradient(colors: [Color(red: 1, green: 0.93, blue: 0.82).opacity(0.42 * beamGlow), .clear]),
+        light.fill(beam, with: .linearGradient(Gradient(colors: [Color(red: 1, green: 0.86, blue: 0.70).opacity(0.3 * beamGlow), .clear]),
                                                startPoint: CGPoint(x: win.minX, y: win.midY), endPoint: CGPoint(x: 0, y: h)))
         // The sheer curtain over the left of the window: soft folds that sway.
         for k in 0..<6 {
