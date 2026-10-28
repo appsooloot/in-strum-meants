@@ -12,6 +12,7 @@ final class ThemeCanvas: NSObject, MTKViewDelegate {
     private var stack: RenderStack?
     private var butterfly: ButterflyRenderer?
     private var steinway: SteinwayRenderer?
+    private var moonlitLake: MoonlitLakeRenderer?
     private var autoQuality: AutoQuality
     private var lastTime: CFTimeInterval = 0
     private var seenVersion = -1
@@ -91,6 +92,10 @@ final class ThemeCanvas: NSObject, MTKViewDelegate {
             if steinway == nil { steinway = SteinwayRenderer(device: device) }
             steinway?.update(s, quality: level, gentle: model.gentleVisuals, dt: dt)
             renderer = steinway
+        } else if let l = frame as? LakeFrame {
+            if moonlitLake == nil { moonlitLake = MoonlitLakeRenderer(device: device) }
+            moonlitLake?.update(l, params: director.parameters, quality: level, gentle: model.gentleVisuals, dt: dt, size: size)
+            renderer = moonlitLake
         } else {
             renderer = nil
         }

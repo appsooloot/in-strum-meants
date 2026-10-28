@@ -7,7 +7,8 @@ final class SceneDirectorTests: XCTestCase {
     }
 
     func testRegistryListsBothThemes() {
-        XCTAssertEqual(ThemeRegistry.all.map(\.id), [MidnightSteinwayModel.id, ButterflyGardenModel.id])
+        XCTAssertEqual(Array(ThemeRegistry.all.map(\.id).prefix(2)), [MidnightSteinwayModel.id, ButterflyGardenModel.id])
+        XCTAssertTrue(ThemeRegistry.all.contains { $0.id == MoonlitLakeModel.id })
     }
     func testUnknownThemeFallsBack() {
         XCTAssertEqual(ThemeRegistry.resolve("galaxy-of-the-future"), MidnightSteinwayModel.id)

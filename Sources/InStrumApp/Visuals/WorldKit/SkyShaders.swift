@@ -2,7 +2,8 @@
 /// (rain, snow, splash rings, drops on glass). Compiled at runtime.
 /// Smooth-quality rules: no ray marching, at most 3 noise octaves (2 on Smooth).
 enum SkyShaders {
-    static let source = """
+    /// Noise, the sky uniforms and skyRadiance(): shared by the dome and by anything that reflects the sky.
+    static let common = """
     #include <metal_stdlib>
     using namespace metal;
 
@@ -50,16 +51,6 @@ enum SkyShaders {
         float4 eq0, eq1, eq2;
         float4 weather;     // mist, wind, octaves, pixel angle (rad)
     };
-    struct SkyOut { float4 pos [[position]]; float2 ndc; };
-
-    vertex SkyOut sky_dome_vertex(uint vid [[vertex_id]]) {
-        float2 p[3] = { float2(-1, -1), float2(3, -1), float2(-1, 3) };
-        SkyOut o;
-        o.pos = float4(p[vid], 0, 1);
-        o.ndc = p[vid];
-        return o;
-    }
-
     float3 starField(float3 v, float pixelAngle, float time, float visibility) {
         const float scale = 90.0;
         float3 p = v * scale;
@@ -88,19 +79,17 @@ enum SkyShaders {
         return float3(0.92, 0.88, 1.0) * glow * 0.22 * visibility;
     }
 
-    fragment ColorDepth sky_dome_fragment(SkyOut in [[stage_in]], constant SkyU& u [[buffer(0)]]) {
-        float3 d = normalize(u.forward.xyz + u.right.xyz * in.ndc.x * u.right.w + u.up.xyz * in.ndc.y * u.up.w);
+    /// The sky's light in direction `d` (alt ≥ 0): gradient, sunset band, stars, Milky Way, moon, clouds, sun.
+    /// `moonMask` returns how much of the moon disc covers the ray. Shared by the dome and by reflections.
+    float3 skyRadiance(float3 d, constant SkyU& u, thread float& moonMask) {
         float alt = asin(clamp(d.z, -1.0, 1.0));
         int octaves = int(u.weather.z + 0.5);
         float time = u.forward.w, mist = u.weather.x, cloudCover = u.horizon.w, starVis = u.zenith.w;
         float3 S = u.sun.xyz, M = u.moon.xyz;
         float sunAlt = u.sun.w;
-
-        // Gradient, with mist thickening the band at the horizon.
         // A narrow horizon band under a clean zenith colour (mixing them over the whole height turns them grey).
         float band = exp(-max(alt, 0.0) / (0.2 + 0.25 * mist));
         float3 col = mix(u.zenith.rgb, u.horizon.rgb, band);
-        if (alt < 0.0) col = u.horizon.rgb * 0.6;
         col = mix(col, u.horizon.rgb * 1.05, mist * 0.6 * exp(-max(alt, 0.0) / 0.12));
 
         // Sunset band and sun glow.
@@ -124,7 +113,7 @@ enum SkyShaders {
         float mDot = dot(d, M);
         float3 o3 = (d - M * mDot) / moonR;
         float r2 = dot(o3, o3);
-        float moonMask = 0.0;
+        moonMask = 0.0;
         if (mDot > 0.0 && r2 < 1.0 && M.z > -0.05) {
             float3 n = o3 - M * sqrt(1.0 - r2);
             float3 toSun = S - M * dot(S, M);
@@ -172,6 +161,26 @@ enum SkyShaders {
             col = mix(col, sunCol, disc * (1.0 - 0.85 * saturate(cloudCover - 0.4)));
         }
 
+        return col;
+    }
+
+    """
+
+    static let source = common + """
+    struct SkyOut { float4 pos [[position]]; float2 ndc; };
+
+    vertex SkyOut sky_dome_vertex(uint vid [[vertex_id]]) {
+        float2 p[3] = { float2(-1, -1), float2(3, -1), float2(-1, 3) };
+        SkyOut o;
+        o.pos = float4(p[vid], 0, 1);
+        o.ndc = p[vid];
+        return o;
+    }
+
+    fragment ColorDepth sky_dome_fragment(SkyOut in [[stage_in]], constant SkyU& u [[buffer(0)]]) {
+        float3 d = normalize(u.forward.xyz + u.right.xyz * in.ndc.x * u.right.w + u.up.xyz * in.ndc.y * u.up.w);
+        float moonMask = 0.0;
+        float3 col = d.z < 0.0 ? u.horizon.rgb * 0.6 : skyRadiance(d, u, moonMask);
         ColorDepth out;
         out.color = float4(col, 1.0);
         out.depth = float4(1.0, 0, 0, 1);

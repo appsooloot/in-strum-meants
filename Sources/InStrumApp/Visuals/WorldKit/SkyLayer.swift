@@ -22,6 +22,8 @@ final class SkyLayer {
 
     private let pipeline: MTLRenderPipelineState
     private var u = [SIMD4<Float>](repeating: .zero, count: 12)
+    /// The SkyU uniforms, for worlds whose shaders reflect the sky (bind at the same index as the dome: 0).
+    var uniforms: [SIMD4<Float>] { u }
 
     init?(device: MTLDevice) {
         guard let lib = try? device.makeLibrary(source: SkyShaders.source, options: nil) else { return nil }

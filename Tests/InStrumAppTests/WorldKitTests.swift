@@ -119,6 +119,36 @@ final class MoonlitLakeRendererTests: XCTestCase {
     }
 }
 
+/// World preview frames for the CI previews branch (PREVIEW_DIR).
+@MainActor
+final class WorldPreviewTests: XCTestCase {
+    private func sky(hour: Double, phase: Double, weather: WeatherKind = .clear) -> SkySettings {
+        var s = SkySettings(); s.timeMode = .frozen; s.frozenHour = hour; s.frozenPhase = phase; s.cityID = "melbourne"
+        s.weatherMode = .pick; s.weather = weather
+        return s
+    }
+
+    func testWriteLakePreviews() throws {
+        guard let dir = ProcessInfo.processInfo.environment["PREVIEW_DIR"] else { throw XCTSkip("PREVIEW_DIR not set") }
+        guard MTLCreateSystemDefaultDevice() != nil else { throw XCTSkip("No Metal device") }
+        let url = URL(fileURLWithPath: dir, isDirectory: true)
+        try FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
+        let preview = try XCTUnwrap(PreviewRenderer(width: 1280, height: 720))
+        let cases: [(String, SkySettings, QualityLevel, Double)] = [
+            ("lake-night-t5", sky(hour: 22, phase: 0.55), .high, 5),
+            ("lake-dusk-t5", sky(hour: 19.9, phase: 0.3), .high, 5),
+            ("lake-moonrise-t5", sky(hour: 20.1, phase: 0.5), .high, 5),
+            ("lake-rain-t5", sky(hour: 22, phase: 0.55, weather: .rain), .high, 5),
+            ("lake-smooth-t5", sky(hour: 22, phase: 0.55), .lite, 5),
+            ("lake-ripples-t2.5", sky(hour: 22, phase: 0.55), .high, 2.5),
+        ]
+        for (name, s, q, t) in cases {
+            let image = try XCTUnwrap(preview.render(themeID: MoonlitLakeModel.id, at: [t], quality: q, sky: s, mood: .serene).first)
+            try PreviewRenderer.writePNG(image, to: url.appendingPathComponent("\(name).png"))
+        }
+    }
+}
+
 /// Living Sky preview frames for the CI previews branch (PREVIEW_DIR).
 @MainActor
 final class SkyPreviewTests: XCTestCase {

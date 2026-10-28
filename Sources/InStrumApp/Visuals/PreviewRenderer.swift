@@ -41,7 +41,7 @@ final class PreviewRenderer {
         let script = ScriptedPerformance.demo
         var next = 0, time = 0.0
         let dt = 1.0 / 60
-        var garden: ButterflyRenderer?, steinway: SteinwayRenderer?
+        var garden: ButterflyRenderer?, steinway: SteinwayRenderer?, moonlitLake: MoonlitLakeRenderer?
         var images: [CGImage] = []
         for t in times.sorted() {
             var current: ThemeRenderer?
@@ -64,6 +64,10 @@ final class PreviewRenderer {
                     if steinway == nil { steinway = SteinwayRenderer(device: device) }
                     steinway?.update(f, quality: quality, gentle: false, dt: dt)
                     current = steinway
+                } else if let l = frame as? LakeFrame {
+                    if moonlitLake == nil { moonlitLake = MoonlitLakeRenderer(device: device) }
+                    moonlitLake?.update(l, params: director.parameters, quality: quality, gentle: false, dt: dt, size: size)
+                    current = moonlitLake
                 }
                 if time + dt > t { break }
             }

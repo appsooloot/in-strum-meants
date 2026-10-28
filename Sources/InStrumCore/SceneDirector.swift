@@ -42,6 +42,7 @@ public enum ThemeRegistry {
     public static let entries: [ThemeEntry] = [
         .make(MidnightSteinwayModel.self),
         .make(ButterflyGardenModel.self),
+        .make(MoonlitLakeModel.self),
     ]
 
     public static var all: [(id: String, name: String)] { entries.map { ($0.id, $0.name) } }
