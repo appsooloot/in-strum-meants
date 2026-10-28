@@ -396,6 +396,44 @@ final class AppModelTests: XCTestCase {
         XCTAssertFalse(m.isSetModified)
     }
 
+    func testApplyingSnowboundCabinLoadsCabinFelt() async {
+        let m = makeModel()
+        await m.launch(skipPluginInSafeMode: false)
+        await m.applySet("snowbound-cabin")
+        XCTAssertEqual(engine.loaded.last.flatMap { BuiltInCatalog.engine(for: $0) }, .cabinFelt)
+        XCTAssertEqual(engine.applied.last?.id, "cabin-felt")
+        XCTAssertEqual(engine.moods.last, .hushedWarm)
+        XCTAssertEqual(m.mood, .hushedWarm)
+        XCTAssertEqual(m.themeID, SnowboundCabinModel.id)
+        XCTAssertEqual(visual(m), "Frost Grow")
+        XCTAssertEqual(m.activeSetID, "snowbound-cabin")
+        XCTAssertFalse(m.isSetModified)
+        m.saveThemeState(ThemeState(values: ["visual": .choice("Galaxy Warp")]), for: SnowboundCabinModel.id)
+        XCTAssertTrue(m.isSetModified)
+        await m.restoreSet()
+        XCTAssertFalse(m.isSetModified)
+        XCTAssertEqual(visual(m), "Frost Grow")
+    }
+
+    func testApplyingBedroomDawnLoadsMorningBox() async {
+        let m = makeModel()
+        await m.launch(skipPluginInSafeMode: false)
+        await m.applySet("bedroom-dawn")
+        XCTAssertEqual(engine.loaded.last.flatMap { BuiltInCatalog.engine(for: $0) }, .morningBox)
+        XCTAssertEqual(engine.applied.last?.id, "morning-box")
+        XCTAssertEqual(engine.moods.last, .softWaking)
+        XCTAssertEqual(m.mood, .softWaking)
+        XCTAssertEqual(m.themeID, BedroomDawnModel.id)
+        XCTAssertEqual(visual(m), "Curtain Light")
+        XCTAssertEqual(m.activeSetID, "bedroom-dawn")
+        XCTAssertFalse(m.isSetModified)
+        m.applyPatch(PatchLibrary.all.first { $0.id == "lullaby" }!)
+        XCTAssertTrue(m.isSetModified)
+        await m.restoreSet()
+        XCTAssertEqual(m.builtInPatch?.id, "morning-box")
+        XCTAssertFalse(m.isSetModified)
+    }
+
     func testChangingAPartMarksModifiedAndRestoreReverts() async {
         let m = makeModel()
         await m.launch(skipPluginInSafeMode: false)

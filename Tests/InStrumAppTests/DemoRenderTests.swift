@@ -73,13 +73,17 @@ final class DemoRenderTests: XCTestCase {
 
     /// Renders the ambience alone (levels glide in over 2.5 s, as in the app).
     nonisolated static func renderAmbience(_ levels: [(ISDAmbienceSource, Float)], seconds: Double, nightCool: Float = 0,
-                                           waves: [Wave] = [], speed: Float = 0, surfDistance: Float = 0) -> (l: [Float], r: [Float]) {
+                                           waves: [Wave] = [], speed: Float = 0, surfDistance: Float = 0, indoors: Float = 0,
+                                           snowOnGlass: Float = 0, kettleAt: Double? = nil) -> (l: [Float], r: [Float]) {
         guard let a = isd_ambience_create(rate, 512, 7) else { return ([], []) }
         defer { isd_ambience_destroy(a) }
         for (source, level) in levels { isd_ambience_set_level(a, source, level) }
         isd_ambience_set_night_cool(a, nightCool)
         isd_ambience_set_speed(a, speed)
         isd_ambience_set_surf_distance(a, surfDistance)
+        isd_ambience_set_indoors(a, indoors)
+        isd_ambience_set_snow_on_glass(a, snowOnGlass)
+        var kettlePending = kettleAt
         let total = Int(seconds * rate), block = 256
         var l = [Float](repeating: 0, count: total), r = [Float](repeating: 0, count: total)
         var i = 0, nextWave = 0
@@ -88,6 +92,7 @@ final class DemoRenderTests: XCTestCase {
             while nextWave < waves.count, Int(waves[nextWave].breakTime * rate) < i + n {
                 isd_ambience_trigger_wave(a, waves[nextWave].strength); nextWave += 1
             }
+            if let k = kettlePending, Int(k * rate) < i + n { isd_ambience_debug_start_kettle(a); kettlePending = nil }
             l.withUnsafeMutableBufferPointer { lp in
                 r.withUnsafeMutableBufferPointer { rp in isd_ambience_render(a, lp.baseAddress! + i, rp.baseAddress! + i, Int32(n)) }
             }
@@ -109,6 +114,22 @@ final class DemoRenderTests: XCTestCase {
             ("golden-hour-beach-ambience", [(ISD_AMB_SURF, 0.9), (ISD_AMB_PALMS, 0.45), (ISD_AMB_BREEZE, 0.35), (ISD_AMB_CRICKETS, 0.25)], 0.1, waves, 0, 0.15),
             ("coast-road-ambience", [(ISD_AMB_ROAD, 0.8), (ISD_AMB_ENGINE, 0.6), (ISD_AMB_WINDOW_WIND, 0.5), (ISD_AMB_SURF, 0.5), (ISD_AMB_PASSING_CAR, 0.3)], 0, waves, 0.5, 0.9),
         ]
+        // The window worlds: heard indoors through the glass.
+        let indoorScenes: [(String, [(ISDAmbienceSource, Float)], Float, Double?)] = [
+            ("snowbound-cabin-ambience", [(ISD_AMB_FIRE, 0.7), (ISD_AMB_WIND, 0.4), (ISD_AMB_RAIN_GLASS, 0.3)], 1, nil),
+            ("bedroom-dawn-ambience", [(ISD_AMB_DAWN_CHORUS, 0.6), (ISD_AMB_KETTLE, 0.5), (ISD_AMB_STREET, 0.5), (ISD_AMB_BREEZE, 0.35),
+                                       (ISD_AMB_DRIPS, 0.4), (ISD_AMB_CLOCK, 0.15)], 0, 2),
+        ]
+        for (name, levels, snow, kettle) in indoorScenes {
+            let audio = Self.renderAmbience(levels, seconds: 60, indoors: 1, snowOnGlass: snow, kettleAt: kettle)
+            let peak = max(audio.l.map(abs).max() ?? 0, audio.r.map(abs).max() ?? 0)
+            XCTAssertLessThanOrEqual(peak, 1.0, name)
+            let rms = (audio.l.reduce(0) { $0 + Double($1) * Double($1) } / Double(max(1, audio.l.count))).squareRoot()
+            XCTAssertGreaterThan(20 * log10(max(rms, 1e-10)), -60, name)
+            try Self.writeWAV(audio, to: url.appendingPathComponent("\(name).wav"))
+            try PreviewRenderer.writePNG(Spectrogram.image(left: audio.l, sampleRate: Self.rate, width: 1400, height: 500),
+                                         to: url.appendingPathComponent("\(name)-spectrogram.png"))
+        }
         for (name, levels, cool, waves, speed, distance) in scenes {
             let audio = Self.renderAmbience(levels, seconds: 60, nightCool: cool, waves: waves, speed: speed, surfDistance: distance)
             let peak = max(audio.l.map(abs).max() ?? 0, audio.r.map(abs).max() ?? 0)

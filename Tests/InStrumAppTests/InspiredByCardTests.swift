@@ -13,6 +13,7 @@ final class InspiredByCardTests: XCTestCase {
     }
 
     func testEverySetHasItsOwnCardColours() {
+        XCTAssertEqual(SetLibrary.all.count, 6)
         let fallback = SetsGallery.tint(for: "no-such-set")
         var seen: [[Color]] = []
         for set in SetLibrary.all {
