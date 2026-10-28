@@ -9,7 +9,7 @@ namespace {
 // Level and tone calibration (see docs/superpowers/briefs/honey-tape.md).
 constexpr float kFlute = 0.30f;          // flute tone per voice (fundamental peak)
 constexpr float kSaw = 0.16f;            // each of the four string saws
-constexpr float kMaster = 0.55f;
+constexpr float kMaster = 0.31f;       // sits level with Felt Glass and Orbit Pad
 constexpr float kWetMax = 0.50f;         // reverb return at full Space
 constexpr float kFluteReleaseT60 = 0.35f;
 constexpr float kStringsReleaseT60 = 0.8f;

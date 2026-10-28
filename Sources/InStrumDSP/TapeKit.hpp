@@ -142,4 +142,82 @@ private:
     float drive = 1, hiss = 0, gate = 0, gateRelease = 0, applied = -1;
 };
 
+/// Sample-rate and bit-depth reduction mixed in parallel: from the full rate down to about 11 kHz and from
+/// 24 bits down to about 10 as `amount` goes 0 → 1. At 0 it passes the signal untouched.
+struct BitCrusher {
+    void prepare(double sampleRate) { sr = sampleRate; }
+    void set(float amount) {
+        a = clamp01(amount);
+        step = (float)(sr > 0 ? std::pow(11025.0 / sr, (double)a) : 1.0);   // held-sample advance per input sample
+        quant = std::exp2(1.f - (24.f - 14.f * a));
+    }
+    void process(float &l, float &r) {
+        if (a <= 0.f) return;
+        ph += step;
+        if (ph >= 1.f) {
+            ph -= 1.f;
+            heldL = std::round(l / quant) * quant;
+            heldR = std::round(r / quant) * quant;
+        }
+        const float m = 0.6f * a;
+        l += m * (heldL - l);
+        r += m * (heldR - r);
+    }
+    void clear() { ph = 1.f; heldL = heldR = 0; }
+
+private:
+    double sr = 48000;
+    float a = 0, step = 1, quant = 1e-7f, ph = 1.f, heldL = 0, heldR = 0;
+};
+
+/// A ping-pong echo whose repeats are band-passed and darken as they fall away.
+struct FilteredEcho {
+    void prepare(double sampleRate, float seconds) {
+        sr = sampleRate;
+        delay = std::max(1, (int)std::lround(seconds * sr));
+        for (auto &b : buf) b.assign((size_t)delay, 0.f);
+        w = 0;
+        hpA = (float)std::exp(-2.0 * M_PI * 300.0 / sr);
+        setTone(0.5f);
+    }
+    /// amount 0…1 sets both the mix and the feedback (up to 0.55); tone 0…1 the repeats' top (2.5–6 kHz).
+    void set(float amount, float tone) {
+        const float a = clamp01(amount);
+        mix = 0.6f * std::pow(a, 0.7f);
+        feedback = 0.55f * std::sqrt(a);
+        setTone(tone);
+    }
+    void process(float &l, float &r) {
+        float &a = buf[0][(size_t)w], &b = buf[1][(size_t)w];
+        const float outL = a, outR = b;
+        // The left line hears the input and the right line's repeat; the right line hears the left's.
+        const float in = 0.5f * (l + r);
+        a = in + feedback * tone(1, outR);
+        b = feedback * tone(0, outL);
+        if (++w == delay) w = 0;
+        l += mix * outL;
+        r += mix * outR;
+    }
+    void clear() { for (auto &v : buf) std::fill(v.begin(), v.end(), 0.f); for (int c = 0; c < 2; ++c) hpY[c] = hpX[c] = lpY[c] = 0; }
+
+private:
+    void setTone(float t) {
+        const double hz = 2500.0 * std::pow(6000.0 / 2500.0, (double)clamp01(t));
+        lpA = (float)std::exp(-2.0 * M_PI * std::min(hz, 0.45 * sr) / sr);
+    }
+    /// One-pole high-pass then one-pole low-pass: each repeat loses a little at both ends.
+    float tone(int c, float x) {
+        const float hp = hpA * (hpY[c] + x - hpX[c]);
+        hpX[c] = x; hpY[c] = hp;
+        lpY[c] = hp + (lpY[c] - hp) * lpA;
+        return lpY[c];
+    }
+
+    double sr = 48000;
+    std::vector<float> buf[2];
+    int w = 0, delay = 1;
+    float mix = 0, feedback = 0, hpA = 0, lpA = 0;
+    float hpX[2] = {}, hpY[2] = {}, lpY[2] = {};
+};
+
 } // namespace isd

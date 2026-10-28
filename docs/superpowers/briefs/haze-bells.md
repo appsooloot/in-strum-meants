@@ -20,7 +20,8 @@
   - Organ underneath, around B2–B4.
 - **Tone colour:**
   - A tuning-fork strike: a bright clang near 6.25 × f0 that vanishes in **50–150 ms**, leaving an almost pure ring.
-  - Target spectral centroid at mf for B4 (494 Hz): **2–4 kHz in the first 50 ms**, settling to **0.6–1.0 kHz** after 300 ms.
+  - Target spectral centroid at mf for B4 (494 Hz): **0.65–1.2 kHz over the first 50 ms**, settling to **0.5–0.7 kHz** after 300 ms. A hard strike roughly doubles the strike's centroid.
+  - *(Revised while building: the first draft's 2–4 kHz would make the clang louder than the fork, a harsh "tink" rather than a dreamy beep. Measured at the defaults: 757 Hz, settling to 536 Hz.)*
   - The organ is soft and airy: 8′ + 4′ + a little 2⅔′.
 - **Attack:**
   - Bells: instant, with a ~10 ms felt thump.
