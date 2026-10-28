@@ -37,6 +37,14 @@ final class CPUBudgetTests: XCTestCase {
         XCTAssertLessThan(seconds / 10, 0.04, "Haze Bells used \(String(format: "%.1f", seconds * 10))% of real time")
     }
 
+    func testCabinFeltBudget() {
+        var events = [R.pedal(0, 127)]
+        for n: UInt8 in [36, 43, 48, 52, 55, 60, 64, 67, 71, 72, 76, 79] { events.append(R.noteOn(0, n, 90)) }
+        for i in 0..<8 { events.append(R.noteOn(0.5 + Double(i), UInt8(72 + i % 5), 90)) }
+        let seconds = bestOfThree { _ = R.render(ISD_ENGINE_CABIN_FELT, seconds: 10, events: events) }
+        XCTAssertLessThan(seconds / 10, 0.06, "Cabin Felt used \(String(format: "%.1f", seconds * 10))% of real time")
+    }
+
     func testWorldAmbienceBudget() {
         typealias A = AmbienceTests
         var beach: [A.Action] = [ISD_AMB_SURF, ISD_AMB_PALMS, ISD_AMB_GULLS, ISD_AMB_CRICKETS, ISD_AMB_BREEZE, ISD_AMB_RAIN_WATER].map { A.level($0, 1) }
