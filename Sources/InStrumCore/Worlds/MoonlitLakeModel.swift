@@ -107,6 +107,7 @@ public struct MoonlitLakeModel: ThemeModel, MoodAware, SkyAware {
             .rainOnWater: Double(sky.rain),
         ]
         if sky.wind > 0.6 { levels[.wind] = Double(sky.wind - 0.6) * 2 }
+        WeatherAmbience.levels(sky, base: &levels)
         // Night cools from dusk (about 19:00) over eight hours.
         let sinceDusk = (sky.hourOfDay - 19 + 24).truncatingRemainder(dividingBy: 24)
         let nightCool = night > 0 ? min(1, sinceDusk / 8) : 0
@@ -115,7 +116,8 @@ public struct MoonlitLakeModel: ThemeModel, MoodAware, SkyAware {
         lastLightning = sky.lightning
         let activity = min(1, 0.6 * roles[.energy] + 0.4 * roles[.density])
         return AmbienceScene(levels: levels, nightCool: nightCool, activity: activity, thunder: thunder,
-                             closeness: MoodLook.ambienceCloseness(base: 0.5, mood), density: MoodLook.ambienceDensity(mood))
+                             closeness: MoodLook.ambienceCloseness(base: 0.5, mood), density: MoodLook.ambienceDensity(mood),
+                             wetness: Double(sky.wetness))
     }
 
     static func smooth(_ a: Double, _ b: Double, _ x: Double) -> Double {

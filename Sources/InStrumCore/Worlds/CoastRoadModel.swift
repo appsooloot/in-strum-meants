@@ -124,6 +124,7 @@ public struct CoastRoadModel: ThemeModel, MoodAware, SkyAware {
             .rainOnGlass: Double(sky.rain),
         ]
         if sky.wind > 0.6 { levels[.wind] = Double(sky.wind - 0.6) * 2 }
+        WeatherAmbience.levels(sky, base: &levels)
         let sinceDusk = (sky.hourOfDay - 19 + 24).truncatingRemainder(dividingBy: 24)
         let nightCool = night > 0 ? min(1, sinceDusk / 8) : 0
         var thunder: Double?
@@ -133,7 +134,7 @@ public struct CoastRoadModel: ThemeModel, MoodAware, SkyAware {
         let wave = breaks.map { Double($0.strength) }.max()
         return AmbienceScene(levels: levels, nightCool: nightCool, activity: activity, thunder: thunder,
                              closeness: MoodLook.ambienceCloseness(base: 0.5, mood), density: MoodLook.ambienceDensity(mood),
-                             wave: wave, speed: Double(coast.speed), surfDistance: 0.9)
+                             wave: wave, speed: Double(coast.speed), surfDistance: 0.9, wetness: Double(sky.wetness))
     }
 }
 
