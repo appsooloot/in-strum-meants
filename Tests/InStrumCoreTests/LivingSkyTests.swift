@@ -294,6 +294,22 @@ extension LivingSkyTests {
         }
     }
 
+    func testAdvancedWeatherTimingSettings() throws {
+        var s = SkySettings(); s.timeMode = .frozen; s.weatherMode = .pick; s.weather = .clear; s.pickBlendSeconds = 2
+        let sky = LivingSky(settings: s, homeZone: melbourneZone)
+        _ = sky.step(now: start, dt: 0)
+        s.weather = .rain; sky.settings = s
+        var now = start, last = sky.step(now: now, dt: 0)
+        for _ in 0..<4 { now = now.addingTimeInterval(1); last = sky.step(now: now, dt: 1) }
+        XCTAssertEqual(last.rain, 0.75, accuracy: 1e-4, "a 2 s pick blend has fully arrived after 4 s")
+        let d = SkySettings()
+        XCTAssertEqual([d.pickBlendSeconds, d.randomBlendSeconds, d.spellMinutes], [12, 60, 12.5])
+        let wild = try JSONDecoder().decode(SkySettings.self, from: Data(#"{"pickBlendSeconds":9999,"randomBlendSeconds":0,"spellMinutes":-4}"#.utf8))
+        XCTAssertEqual([wild.pickBlendSeconds, wild.randomBlendSeconds, wild.spellMinutes], [120, 10, 2])
+        let old = try JSONDecoder().decode(SkySettings.self, from: Data(#"{"weather":"rain"}"#.utf8))
+        XCTAssertEqual(old.pickBlendSeconds, 12, "old saved settings get the defaults")
+    }
+
     func testRainMeltsFrost() {
         let s = sky(.snow)
         XCTAssertEqual(s.step(now: start, dt: 0).frost, 0.6, accuracy: 0.01)

@@ -75,6 +75,17 @@ struct SkyControls: View {
                     }
                     .labelsHidden()
                 }
+                DisclosureGroup("Advanced weather") {
+                    labelled("A picked weather takes \(Int(sky.pickBlendSeconds.rounded())) s to arrive") {
+                        Slider(value: Binding(get: { sky.pickBlendSeconds }, set: { v in update { $0.pickBlendSeconds = v } }), in: 1...120, step: 1)
+                    }
+                    labelled("Random weather blends over \(Int(sky.randomBlendSeconds.rounded())) s") {
+                        Slider(value: Binding(get: { sky.randomBlendSeconds }, set: { v in update { $0.randomBlendSeconds = v } }), in: 10...300, step: 5)
+                    }
+                    labelled("A random spell lasts about \(Int(sky.spellMinutes.rounded())) min") {
+                        Slider(value: Binding(get: { sky.spellMinutes }, set: { v in update { $0.spellMinutes = v } }), in: 2...60, step: 1)
+                    }
+                }
             }
 
             Divider()

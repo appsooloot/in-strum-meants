@@ -74,8 +74,6 @@ public extension WeatherKind {
 /// Weather over time: every change blends over 60 s; random spells last 5–20 minutes and never repeat a kind back to back.
 struct WeatherMachine {
     static let transitionSeconds = 60.0
-    /// A weather you pick yourself takes hold in 12 s, so the change is plainly seen; random spells blend slowly.
-    static let pickedTransitionSeconds = 12.0
     private var length = WeatherMachine.transitionSeconds
 
     private(set) var current: WeatherKind
@@ -102,7 +100,7 @@ struct WeatherMachine {
         else { var r = rng; first = Self.pick(excluding: nil, &r); rng = r }
         current = first; next = first; from = first.values
         var r = rng
-        spellLeft = Self.spell(&r)
+        spellLeft = Self.spell(&r, minutes: min(60, max(2, settings.spellMinutes)))
         rng = r
         if mode == .randomBeautiful && first == .lightCloud { ice = iceRng.range(0.5, 1) }
     }
@@ -121,22 +119,23 @@ struct WeatherMachine {
     }
 
     mutating func step(dt: Double, settings: SkySettings) {
+        let rs = min(300, max(10, settings.randomBlendSeconds)), sm = min(60, max(2, settings.spellMinutes))
         if settings.weatherMode != mode {
             mode = settings.weatherMode
             if mode == .pick { ice = WeatherKind.lightCloud.values.halo }
-            spellLeft = Self.spell(&rng)
-            if mode == .randomBeautiful { begin(Self.pick(excluding: transitioning ? next : current, &rng)) }
+            spellLeft = Self.spell(&rng, minutes: sm)
+            if mode == .randomBeautiful { begin(Self.pick(excluding: transitioning ? next : current, &rng), seconds: rs) }
         }
         switch mode {
         case .pick:
-            if settings.weather != (transitioning ? next : current) { begin(settings.weather, seconds: Self.pickedTransitionSeconds) }
+            if settings.weather != (transitioning ? next : current) { begin(settings.weather, seconds: min(120, max(1, settings.pickBlendSeconds))) }
         case .randomBeautiful:
             spellLeft -= dt
             if spellLeft <= 0, !transitioning {
                 // After a wet spell, "after the rain" comes next 6 times in 10; otherwise the usual pick (without it).
-                if current.isWet && afterRng.unit() < 0.6 { begin(.afterRain) }
-                else { begin(Self.pick(excluding: current, also: current.isWet ? .afterRain : nil, &rng)) }
-                spellLeft += Self.spell(&rng)
+                if current.isWet && afterRng.unit() < 0.6 { begin(.afterRain, seconds: rs) }
+                else { begin(Self.pick(excluding: current, also: current.isWet ? .afterRain : nil, &rng), seconds: rs) }
+                spellLeft += Self.spell(&rng, minutes: sm)
             }
         }
         if transitioning {
@@ -145,7 +144,7 @@ struct WeatherMachine {
         }
     }
 
-    private mutating func begin(_ kind: WeatherKind, seconds: Double = WeatherMachine.transitionSeconds) {
+    private mutating func begin(_ kind: WeatherKind, seconds: Double) {
         length = seconds
         if kind == .lightCloud { ice = mode == .randomBeautiful ? iceRng.range(0.5, 1) : WeatherKind.lightCloud.values.halo }
         from = values
@@ -155,7 +154,7 @@ struct WeatherMachine {
         if !transitioning { next = current }
     }
 
-    private static func spell(_ rng: inout SeededRandom) -> Double { 300 + 900 * Double(rng.unit()) }
+    private static func spell(_ rng: inout SeededRandom, minutes: Double) -> Double { (300 + 900 * Double(rng.unit())) * minutes / 12.5 }
 
     private static func pick(excluding: WeatherKind?, also: WeatherKind? = nil, _ rng: inout SeededRandom) -> WeatherKind {
         let choices = WeatherKind.allCases.filter { $0 != excluding && $0 != also && $0.beautyWeight > 0 }

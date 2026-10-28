@@ -14,10 +14,15 @@ public struct SkySettings: Codable, Equatable {
     public var cityID: String?
     public var weatherMode: WeatherMode = .randomBeautiful
     public var weather: WeatherKind = .clear
+    /// Advanced: how long a weather you pick takes to blend in (1…120 s), how long random weather blends (10…300 s),
+    /// and how long a random spell lasts on average (2…60 min).
+    public var pickBlendSeconds: Double = 12
+    public var randomBlendSeconds: Double = 60
+    public var spellMinutes: Double = 12.5
 
     public init() {}
 
-    enum CodingKeys: String, CodingKey { case timeMode, dayMinutes, frozenHour, frozenPhase, cityID, weatherMode, weather }
+    enum CodingKeys: String, CodingKey { case timeMode, dayMinutes, frozenHour, frozenPhase, cityID, weatherMode, weather, pickBlendSeconds, randomBlendSeconds, spellMinutes }
 
     /// Each field falls back on its own, and numbers are clamped, so one bad value never loses the rest.
     public init(from decoder: Decoder) throws {
@@ -30,6 +35,9 @@ public struct SkySettings: Codable, Equatable {
         cityID = (try? c.decodeIfPresent(String.self, forKey: .cityID)) ?? nil
         weatherMode = (try? c.decodeIfPresent(WeatherMode.self, forKey: .weatherMode)) ?? d.weatherMode
         weather = (try? c.decodeIfPresent(WeatherKind.self, forKey: .weather)) ?? d.weather
+        pickBlendSeconds = min(120, max(1, (try? c.decodeIfPresent(Double.self, forKey: .pickBlendSeconds)) ?? d.pickBlendSeconds))
+        randomBlendSeconds = min(300, max(10, (try? c.decodeIfPresent(Double.self, forKey: .randomBlendSeconds)) ?? d.randomBlendSeconds))
+        spellMinutes = min(60, max(2, (try? c.decodeIfPresent(Double.self, forKey: .spellMinutes)) ?? d.spellMinutes))
     }
 }
 
