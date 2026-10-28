@@ -137,6 +137,125 @@ final class WorldTests: XCTestCase {
         XCTAssertLessThan(f.sky.sun.altitude, -6)
     }
 
+    // MARK: - Golden Hour Beach
+
+    private func beachFrames(hour: Double = 13, seconds: Double = 30, notes: [UInt8] = [60, 64, 67], weather: WeatherKind = .clear,
+                             state: ThemeState = ThemeState()) -> [BeachFrame] {
+        let d = SceneDirector(themeID: GoldenHourBeachModel.id, state: state, reaction: ReactionPresets.expressivePianist)
+        var s = SkySettings(); s.timeMode = .frozen; s.frozenHour = hour; s.cityID = "melbourne"; s.weatherMode = .pick; s.weather = weather
+        d.sky.reset(settings: s)
+        var frames: [BeachFrame] = []
+        for i in 0..<Int(seconds * 30) {
+            if i == 30 { d.handle(notes.map { .noteOn(note: $0, velocity: 0.8) }, at: Double(i) / 30) }
+            if let f = d.step(dt: 1.0 / 30, t: Double(i) / 30, quality: .high) as? BeachFrame { frames.append(f) }
+        }
+        return frames
+    }
+
+    func testBeachIsRegistered() {
+        XCTAssertEqual(ThemeRegistry.resolve(GoldenHourBeachModel.id), GoldenHourBeachModel.id)
+        XCTAssertTrue(ThemeRegistry.all.contains { $0.id == GoldenHourBeachModel.id && $0.name == "Golden Hour Beach" })
+        XCTAssertTrue(ThemeRegistry.isWorld(GoldenHourBeachModel.id))
+        assertValidParameters(GoldenHourBeachModel.parameters)
+        let params = ThemeRegistry.parameterSet(for: GoldenHourBeachModel.id, state: ThemeState())
+        XCTAssertEqual(params.choice("light.hold"), "Golden hour")
+        XCTAssertEqual(params.choice("visual"), "Tide Lines")
+    }
+
+    func testBeachFrame() throws {
+        let frames = beachFrames()
+        let last = try XCTUnwrap(frames.last)
+        XCTAssertEqual(frames.count, 900)
+        XCTAssertTrue(frames.contains { !$0.lines.isEmpty }, "notes write lines")
+        XCTAssertTrue(frames.allSatisfy { (0...1).contains($0.washFront) })
+        XCTAssertEqual(last.sky.sun.altitude, 5, accuracy: 1e-6, "held at golden hour although it's 1 pm")
+        XCTAssertEqual(last.keys.count, 88)
+        // A wave is heard on exactly the frames where one broke.
+        var broke = 0
+        for (a, b) in zip(frames, frames.dropFirst()) where b.recent.last?.breakTime != a.recent.last?.breakTime { broke += 1 }
+        XCTAssertEqual(frames.filter { $0.ambience.wave != nil }.count, broke)
+        XCTAssertGreaterThan(broke, 1)
+        XCTAssertEqual(last.ambience.level(.gulls), 0, "gulls are off until they pass the ear test")
+        XCTAssertEqual(last.ambience.level(.surf), 0.9, accuracy: 1e-9)
+        XCTAssertEqual(last.ambience.surfDistance, 0.15, accuracy: 1e-9)
+    }
+
+    func testBeachWarpOptionStreaksInstead() throws {
+        var state = ThemeState(); state.values["visual"] = .choice("Galaxy Warp")
+        let frames = beachFrames(seconds: 3, state: state)
+        let last = try XCTUnwrap(frames.last)
+        XCTAssertNotNil(last.warp)
+        XCTAssertTrue(frames.allSatisfy { $0.lines.isEmpty })
+    }
+
+    func testStormySeaIsBigger() throws {
+        let calm = try XCTUnwrap(beachFrames(seconds: 2, notes: []).last), storm = try XCTUnwrap(beachFrames(seconds: 2, notes: [], weather: .storm).last)
+        XCTAssertGreaterThan(storm.swellScale, calm.swellScale)
+    }
+
+    // MARK: - Coast Road
+
+    /// The demo performance on the coast road at 60 fps (frames every step).
+    private func roadFrames(seconds: Double = 12, hour: Double = 13, state: ThemeState = ThemeState()) -> [RoadFrame] {
+        let d = SceneDirector(themeID: CoastRoadModel.id, state: state, reaction: ReactionPresets.expressivePianist)
+        var s = SkySettings(); s.timeMode = .frozen; s.frozenHour = hour; s.cityID = "melbourne"; s.weatherMode = .pick; s.weather = .clear
+        d.sky.reset(settings: s)
+        var perf = PerformanceState()
+        let script = ScriptedPerformance.demo
+        var next = 0
+        var frames: [RoadFrame] = []
+        for i in 1...Int(seconds * 60) {
+            let t = Double(i) / 60
+            var events: [PerformanceEvent] = []
+            while next < script.count, script[next].time <= t { events += perf.apply(script[next].message, at: script[next].time); next += 1 }
+            d.handle(events, at: t)
+            if let f = d.step(dt: 1.0 / 60, t: t, quality: .high) as? RoadFrame { frames.append(f) }
+        }
+        return frames
+    }
+
+    func testRoadIsRegistered() {
+        XCTAssertEqual(ThemeRegistry.resolve(CoastRoadModel.id), CoastRoadModel.id)
+        XCTAssertTrue(ThemeRegistry.all.contains { $0.id == CoastRoadModel.id && $0.name == "Coast Road" })
+        XCTAssertTrue(ThemeRegistry.isWorld(CoastRoadModel.id))
+        assertValidParameters(CoastRoadModel.parameters)
+        let params = ThemeRegistry.parameterSet(for: CoastRoadModel.id, state: ThemeState())
+        XCTAssertEqual(params.choice("light.hold"), "Blue hour")
+        XCTAssertEqual(params.choice("visual"), "Coast Lights")
+    }
+
+    func testRoadFrame() throws {
+        let frames = roadFrames()
+        let last = try XCTUnwrap(frames.last)
+        XCTAssertEqual(frames.count, 720)
+        XCTAssertTrue(frames.contains { !$0.lights.isEmpty }, "notes light passing lights")
+        XCTAssertTrue(frames.contains { $0.speed > CoastLights.cruise + 0.02 }, "playing speeds the car up")
+        XCTAssertTrue(frames.allSatisfy { $0.speed <= 1 })
+        for f in frames {
+            XCTAssertEqual(f.ambience.speed, Double(f.speed), accuracy: 1e-6)
+            XCTAssertLessThanOrEqual(abs(f.roll), 1.5 * 0.5 + 1e-9)
+            XCTAssertLessThanOrEqual(abs(f.yaw), 2 * 0.5 + 1e-9)
+        }
+        XCTAssertEqual(last.sky.sun.altitude, -6, accuracy: 1e-6, "held at blue hour although it's 1 pm")
+        XCTAssertEqual(last.keys.count, 88)
+        XCTAssertGreaterThan(last.distance, 100, "the car travels")
+        XCTAssertEqual(last.ambience.level(.road), 0.8, accuracy: 1e-9)
+        XCTAssertEqual(last.ambience.surfDistance, 0.9, accuracy: 1e-9)
+        XCTAssertGreaterThan(last.ambience.level(.engine), 0)
+        // Full sway stays within ±1.5° roll and ±2° yaw, with slow periods.
+        let swaying = roadFrames(seconds: 20, state: ThemeState(values: ["sway": .number(1)]))
+        XCTAssertLessThanOrEqual(swaying.map { abs($0.roll) }.max() ?? 9, 1.5 + 1e-9)
+        XCTAssertLessThanOrEqual(swaying.map { abs($0.yaw) }.max() ?? 9, 2 + 1e-9)
+        XCTAssertGreaterThan(swaying.map { abs($0.roll) }.max() ?? 0, 1.2)
+        XCTAssertLessThan(zip(swaying, swaying.dropFirst()).map { abs($1.roll - $0.roll) }.max() ?? 9, 0.02, "never jerky")
+    }
+
+    func testRoadWarpOptionStreaksInstead() throws {
+        let frames = roadFrames(seconds: 3, state: ThemeState(values: ["visual": .choice("Galaxy Warp")]))
+        XCTAssertNotNil(frames.last?.warp)
+        XCTAssertTrue(frames.allSatisfy { $0.lights.isEmpty })
+    }
+
     // MARK: - Galaxy Warp
 
     private func roles(energy: Double) -> RoleValues { var r = RoleValues(); r[.energy] = energy; return r }

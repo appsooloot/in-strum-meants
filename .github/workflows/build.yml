@@ -124,13 +124,16 @@ jobs:
 
           **Install:** download the **.dmg** below and open it, drag *In Strum Meants* onto *Applications* (choose **Replace** if asked), then right-click the app → **Open** → **Open** (first time only). The .zip is a fallback.
 
-          **New in this build — preview of Set 4's instrument: Haze Bells** (after Lana Del Rey's "High by the Beach"). Pick **Haze Bells** in the instrument list (In Strum Meants group): modelled tuning-fork bells (like the dulcitone on the record) over an airy organ, through a lo-fi haze. Presets: **Haze Bells**, **Church Keys** (organ forward), **Night Drive** (more echo) and **Lo-Fi** (more crush and drift). **Honey Tape** from the last build is now level with the other instruments. The worlds come in a later build.
+          **New in this build — Sets 3 & 4.** Open **Sets** to find two new cards beside Moonlit Lake and Spaceship Lounge:
 
-          **Try:** the **play-along test** with "High by the Beach" (B minor; the **Echo** repeats on the song's dotted eighth) · soft vs hard touch (a harder strike rings brighter) · **Organ** · **Crush** and **Drift** (set Drift to 0 for dead-on tuning).
+          - **Golden Hour Beach** (after Lana Del Rey's "Music to Watch Boys To") — warm, hazy, nostalgic. A wide beach facing a low sun: long swells curl and break, the wash slides up the sand, and **Tide Lines** writes each note as a glowing line in the wet sand for the tide to erase (the pedal writes deeper lines that survive one wash; chords make the next wave break in golden foam). Instrument: **Honey Tape** — breathy flute and soft strings through warm tape. Ambience: surf in step with the waves, palms in the wind.
+          - **Coast Road** (after Lana Del Rey's "High by the Beach") — hazy, restless, free. The passenger window high above the sea at blue hour: guardrail posts and lamps streaming past, white water at the cliff base, and **Coast Lights** turning notes into passing lights (low notes on the road edge, middle on the guardrail, high on the lamps). Play harder and the car speeds up; chords bloom the glitter on the sea in the chord's colour. Instrument: **Haze Bells** — tuning-fork bells over an airy organ through a lo-fi haze. Ambience: road, engine and window rush with the surf far below.
 
-          **Hear it first:** the *-demo.m4a* and *-ambience.m4a* files below are short original clips rendered on the build machine.
+          Both worlds can **Hold the light** (golden hour, blue hour, or follow the real sky) in the world's settings. Gulls on the beach are off until they pass your ear test (turn them up under Beach → Gulls).
 
-          **Ear-and-eye checklist:** **play-along test** (play along with the inspiring song in Spotify; it should blend or harmonise, never clash — use Fine tune in the instrument window if it sits off-pitch) · goosebumps test · soft vs hard touch (softer = darker and rounder) · pedal ring · pad bloom swelling in after each chord · ambience balance (does the world sit under the instrument?) · mood match (do the world, visual, sound and ambience feel like one place?) · smoothness on the Smooth setting · the Inspired-by cards.
+          **Hear it first:** the *-demo.m4a* and *-ambience.m4a* files below are short original clips rendered on the build machine (never the songs' melodies).
+
+          **Ear-and-eye checklist:** **play-along test** with "Music to Watch Boys To" (Honey Tape) and "High by the Beach" (Haze Bells) — it should blend or harmonise, never clash (Fine tune in the instrument window if it sits off-pitch) · wow and tape feel · bell strike and echo · surf in step with the waves · road feel (speed rising and settling, never queasy) · smoothness on the Smooth setting · the two new Inspired-by cards.
 
           **Check each build:** instant key response · soft vs hard feels right · pedal (optional) lingers · visuals land with notes · unplugging stops all sound · reopening restores your instrument and set.
           NOTES

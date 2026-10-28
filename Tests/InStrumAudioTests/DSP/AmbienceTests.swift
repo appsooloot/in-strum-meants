@@ -26,6 +26,30 @@ final class AmbienceTests: XCTestCase {
     }
 
     static func level(_ s: ISDAmbienceSource, _ v: Float, at t: Double = 0) -> Action { (t, { isd_ambience_set_level($0, s, v) }) }
+    static func wave(_ strength: Float, at t: Double) -> Action { (t, { isd_ambience_trigger_wave($0, strength) }) }
+    static func speed(_ v: Float, at t: Double = 0) -> Action { (t, { isd_ambience_set_speed($0, v) }) }
+    static func surfDistance(_ d: Float) -> Action { (0, { isd_ambience_set_surf_distance($0, d) }) }
+    static func density(_ d: Float) -> Action { (0, { isd_ambience_set_density($0, d) }) }
+
+    /// Share of the energy between `lo` and `hi` (Welch average of 8192-sample segments).
+    static func bandShare(_ x: [Float], _ lo: Double, _ hi: Double) -> Double {
+        let n = 8192
+        var power = [Double](repeating: 0, count: n / 2)
+        var start = 0
+        while start + n <= x.count {
+            let p = DSPTestKit.powerSpectrum(Array(x[start..<(start + n)]), size: n)
+            for i in 0..<min(power.count, p.count) { power[i] += p[i] }
+            start += n / 2
+        }
+        let binHz = sr / Double(n)
+        var inBand = 0.0, total = 0.0
+        for i in 1..<power.count {
+            total += power[i]
+            let f = Double(i) * binHz
+            if f >= lo && f <= hi { inBand += power[i] }
+        }
+        return total > 0 ? inBand / total : 0
+    }
 
     /// RMS of each 0.5 s window, in dBFS.
     static func windows(_ x: [Float], seconds: Double = 0.5) -> [Double] {
@@ -53,6 +77,84 @@ final class AmbienceTests: XCTestCase {
             XCTAssertTrue(loudness.contains(db), "\(name): \(String(format: "%.1f", db)) dBFS")
             XCTAssertTrue(out.l.allSatisfy(\.isFinite) && out.r.allSatisfy(\.isFinite), name)
         }
+    }
+
+    /// The beach's and the road's sources, each in its own band (density up so rare ones happen).
+    func testNewSourcesInTheirBands() {
+        let table: [(ISDAmbienceSource, String, ClosedRange<Double>, Float, Bool, Double)] = [
+            (ISD_AMB_SURF, "surf", 60...6000, 0, true, 30),
+            (ISD_AMB_PALMS, "palms", 1500...9000, 0, false, 30),
+            (ISD_AMB_GULLS, "gulls", 500...3500, 0, false, 60),
+            (ISD_AMB_ROAD, "road", 30...1200, 0.6, false, 30),
+            (ISD_AMB_ENGINE, "engine", 25...250, 0.6, false, 30),
+            (ISD_AMB_WINDOW_WIND, "window wind", 300...4000, 0.8, false, 30),
+            (ISD_AMB_PASSING_CAR, "passing car", 80...3000, 0, false, 120),
+        ]
+        for (source, name, band, speed, waves, seconds) in table {
+            var actions: [Action] = [Self.level(source, 1), Self.density(1.5), Self.speed(speed)]
+            if waves { for t in stride(from: 1.0, to: seconds, by: 9) { actions.append(Self.wave(0.7, at: t)) } }
+            let out = Self.render(seconds: seconds, actions: actions)
+            let body = SynthRender.slice(out.l, 3, seconds)
+            XCTAssertGreaterThan(Self.bandShare(body, band.lowerBound, band.upperBound), 0.5, name)
+            XCTAssertTrue(out.l.allSatisfy(\.isFinite) && out.r.allSatisfy(\.isFinite), name)
+            XCTAssertGreaterThan(Self.windows(body).max() ?? -200, -60, "\(name) is heard")
+        }
+    }
+
+    /// A wave breaks: a low crash first, then the bright wash sliding up the sand.
+    func testWaveMakesACrashThenAWash() {
+        let out = Self.render(seconds: 6.5, actions: [Self.level(ISD_AMB_SURF, 1), Self.wave(1, at: 3.0)])
+        let before = DSPTestKit.dBFS(SynthRender.slice(out.l, 2.6, 2.95)), after = DSPTestKit.dBFS(SynthRender.slice(out.l, 3.0, 3.6))
+        XCTAssertGreaterThan(after, before + 6)
+        var lowPeak = (time: 0.0, e: -1.0), highPeak = (time: 0.0, e: -1.0)
+        for t in stride(from: 3.0, to: 6.0, by: 0.05) {
+            let seg = SynthRender.slice(out.l, t, t + 0.05)
+            let lo = DSPTestKit.bandEnergy(seg, sampleRate: Self.sr, from: 20, to: 300)
+            let hi = DSPTestKit.bandEnergy(seg, sampleRate: Self.sr, from: 3000, to: 20000)
+            if lo > lowPeak.e { lowPeak = (t, lo) }
+            if hi > highPeak.e { highPeak = (t, hi) }
+        }
+        XCTAssertLessThan(lowPeak.time, highPeak.time, "crash at \(lowPeak.time) s, wash at \(highPeak.time) s")
+    }
+
+    /// A wave that arrives while the surf is fading out (the world is changing) makes no crash.
+    func testWaveIgnoredWhileSurfFadesOut() {
+        let base: [Action] = [Self.level(ISD_AMB_SURF, 1), Self.level(ISD_AMB_SURF, 0, at: 3.0)]
+        let quiet = Self.render(seconds: 4.5, actions: base)
+        let late = Self.render(seconds: 4.5, actions: base + [Self.wave(1, at: 3.1)])
+        let a = DSPTestKit.dBFS(SynthRender.slice(quiet.l, 3.1, 4.5)), b = DSPTestKit.dBFS(SynthRender.slice(late.l, 3.1, 4.5))
+        XCTAssertLessThan(b - a, 0.5, "fading bed \(a) dBFS, with the late wave \(b) dBFS")
+    }
+
+    /// The engine's purr and a passing car's tone keep their pitch however long the drive: their oscillator
+    /// (shared helper) runs at exactly the frequency asked, at every sample rate, after 30 s and after 10 minutes.
+    func testToneOscillatorsHoldPitch() {
+        for sr: Float in [44_100, 48_000, 96_000] {
+            for hz: Float in [35, 42, 60, 70, 95] {
+                for seconds: Float in [30, 600] {
+                    let measured = Double(isd_ambience_debug_tone_hz(hz, sr, seconds))
+                    XCTAssertEqual(DSPTestKit.cents(measured, Double(hz)), 0, accuracy: 0.5, "\(hz) Hz at \(Int(sr)) Hz over \(Int(seconds)) s")
+                }
+            }
+        }
+    }
+
+    func testRoadFollowsSpeed() {
+        let car: [Action] = [Self.level(ISD_AMB_ROAD, 1), Self.level(ISD_AMB_ENGINE, 1), Self.level(ISD_AMB_WINDOW_WIND, 1)]
+        let slow = SynthRender.slice(Self.render(seconds: 10, actions: car + [Self.speed(0.2)]).l, 3, 10)
+        let fast = SynthRender.slice(Self.render(seconds: 10, actions: car + [Self.speed(1)]).l, 3, 10)
+        XCTAssertGreaterThan(DSPTestKit.dBFS(fast), DSPTestKit.dBFS(slow) + 6)
+        XCTAssertGreaterThan(DSPTestKit.averageCentroid(fast, sampleRate: Self.sr), DSPTestKit.averageCentroid(slow, sampleRate: Self.sr))
+    }
+
+    func testFarSurfIsDarker() {
+        func surf(_ d: Float) -> [Float] {
+            var actions: [Action] = [Self.level(ISD_AMB_SURF, 1), Self.surfDistance(d)]
+            for t in stride(from: 1.0, to: 20, by: 9) { actions.append(Self.wave(0.8, at: t)) }
+            return SynthRender.slice(Self.render(seconds: 20, actions: actions).l, 3, 20)
+        }
+        let near = DSPTestKit.averageCentroid(surf(0), sampleRate: Self.sr), far = DSPTestKit.averageCentroid(surf(1), sampleRate: Self.sr)
+        XCTAssertLessThan(far, 0.6 * near, "near \(Int(near)) Hz, far \(Int(far)) Hz")
     }
 
     /// Owl, chime and hull ticks are rare: at least one event in 300 s, silent most of the time.

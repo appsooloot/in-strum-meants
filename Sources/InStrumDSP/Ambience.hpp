@@ -1,4 +1,4 @@
-// Ambience: twelve sources generated live (never loops), each gliding to its level over 2.5 s, through a
+// Ambience: nineteen sources generated live (never loops), each gliding to its level over 2.5 s, through a
 // small room whose amount follows "closeness", ducking under the instrument while you play.
 // Everything is preallocated; the setters are lock-free atomics read at the start of each render.
 #pragma once
@@ -14,6 +14,8 @@ struct AmbienceContext {
     float sr = 48000.f;
     float density = 1.f;     // multiplies event rates
     float cool = 0.f;        // night cool 0…1
+    float speed = 0.f;       // a car's speed 0…1 (road, engine, window wind), gliding over half a second
+    float surfDistance = 0.f;// 0 close surf … 1 a far, low roar
 };
 
 /// One generator. `render` adds its sound (calibrated for level 1) into `l`/`r`.
@@ -27,6 +29,7 @@ public:
 };
 
 class Thunder;
+namespace amb { class Surf; }
 
 class Ambience {
 public:
@@ -38,6 +41,10 @@ public:
     void setNightCool(float c) { ctx.cool = clamp01(c); }
     void setDensity(float d) { ctx.density = d < 0.5f ? 0.5f : (d > 1.5f ? 1.5f : d); }
     void triggerThunder(float distance);
+    void setSpeed(float s) { speedTarget = clamp01(s); }
+    void setSurfDistance(float d) { ctx.surfDistance = clamp01(d); }
+    /// A wave breaks now (0…1); heard only while the surf is up.
+    void triggerWave(float strength);
     void render(float *left, float *right, int frames);
 
     static constexpr int kBlock = 64;
@@ -63,6 +70,8 @@ private:
     AmbienceContext ctx;
     std::unique_ptr<AmbienceSource> sources[ISD_AMB_COUNT];
     std::unique_ptr<Thunder> thunder;
+    amb::Surf *surf = nullptr;
+    float speedTarget = 0;
     Ramp ramps[ISD_AMB_COUNT];
     float closenessApplied = -1, duckDb = 0, activity = 0;
     Smoothed closeness;

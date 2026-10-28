@@ -103,7 +103,7 @@ private:
 struct TapeSaturator {
     void prepare(double sampleRate) {
         sr = sampleRate;
-        gateRelease = (float)std::exp(-1.0 / (0.15 * sr));
+        gateRelease = (float)std::exp(-1.0 / (0.06 * sr));
         applied = -1;
         setAge(0);
     }
@@ -115,13 +115,13 @@ struct TapeSaturator {
             bump[c].setPeak(100.0, 0.7, 2.5 * a, sr);
             top[c].setLowpass(std::min(cutoff, 0.45 * sr), 0.6, sr);
         }
-        drive = 1.f + 2.5f * a;
-        hiss = a * 0.0005f;   // −66 dBFS at age 1
+        drive = 1.f + 1.6f * a;
+        hiss = a * 0.004f;    // a soft bed at age 1 (about −65 dBFS at the output)
     }
     void process(float &l, float &r) {
         const float level = std::fmax(std::fabs(l), std::fabs(r));
         gate = level > gate ? level : gate * gateRelease;
-        const float h = hiss * std::fmin(1.f, gate * 200.f);
+        const float h = hiss * std::fmin(1.f, gate * 50.f);   // breathes with the notes, gone soon after
         float *io[2] = {&l, &r};
         for (int c = 0; c < 2; ++c) {
             float x = bump[c].process(*io[c]);

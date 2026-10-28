@@ -91,6 +91,32 @@ final class SceneDirectorTests: XCTestCase {
         XCTAssertLessThan(f?.1?.sun.altitude ?? 0, 0, "22:00 is night")
     }
 
+    /// A world that holds the light (golden hour by default).
+    struct HoldProbe: ThemeModel, SkyAware {
+        static let id = "hold-probe", displayName = "Hold probe"
+        static let parameters: [ParamSpec] = [SkyHold.spec(default: .goldenHour)]
+        static let macroTargets: [Macro: [(id: String, weight: Double)]] = [:]
+        var sky: SkyState?
+        init() {}
+        mutating func handle(_ e: PerformanceEvent) {}
+        mutating func setSky(_ s: SkyState) { sky = s }
+        mutating func step(dt: Double, params: ParameterSet, roles: RoleValues, inputs: InputFrame, quality: QualityLevel) -> SkyState? { sky }
+    }
+
+    func testWorldHoldReachesTheSky() {
+        var s = SkySettings(); s.timeMode = .frozen; s.frozenHour = 2; s.cityID = "melbourne"
+        let held = SceneDirector(entry: ThemeEntry.make(HoldProbe.self), state: ThemeState(), reaction: ReactionPresets.expressivePianist)
+        held.sky.settings = s
+        _ = held.step(dt: 1.0 / 60, t: 0, quality: .high)
+        XCTAssertEqual(held.lastSky?.sun.altitude ?? 0, 5, accuracy: 1e-9)
+        let lake = SceneDirector(themeID: MoonlitLakeModel.id, state: ThemeState(), reaction: ReactionPresets.expressivePianist)
+        lake.sky.settings = s
+        _ = lake.step(dt: 1.0 / 60, t: 0, quality: .high)
+        XCTAssertLessThan(lake.lastSky?.sun.altitude ?? 0, -20, "the lake follows the real 2 am sky")
+        XCTAssertEqual(SkyHold.spec(default: .blueHour).defaultValue, .choice("Blue hour"))
+        XCTAssertEqual(SkyHold.allCases.map(\.rawValue), ["Follow the sky", "Golden hour", "Blue hour"])
+    }
+
     func testMoodLookIsNeutralAtHalf() {
         let n = Mood.neutral
         XCTAssertEqual(MoodLook.exposure(n), 1, accuracy: 1e-6)

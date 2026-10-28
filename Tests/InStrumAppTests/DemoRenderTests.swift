@@ -70,16 +70,22 @@ final class DemoRenderTests: XCTestCase {
     }
 
     /// Renders the ambience alone (levels glide in over 2.5 s, as in the app).
-    nonisolated static func renderAmbience(_ levels: [(ISDAmbienceSource, Float)], seconds: Double, nightCool: Float = 0) -> (l: [Float], r: [Float]) {
+    nonisolated static func renderAmbience(_ levels: [(ISDAmbienceSource, Float)], seconds: Double, nightCool: Float = 0,
+                                           waves: [Wave] = [], speed: Float = 0, surfDistance: Float = 0) -> (l: [Float], r: [Float]) {
         guard let a = isd_ambience_create(rate, 512, 7) else { return ([], []) }
         defer { isd_ambience_destroy(a) }
         for (source, level) in levels { isd_ambience_set_level(a, source, level) }
         isd_ambience_set_night_cool(a, nightCool)
+        isd_ambience_set_speed(a, speed)
+        isd_ambience_set_surf_distance(a, surfDistance)
         let total = Int(seconds * rate), block = 256
         var l = [Float](repeating: 0, count: total), r = [Float](repeating: 0, count: total)
-        var i = 0
+        var i = 0, nextWave = 0
         while i < total {
             let n = min(block, total - i)
+            while nextWave < waves.count, Int(waves[nextWave].breakTime * rate) < i + n {
+                isd_ambience_trigger_wave(a, waves[nextWave].strength); nextWave += 1
+            }
             l.withUnsafeMutableBufferPointer { lp in
                 r.withUnsafeMutableBufferPointer { rp in isd_ambience_render(a, lp.baseAddress! + i, rp.baseAddress! + i, Int32(n)) }
             }
@@ -92,12 +98,17 @@ final class DemoRenderTests: XCTestCase {
         guard let dir = ProcessInfo.processInfo.environment["DEMO_DIR"] else { throw XCTSkip("DEMO_DIR not set") }
         let url = URL(fileURLWithPath: dir, isDirectory: true)
         try FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
-        let scenes: [(String, [(ISDAmbienceSource, Float)], Float)] = [
-            ("moonlit-lake-ambience", [(ISD_AMB_WATER, 0.8), (ISD_AMB_CRICKETS, 0.7), (ISD_AMB_BREEZE, 0.4), (ISD_AMB_OWL, 0.3)], 0.3),
-            ("spaceship-lounge-ambience", [(ISD_AMB_SHIP_HUM, 0.8), (ISD_AMB_AIR_FLOW, 0.5), (ISD_AMB_CHIME, 0.3), (ISD_AMB_HULL_TICKS, 0.3)], 0),
+        var swell = OceanSwell(seed: 5)
+        var waves: [Wave] = []
+        for _ in 0..<(60 * 60) { waves += swell.step(dt: 1.0 / 60) }
+        let scenes: [(String, [(ISDAmbienceSource, Float)], Float, [Wave], Float, Float)] = [
+            ("moonlit-lake-ambience", [(ISD_AMB_WATER, 0.8), (ISD_AMB_CRICKETS, 0.7), (ISD_AMB_BREEZE, 0.4), (ISD_AMB_OWL, 0.3)], 0.3, [], 0, 0),
+            ("spaceship-lounge-ambience", [(ISD_AMB_SHIP_HUM, 0.8), (ISD_AMB_AIR_FLOW, 0.5), (ISD_AMB_CHIME, 0.3), (ISD_AMB_HULL_TICKS, 0.3)], 0, [], 0, 0),
+            ("golden-hour-beach-ambience", [(ISD_AMB_SURF, 0.9), (ISD_AMB_PALMS, 0.45), (ISD_AMB_BREEZE, 0.35), (ISD_AMB_CRICKETS, 0.25)], 0.1, waves, 0, 0.15),
+            ("coast-road-ambience", [(ISD_AMB_ROAD, 0.8), (ISD_AMB_ENGINE, 0.6), (ISD_AMB_WINDOW_WIND, 0.5), (ISD_AMB_SURF, 0.5), (ISD_AMB_PASSING_CAR, 0.3)], 0, waves, 0.5, 0.9),
         ]
-        for (name, levels, cool) in scenes {
-            let audio = Self.renderAmbience(levels, seconds: 60, nightCool: cool)
+        for (name, levels, cool, waves, speed, distance) in scenes {
+            let audio = Self.renderAmbience(levels, seconds: 60, nightCool: cool, waves: waves, speed: speed, surfDistance: distance)
             let peak = max(audio.l.map(abs).max() ?? 0, audio.r.map(abs).max() ?? 0)
             XCTAssertLessThanOrEqual(peak, 1.0, name)
             let rms = (audio.l.reduce(0) { $0 + Double($1) * Double($1) } / Double(max(1, audio.l.count))).squareRoot()

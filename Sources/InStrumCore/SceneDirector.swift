@@ -44,6 +44,8 @@ public enum ThemeRegistry {
         .make(ButterflyGardenModel.self),
         .make(MoonlitLakeModel.self),
         .make(SpaceshipLoungeModel.self),
+        .make(GoldenHourBeachModel.self),
+        .make(CoastRoadModel.self),
     ]
 
     public static var all: [(id: String, name: String)] { entries.map { ($0.id, $0.name) } }
@@ -168,7 +170,7 @@ public final class SceneDirector {
         lastRoles = roles
         box.setMood(mood)
         if box.wantsSky {
-            let s = sky.step(now: clock(), dt: dt)
+            let s = sky.step(now: clock(), dt: dt, hold: SkyHold(rawValue: parameters.choice("light.hold")) ?? .follow)
             lastSky = s
             box.setSky(s)
         }

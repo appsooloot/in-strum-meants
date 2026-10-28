@@ -159,6 +159,51 @@ final class HoneyTapeTests: XCTestCase {
         XCTAssertEqual(isd_synth_active_voices(s), 0)
     }
 
+    /// The tape saturates softly: a chord sounds like the sum of its notes. An mf four-note chord (the brief's
+    /// play-along shape) stays within 5% distortion and 1 dB of the sum; a forte two-hand chord within 10%.
+    func testChordsStayClean() {
+        var p = flute; p[Int(ISD_P_BREATH)] = 0
+        let cases: [([UInt8], UInt8, Double)] = [([37, 44, 49, 52], 90, 0.05), ([49, 56, 61, 64, 68, 73], 127, 0.10)]
+        for (notes, velocity, limit) in cases {
+            let chord = R.render(tape, seconds: 1.5, params: p, events: notes.map { R.noteOn(0, $0, velocity) })
+            var sum = [Float](repeating: 0, count: chord.l.count)
+            for n in notes {
+                let one = R.render(tape, seconds: 1.5, params: p, events: [R.noteOn(0, n, velocity)])
+                for i in sum.indices { sum[i] += one.l[i] }
+            }
+            let c = R.slice(chord.l, 0.6, 1.4), s = R.slice(sum, 0.6, 1.4)
+            let residual = zip(c, s).map { $0 - $1 }
+            let distortion = rms(residual) / rms(s)
+            XCTAssertLessThan(distortion, limit, "\(notes.count) notes at velocity \(velocity): \(distortion)")
+            XCTAssertEqual(20 * log10(rms(c) / rms(s)), 0, accuracy: 1, "\(notes.count) notes keep their level")
+        }
+    }
+
+    /// Age lays a soft bed of hiss under the notes: audible at Age 1 (between −72 and −56 dBFS between the
+    /// harmonics of a soft A4), absent at Age 0.
+    func testAgeAddsAudibleHiss() {
+        func betweenHarmonics(age: Float) -> Double {
+            var p = flute; p[Int(ISD_P_BREATH)] = 0; p[Int(ISD_P_AGE)] = age
+            let out = R.render(tape, seconds: 3, params: p, events: [R.noteOn(0, 69, 60)])
+            let x = R.slice(out.l, 1, 2.5)
+            let n = 1 << 16, binHz = R.sr / Double(n)
+            let spectrum = DSPTestKit.powerSpectrum(Array(x.prefix(n)), size: n)
+            var total = 0.0, hiss = 0.0
+            for (i, p) in spectrum.enumerated() where i > 0 {
+                let f = Double(i) * binHz
+                total += p
+                let k = (f / 440).rounded()
+                if f >= 2000, f <= 5500, abs(f - k * 440) > 0.03 * k * 440 { hiss += p }
+            }
+            // The share of the note's power lying between the harmonics, as a level.
+            return DSPTestKit.dBFS(Array(x.prefix(n))) + 10 * log10(max(hiss, 1e-30) / max(total, 1e-30))
+        }
+        let aged = betweenHarmonics(age: 1), clean = betweenHarmonics(age: 0)
+        XCTAssertGreaterThan(aged, -72, "hiss at Age 1: \(aged) dBFS")
+        XCTAssertLessThan(aged, -56, "hiss at Age 1 stays a soft bed: \(aged) dBFS")
+        XCTAssertGreaterThan(aged - clean, 10, "Age 0 has none: \(clean) dBFS")
+    }
+
     func testReleaseDecays() {
         let out = R.render(tape, seconds: 3.2, params: dry, events: [R.noteOn(0, 60, 100), R.noteOff(1, 60)])
         XCTAssertLessThan(DSPTestKit.dBFS(R.slice(out.l, 3.0, 3.2)), -90)

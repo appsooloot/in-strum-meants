@@ -42,7 +42,7 @@ final class PreviewRenderer {
         var next = 0, time = 0.0
         let dt = 1.0 / 60
         var garden: ButterflyRenderer?, steinway: SteinwayRenderer?, moonlitLake: MoonlitLakeRenderer?
-        var lounge: SpaceshipLoungeRenderer?
+        var lounge: SpaceshipLoungeRenderer?, beach: GoldenHourBeachRenderer?, road: CoastRoadRenderer?
         var images: [CGImage] = []
         for t in times.sorted() {
             var current: ThemeRenderer?
@@ -73,6 +73,14 @@ final class PreviewRenderer {
                     if lounge == nil { lounge = SpaceshipLoungeRenderer(device: device) }
                     lounge?.update(l, params: director.parameters, quality: quality, gentle: gentle, dt: dt, size: size)
                     current = lounge
+                } else if let b = frame as? BeachFrame {
+                    if beach == nil { beach = GoldenHourBeachRenderer(device: device) }
+                    beach?.update(b, params: director.parameters, quality: quality, gentle: gentle, dt: dt, size: size)
+                    current = beach
+                } else if let r = frame as? RoadFrame {
+                    if road == nil { road = CoastRoadRenderer(device: device) }
+                    road?.update(r, params: director.parameters, quality: quality, gentle: gentle, dt: dt, size: size)
+                    current = road
                 }
                 if time + dt > t { break }
             }

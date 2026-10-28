@@ -107,6 +107,45 @@ final class AppModelTests: XCTestCase {
         XCTAssertEqual(engine.scenes.compactMap(\.thunder), [0.4, 0.7])
     }
 
+    /// A wave held back by the throttle still goes (once); a change of speed always counts.
+    func testSpeedAndWaveSurviveTheThrottle() {
+        let m = makeModel()
+        let road = AmbienceScene(levels: [.road: 0.8, .surf: 0.5], speed: 0.8, surfDistance: 0.9)
+        m.updateAmbience(road, at: 3)
+        engine.scenes.removeAll()
+        var breaking = road; breaking.wave = 0.6
+        m.updateAmbience(breaking, at: 3.01)   // too soon: held back, not dropped
+        m.updateAmbience(road, at: 3.05)
+        m.updateAmbience(road, at: 3.2)
+        XCTAssertEqual(engine.scenes.compactMap(\.wave), [0.6])
+        var slow = road; slow.speed = 0
+        m.updateAmbience(slow, at: 3.4)
+        XCTAssertEqual(engine.scenes.last?.speed, 0)
+    }
+
+    func testSpeedFallsWhenTheWorldChanges() {
+        let m = makeModel()
+        m.updateAmbience(AmbienceScene(levels: [.road: 0.8], speed: 0.8), at: 1)
+        m.updateAmbience(AmbienceScene(levels: [.water: 0.8]), at: 2)
+        XCTAssertEqual(engine.scenes.last?.speed, 0)
+        XCTAssertNil(engine.scenes.last?.wave)
+    }
+
+    func testAPendingWaveStaysOnTheBeach() {
+        let m = makeModel()
+        let beach = AmbienceScene(levels: [.surf: 0.9, .palms: 0.5], surfDistance: 0.15)
+        m.updateAmbience(beach, at: 3)
+        engine.scenes.removeAll()
+        var breaking = beach; breaking.wave = 0.7
+        m.updateAmbience(breaking, at: 3.01)                                   // held back by the throttle
+        let lounge = AmbienceScene(levels: [.shipHum: 0.6, .airFlow: 0.4])
+        m.updateAmbience(lounge, at: 3.05)                                     // the world changes before it's sent
+        m.updateAmbience(lounge, at: 3.2)
+        m.updateAmbience(lounge, at: 3.4)
+        XCTAssertFalse(engine.scenes.isEmpty)
+        XCTAssertTrue(engine.scenes.allSatisfy { $0.wave == nil }, "the beach's wave doesn't crash in the lounge")
+    }
+
     func testAmbienceSettingsPersist() async {
         let m = makeModel()
         m.setAmbienceVolume(0.4)
@@ -181,6 +220,34 @@ final class AppModelTests: XCTestCase {
         XCTAssertEqual(again.mood, .dreamy)
         await again.launch(skipPluginInSafeMode: false)
         XCTAssertEqual(engine.moods.last, .dreamy)
+    }
+
+    func testApplyingGoldenHourBeachLoadsHoneyTape() async {
+        let m = makeModel()
+        await m.launch(skipPluginInSafeMode: false)
+        await m.applySet("golden-hour-beach")
+        XCTAssertEqual(engine.loaded.last.flatMap { BuiltInCatalog.engine(for: $0) }, .honeyTape)
+        XCTAssertEqual(engine.applied.last?.id, "honey-tape")
+        XCTAssertEqual(engine.moods.last, .warmHaze)
+        XCTAssertEqual(m.mood, .warmHaze)
+        XCTAssertEqual(m.themeID, GoldenHourBeachModel.id)
+        XCTAssertEqual(visual(m), "Tide Lines")
+        XCTAssertEqual(m.activeSetID, "golden-hour-beach")
+        XCTAssertFalse(m.isSetModified)
+    }
+
+    func testApplyingCoastRoadLoadsHazeBells() async {
+        let m = makeModel()
+        await m.launch(skipPluginInSafeMode: false)
+        await m.applySet("coast-road")
+        XCTAssertEqual(engine.loaded.last.flatMap { BuiltInCatalog.engine(for: $0) }, .hazeBells)
+        XCTAssertEqual(engine.applied.last?.id, "haze-bells")
+        XCTAssertEqual(engine.moods.last, .restless)
+        XCTAssertEqual(m.mood, .restless)
+        XCTAssertEqual(m.themeID, CoastRoadModel.id)
+        XCTAssertEqual(visual(m), "Coast Lights")
+        XCTAssertEqual(m.activeSetID, "coast-road")
+        XCTAssertFalse(m.isSetModified)
     }
 
     func testChangingAPartMarksModifiedAndRestoreReverts() async {

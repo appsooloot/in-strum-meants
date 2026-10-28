@@ -12,6 +12,17 @@ final class InspiredByCardTests: XCTestCase {
         XCTAssertNotEqual(CardArt.art(for: CreditLibrary.comeBackToEarth.id), CardArt.art(for: CreditLibrary.innerbloom.id))
     }
 
+    func testEverySetHasItsOwnCardColours() {
+        let fallback = SetsGallery.tint(for: "no-such-set")
+        var seen: [[Color]] = []
+        for set in SetLibrary.all {
+            let tint = SetsGallery.tint(for: set.id)
+            XCTAssertNotEqual(tint, fallback, "\(set.id) falls back to grey")
+            XCTAssertFalse(seen.contains(tint), "\(set.id) shares another set's colours")
+            seen.append(tint)
+        }
+    }
+
     /// No two cards look alike.
     func testCardsAreDistinct() throws {
         let images = try CreditLibrary.all.map { try XCTUnwrap(Self.render($0, at: 1.0), $0.id) }

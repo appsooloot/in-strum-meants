@@ -68,10 +68,14 @@ int isd_synth_debug_count(const ISDSynth *synth, ISDDebugCount which);
 typedef enum {
     ISD_AMB_WATER, ISD_AMB_CRICKETS, ISD_AMB_BREEZE, ISD_AMB_OWL, ISD_AMB_RAIN_WATER, ISD_AMB_RAIN_GLASS,
     ISD_AMB_DAWN_CHORUS, ISD_AMB_SHIP_HUM, ISD_AMB_AIR_FLOW, ISD_AMB_CHIME, ISD_AMB_HULL_TICKS, ISD_AMB_WIND,
+    ISD_AMB_SURF, ISD_AMB_PALMS, ISD_AMB_GULLS, ISD_AMB_ROAD, ISD_AMB_ENGINE, ISD_AMB_WINDOW_WIND, ISD_AMB_PASSING_CAR,
     ISD_AMB_COUNT
 } ISDAmbienceSource;
 
 typedef struct ISDAmbience ISDAmbience;
+/// Internal (tests): the frequency the ambience's tone oscillators really run at, measured over the last second
+/// of a run of `seconds` from phase 0.
+float isd_ambience_debug_tone_hz(float hz, float sampleRate, float seconds);
 /// The same seed gives the same ambience.
 ISDAmbience *isd_ambience_create(double sampleRate, int maxFrames, uint64_t seed);
 void isd_ambience_destroy(ISDAmbience *ambience);
@@ -87,6 +91,13 @@ void isd_ambience_set_night_cool(ISDAmbience *ambience, float cool);
 void isd_ambience_set_density(ISDAmbience *ambience, float density);
 /// Any thread. Thunder rolls in 0.5 s (near) to 6 s (far) later.
 void isd_ambience_trigger_thunder(ISDAmbience *ambience, float distance);
+/// Any thread. A wave breaks on the shore (strength 0…1): a crash, a wash up the sand and a backwash. Silent
+/// unless the surf is up.
+void isd_ambience_trigger_wave(ISDAmbience *ambience, float strength);
+/// Any thread. A car's speed 0…1 for the road, engine and window wind (glides over half a second).
+void isd_ambience_set_speed(ISDAmbience *ambience, float speed);
+/// Any thread. 0 close, detailed surf … 1 a far, low roar.
+void isd_ambience_set_surf_distance(ISDAmbience *ambience, float distance);
 /// Render thread. Overwrites `left`/`right`.
 void isd_ambience_render(ISDAmbience *ambience, float *left, float *right, int frames);
 
