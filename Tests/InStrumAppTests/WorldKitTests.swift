@@ -85,3 +85,38 @@ final class WorldKitTests: XCTestCase {
         XCTAssertGreaterThan(boosts.max() ?? 1, 1, "lightning does brighten the scene")
     }
 }
+
+/// Living Sky preview frames for the CI previews branch (PREVIEW_DIR).
+@MainActor
+final class SkyPreviewTests: XCTestCase {
+    func testWriteSkyPreviews() throws {
+        guard let dir = ProcessInfo.processInfo.environment["PREVIEW_DIR"] else { throw XCTSkip("PREVIEW_DIR not set") }
+        guard let device = MTLCreateSystemDefaultDevice() else { throw XCTSkip("No Metal device") }
+        let url = URL(fileURLWithPath: dir, isDirectory: true)
+        try FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
+        let preview = try XCTUnwrap(PreviewRenderer(width: 1280, height: 720))
+        let cases: [(String, Double, Double, WeatherKind, WeatherSurface)] = [
+            ("sky-night-full-moon", 23.5, 0.5, .clear, .none),
+            ("sky-night-crescent-milky-way", 3.0, 0.15, .clear, .none),
+            ("sky-dawn", 6.6, 0.3, .lightCloud, .none),
+            ("sky-golden-hour", 18.9, 0.6, .lightCloud, .none),
+            ("sky-day-clouds", 12.5, 0.6, .lightCloud, .none),
+            ("sky-rain-night-water", 22.0, 0.5, .rain, .water(horizonY: -0.33)),
+            ("sky-snow-dusk", 19.6, 0.4, .snow, .ground(horizonY: -0.33)),
+            ("sky-storm-glass", 15.0, 0.5, .storm, .glass),
+        ]
+        for (name, hour, phase, weather, surface) in cases {
+            var s = SkySettings(); s.timeMode = .frozen; s.frozenHour = hour; s.frozenPhase = phase; s.cityID = "melbourne"
+            s.weatherMode = .pick; s.weather = weather
+            let sky = LivingSky(settings: s, homeZone: TimeZone(identifier: "Australia/Melbourne")!)
+            let r = try XCTUnwrap(SkyOnlyRenderer(device: device))
+            var state = sky.step(now: Date(timeIntervalSince1970: 1_793_000_000), dt: 0)
+            for i in 0..<45 {
+                state = sky.step(now: Date(timeIntervalSince1970: 1_793_000_000 + Double(i) / 30), dt: 1.0 / 30)
+                r.update(state, quality: .high, size: CGSize(width: 1280, height: 720), dt: 1.0 / 30, time: Float(i) / 30, surface: surface)
+            }
+            let image = try XCTUnwrap(preview.capture(r))
+            try PreviewRenderer.writePNG(image, to: url.appendingPathComponent("\(name).png"))
+        }
+    }
+}

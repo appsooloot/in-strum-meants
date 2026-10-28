@@ -38,7 +38,7 @@ jobs:
     steps:
       - uses: actions/checkout@v5
       - name: Render preview frames
-        run: PREVIEW_DIR="$PWD/previews" DEMO_DIR="$PWD/previews/audio" swift test --filter "PreviewRenderTests|ShaderPreviewArtTests|DemoRenderTests" 2>&1 | tee preview.log; exit ${PIPESTATUS[0]}
+        run: PREVIEW_DIR="$PWD/previews" DEMO_DIR="$PWD/previews/audio" swift test --filter "PreviewRenderTests|ShaderPreviewArtTests|DemoRenderTests|SkyPreviewTests" 2>&1 | tee preview.log; exit ${PIPESTATUS[0]}
       - name: Encode demo audio
         run: |
           for f in previews/audio/*.wav; do [ -f "$f" ] && afconvert -f m4af -d aac -b 256000 "$f" "${f%.wav}.m4a" && rm "$f"; done
