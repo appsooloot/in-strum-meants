@@ -107,6 +107,30 @@ final class AppModelTests: XCTestCase {
         XCTAssertEqual(engine.scenes.compactMap(\.thunder), [0.4, 0.7])
     }
 
+    /// A wave held back by the throttle still goes (once); a change of speed always counts.
+    func testSpeedAndWaveSurviveTheThrottle() {
+        let m = makeModel()
+        let road = AmbienceScene(levels: [.road: 0.8, .surf: 0.5], speed: 0.8, surfDistance: 0.9)
+        m.updateAmbience(road, at: 3)
+        engine.scenes.removeAll()
+        var breaking = road; breaking.wave = 0.6
+        m.updateAmbience(breaking, at: 3.01)   // too soon: held back, not dropped
+        m.updateAmbience(road, at: 3.05)
+        m.updateAmbience(road, at: 3.2)
+        XCTAssertEqual(engine.scenes.compactMap(\.wave), [0.6])
+        var slow = road; slow.speed = 0
+        m.updateAmbience(slow, at: 3.4)
+        XCTAssertEqual(engine.scenes.last?.speed, 0)
+    }
+
+    func testSpeedFallsWhenTheWorldChanges() {
+        let m = makeModel()
+        m.updateAmbience(AmbienceScene(levels: [.road: 0.8], speed: 0.8), at: 1)
+        m.updateAmbience(AmbienceScene(levels: [.water: 0.8]), at: 2)
+        XCTAssertEqual(engine.scenes.last?.speed, 0)
+        XCTAssertNil(engine.scenes.last?.wave)
+    }
+
     func testAmbienceSettingsPersist() async {
         let m = makeModel()
         m.setAmbienceVolume(0.4)

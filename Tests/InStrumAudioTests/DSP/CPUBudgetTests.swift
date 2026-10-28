@@ -37,6 +37,18 @@ final class CPUBudgetTests: XCTestCase {
         XCTAssertLessThan(seconds / 10, 0.04, "Haze Bells used \(String(format: "%.1f", seconds * 10))% of real time")
     }
 
+    func testWorldAmbienceBudget() {
+        typealias A = AmbienceTests
+        var beach: [A.Action] = [ISD_AMB_SURF, ISD_AMB_PALMS, ISD_AMB_GULLS, ISD_AMB_CRICKETS, ISD_AMB_BREEZE, ISD_AMB_RAIN_WATER].map { A.level($0, 1) }
+        for t in stride(from: 0.5, to: 10, by: 9) { beach.append(A.wave(0.9, at: t)) }
+        var road: [A.Action] = [ISD_AMB_ROAD, ISD_AMB_ENGINE, ISD_AMB_WINDOW_WIND, ISD_AMB_SURF, ISD_AMB_PASSING_CAR, ISD_AMB_RAIN_GLASS].map { A.level($0, 1) }
+        road += [A.speed(0.7), A.surfDistance(0.9), A.wave(0.8, at: 2)]
+        for (name, actions) in [("beach", beach), ("road", road)] {
+            let seconds = bestOfThree { _ = A.render(seconds: 10, actions: actions) }
+            XCTAssertLessThan(seconds / 10, 0.02, "the \(name) ambience used \(String(format: "%.1f", seconds * 10))% of real time")
+        }
+    }
+
     func testCombinedBudget() {
         var felt = [R.pedal(0, 127)]
         for n: UInt8 in [36, 43, 48, 52, 55, 60, 64, 67, 71, 72, 76, 79, 83, 84, 88, 91] { felt.append(R.noteOn(0, n, 90)) }
