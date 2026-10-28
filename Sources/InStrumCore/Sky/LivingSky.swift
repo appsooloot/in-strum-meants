@@ -142,7 +142,8 @@ enum SkyPalette {
         // Cloud greys and dims (up to 60% desaturation); mist softens the horizon.
         func grey(_ c: SIMD3<Float>, _ amount: Float, dim: Float) -> SIMD3<Float> {
             let l = 0.2126 * c.x + 0.7152 * c.y + 0.0722 * c.z
-            return (c + (SIMD3<Float>(repeating: l) - c) * amount) * (1 - dim)
+            let coolGrey = SIMD3<Float>(0.94, 0.98, 1.06) * l   // cloud light is cool, never muddy
+            return (c + (coolGrey - c) * amount) * (1 - dim)
         }
         z = grey(z, 0.6 * cloud, dim: 0.25 * cloud)
         h = grey(h, min(0.8, 0.6 * cloud + 0.3 * mist), dim: 0.2 * cloud)

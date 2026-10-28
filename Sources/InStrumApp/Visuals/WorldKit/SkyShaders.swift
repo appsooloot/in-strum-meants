@@ -85,7 +85,7 @@ enum SkyShaders {
         float n = fbm3(v * 5.0, octaves);
         float lane = exp(-(b * b) / (0.035 * 0.035)) * smoothstep(0.35, 0.8, fbm3(v * 9.0 + 3.1, max(octaves - 1, 1)));
         float glow = band * centre * (0.35 + 0.9 * n) * (1.0 - 0.75 * lane);
-        return float3(0.92, 0.88, 1.0) * glow * 0.075 * visibility;
+        return float3(0.92, 0.88, 1.0) * glow * 0.22 * visibility;
     }
 
     fragment ColorDepth sky_dome_fragment(SkyOut in [[stage_in]], constant SkyU& u [[buffer(0)]]) {
@@ -141,20 +141,23 @@ enum SkyShaders {
         }
         if (M.z > -0.05) {
             float moonAngle = acos(clamp(mDot, -1.0, 1.0));
-            col += float3(0.7, 0.78, 0.95) * u.moonInfo.x * 0.10 * exp(-moonAngle / 0.05) * (1.0 - moonMask);
+            float haze = 0.10 * exp(-moonAngle / 0.05) + (0.025 + 0.05 * mist) * exp(-moonAngle / 0.3);
+            col += float3(0.7, 0.78, 0.95) * u.moonInfo.x * haze * (1.0 - moonMask) * saturate(M.z * 4.0 + 0.2);
         }
 
         // Clouds: a drifting layer lit by the sun or the moon.
         if (cloudCover > 0.01 && alt > 0.0) {
             float2 uv = d.xy / (d.z + 0.12) * 0.55 + float2(time * 0.004 * (0.3 + u.weather.y), time * 0.0015);
             float n = fbm3(float3(uv * 2.2, time * 0.003), octaves);
-            float threshold = 1.0 - cloudCover * 1.05;
-            float density = saturate((n - threshold) / 0.28) * smoothstep(0.0, 0.08, alt);
+            // Calibrated so light cloud leaves most of the sky clear and overcast closes it.
+            float threshold = 0.85 - 0.6 * cloudCover;
+            float density = smoothstep(threshold, threshold + 0.12 + 0.1 * cloudCover, n) * smoothstep(0.0, 0.08, alt);
             bool day = sunAlt > -6.0;
             float3 L = day ? S : M;
             float lightAmt = day ? saturate((sunAlt + 6.0) / 12.0) : u.moonInfo.x * 0.35;
             float facing = pow(saturate(dot(d, L)), 6.0);
-            float3 base = mix(u.zenith.rgb * 0.7 + 0.02, u.horizon.rgb * 0.9, 0.4);
+            float baseLum = dot(mix(u.zenith.rgb, u.horizon.rgb, 0.4), float3(0.2126, 0.7152, 0.0722));
+            float3 base = mix(mix(u.zenith.rgb * 0.7 + 0.02, u.horizon.rgb * 0.9, 0.4), baseLum * float3(0.92, 0.97, 1.06), 0.5);
             float3 lightCol = day ? mix(float3(1.0, 0.62, 0.38), float3(1.0, 0.98, 0.95), saturate(sunAlt / 20.0)) : float3(0.55, 0.62, 0.8);
             float3 cloud = base * (0.55 + 0.45 * lightAmt) + lightCol * lightAmt * (0.25 + 0.9 * facing) * (1.0 - 0.6 * density);
             col = mix(col, cloud, density * (1.0 - moonMask * 0.0));
