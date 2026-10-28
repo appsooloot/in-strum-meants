@@ -86,6 +86,39 @@ final class WorldKitTests: XCTestCase {
     }
 }
 
+/// Moonlit Lake (Set 1's world) with Lake Ripples.
+@MainActor
+final class MoonlitLakeRendererTests: XCTestCase {
+    func testLakeShadersCompile() throws {
+        guard let device = MTLCreateSystemDefaultDevice() else { throw XCTSkip("No Metal device") }
+        let lib = try device.makeLibrary(source: MoonlitLakeShaders.source, options: nil)
+        for name in ["lake_vertex", "lake_fragment", "firefly_vertex", "firefly_fragment", "lake_keys_vertex", "lake_keys_fragment"] {
+            XCTAssertNotNil(lib.makeFunction(name: name), name)
+        }
+    }
+
+    static var night: SkySettings {
+        var s = SkySettings(); s.timeMode = .frozen; s.frozenHour = 22; s.frozenPhase = 0.55; s.cityID = "melbourne"
+        s.weatherMode = .pick; s.weather = .clear
+        return s
+    }
+
+    func testLakePreviewIsStructured() throws {
+        guard MTLCreateSystemDefaultDevice() != nil else { throw XCTSkip("No Metal device") }
+        let preview = try XCTUnwrap(PreviewRenderer(width: 640, height: 360))
+        for q in [QualityLevel.lite, .high] {
+            let image = try XCTUnwrap(preview.render(themeID: MoonlitLakeModel.id, at: [5], quality: q, sky: Self.night, mood: .serene).first)
+            let s = PreviewRenderer.stats(image)
+            XCTAssertGreaterThan(s.meanLuminance, 0.03, "\(q)")
+            XCTAssertGreaterThan(s.variance, 0.001, "\(q)")
+        }
+        // The demo's hard low note lands at 2.0 s: the lake answers it.
+        let frames = preview.render(themeID: MoonlitLakeModel.id, at: [1.95, 2.35], quality: .high, sky: Self.night, mood: .serene)
+        XCTAssertEqual(frames.count, 2)
+        XCTAssertGreaterThan(PreviewRenderer.difference(frames[0], frames[1]), 0.005)
+    }
+}
+
 /// Living Sky preview frames for the CI previews branch (PREVIEW_DIR).
 @MainActor
 final class SkyPreviewTests: XCTestCase {
