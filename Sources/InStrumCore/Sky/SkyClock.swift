@@ -43,6 +43,8 @@ public struct SkySettings: Codable, Equatable {
     /// Advanced: how big the moon and the sun look (0.5…3; 1 is true size ~; try 2 for a supermoon).
     public var moonSize: Double = 1
     public var sunSize: Double = 1
+    /// Advanced: the faint glow on the dark part of the moon (0…0.3, designed 0.04).
+    public var earthshine: Double = 0.04
 
     public init() {}
 
@@ -69,10 +71,10 @@ public struct SkySettings: Codable, Equatable {
         windScale = d.windScale; mistScale = d.mistScale; haloScale = d.haloScale; frostScale = d.frostScale
         rainScale = d.rainScale; snowScale = d.snowScale; gustScale = d.gustScale; calmRandom = d.calmRandom; randomExcluded = d.randomExcluded
         lightningFrequency = d.lightningFrequency; cloudScale = d.cloudScale; starScale = d.starScale
-        moonSize = d.moonSize; sunSize = d.sunSize
+        moonSize = d.moonSize; sunSize = d.sunSize; earthshine = d.earthshine
     }
 
-    enum CodingKeys: String, CodingKey { case timeMode, dayMinutes, frozenHour, frozenPhase, cityID, weatherMode, weather, pickBlendSeconds, randomBlendSeconds, spellMinutes, rainbowStrength, dryingMinutes, windScale, mistScale, haloScale, frostScale, rainScale, snowScale, gustScale, calmRandom, randomExcluded, lightningFrequency, cloudScale, starScale, moonSize, sunSize }
+    enum CodingKeys: String, CodingKey { case timeMode, dayMinutes, frozenHour, frozenPhase, cityID, weatherMode, weather, pickBlendSeconds, randomBlendSeconds, spellMinutes, rainbowStrength, dryingMinutes, windScale, mistScale, haloScale, frostScale, rainScale, snowScale, gustScale, calmRandom, randomExcluded, lightningFrequency, cloudScale, starScale, moonSize, sunSize, earthshine }
 
     /// Each field falls back on its own, and numbers are clamped, so one bad value never loses the rest.
     public init(from decoder: Decoder) throws {
@@ -103,6 +105,7 @@ public struct SkySettings: Codable, Equatable {
         moonSize = min(3, max(0.5, (try? c.decodeIfPresent(Double.self, forKey: .moonSize)) ?? d.moonSize))
         sunSize = min(3, max(0.5, (try? c.decodeIfPresent(Double.self, forKey: .sunSize)) ?? d.sunSize))
         randomExcluded = (try? c.decodeIfPresent([WeatherKind].self, forKey: .randomExcluded)) ?? d.randomExcluded
+        earthshine = min(0.3, max(0, (try? c.decodeIfPresent(Double.self, forKey: .earthshine)) ?? d.earthshine))
         spellMinutes = min(60, max(2, (try? c.decodeIfPresent(Double.self, forKey: .spellMinutes)) ?? d.spellMinutes))
     }
 }

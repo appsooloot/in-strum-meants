@@ -114,6 +114,9 @@ struct SkyControls: View {
                     labelled("Moon size \(String(format: "%.1f", sky.moonSize))×") {
                         Slider(value: Binding(get: { sky.moonSize }, set: { v in update { $0.moonSize = v } }), in: 0.5...3)
                     }
+                    labelled("Moon's dark side glows \(Int((sky.earthshine * 100).rounded()))%") {
+                        Slider(value: Binding(get: { sky.earthshine }, set: { v in update { $0.earthshine = v } }), in: 0...0.3)
+                    }
                     labelled("Sun size \(String(format: "%.1f", sky.sunSize))×") {
                         Slider(value: Binding(get: { sky.sunSize }, set: { v in update { $0.sunSize = v } }), in: 0.5...3)
                     }

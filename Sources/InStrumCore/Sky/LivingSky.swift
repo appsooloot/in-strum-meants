@@ -36,6 +36,8 @@ public struct SkyState: Equatable {
     public var dawnPastel: Float = 0
     /// How big the moon and sun look, 1 = as designed (the Advanced settings).
     public var moonSize: Float = 1, sunSize: Float = 1
+    /// The dark part of the moon's faint glow, 0…0.3.
+    public var earthshine: Float = 0.04
     /// 0…1: how clearly a rainbow stands opposite the sun (sun-showers, and after the rain, with the sun 1°–42° up).
     public var rainbow: Float = 0
 
@@ -176,6 +178,7 @@ public final class LivingSky {
         s.gust = scaled(s.gust, settings.gustScale, 1)
         s.cloudCover = scaled(s.cloudCover, settings.cloudScale, 1)
         s.moonSize = Float(min(3, max(0.5, settings.moonSize))); s.sunSize = Float(min(3, max(0.5, settings.sunSize)))
+        s.earthshine = Float(min(0.3, max(0, settings.earthshine)))
         s.starVisibility = scaled(s.starVisibility, settings.starScale, 1)
         return s
     }
