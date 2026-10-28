@@ -361,6 +361,38 @@ enum FramePatch {
         return out
     }
 
+    /// Mean RGB (0…1) inside an NDC rectangle.
+    static func meanRGB(_ image: CGImage, x: ClosedRange<Double>, y: ClosedRange<Double>) -> SIMD3<Double> {
+        pixels(image, x: x, y: y).reduce(SIMD3<Double>(repeating: 0), +) / Double(max(1, pixels(image, x: x, y: y).count))
+    }
+
+    /// Mean luminance of the brightest `share` of the pixels inside an NDC rectangle.
+    static func brightest(_ image: CGImage, x: ClosedRange<Double>, y: ClosedRange<Double>, share: Double = 0.05) -> Double {
+        let l = pixels(image, x: x, y: y).map { 0.2126 * $0.x + 0.7152 * $0.y + 0.0722 * $0.z }.sorted(by: >)
+        let n = max(1, Int(Double(l.count) * share))
+        return l.prefix(n).reduce(0, +) / Double(n)
+    }
+
+    static func pixels(_ image: CGImage, x: ClosedRange<Double>, y: ClosedRange<Double>) -> [SIMD3<Double>] {
+        let w = image.width, h = image.height
+        var px = [UInt8](repeating: 0, count: w * h * 4)
+        let ctx = CGContext(data: &px, width: w, height: h, bitsPerComponent: 8, bytesPerRow: w * 4,
+                            space: CGColorSpaceCreateDeviceRGB(), bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)
+        ctx?.draw(image, in: CGRect(x: 0, y: 0, width: w, height: h))
+        var out: [SIMD3<Double>] = []
+        for row in 0..<h {
+            let ny = 1 - 2 * (Double(row) + 0.5) / Double(h)
+            guard y.contains(ny) else { continue }
+            for col in 0..<w {
+                let nx = 2 * (Double(col) + 0.5) / Double(w) - 1
+                guard x.contains(nx) else { continue }
+                let i = (row * w + col) * 4
+                out.append(SIMD3(Double(px[i]), Double(px[i + 1]), Double(px[i + 2])) / 255)
+            }
+        }
+        return out
+    }
+
     /// Mean absolute luminance difference between two frames inside an NDC rectangle.
     static func difference(_ a: CGImage, _ b: CGImage, x: ClosedRange<Double>, y: ClosedRange<Double>) -> Double {
         let la = luminance(a), lb = luminance(b), w = a.width, h = a.height
@@ -396,7 +428,8 @@ final class GoldenHourBeachRendererTests: XCTestCase {
     }
 
     /// Steps the beach at 60 fps (notes go down at 0.5 s and stay held) and renders the frame at `seconds`.
-    private func renderBeach(notes: [UInt8], at seconds: Double, state: ThemeState, width: Int = 640, height: Int = 360)
+    private func renderBeach(notes: [UInt8], at seconds: Double, state: ThemeState, width: Int = 640, height: Int = 360,
+                             skyEdit: ((inout SkyState) -> Void)? = nil)
         throws -> (image: CGImage, renderer: GoldenHourBeachRenderer, frame: BeachFrame) {
         guard let device = MTLCreateSystemDefaultDevice() else { throw XCTSkip("No Metal device") }
         let preview = try XCTUnwrap(PreviewRenderer(width: width, height: height))
@@ -413,6 +446,7 @@ final class GoldenHourBeachRendererTests: XCTestCase {
             elapsed = t
             if i == 30 { d.handle(notes.map { .noteOn(note: $0, velocity: 1) }, at: t) }
             frame = d.step(dt: 1.0 / 60, t: t, quality: .high) as? BeachFrame
+            if let edit = skyEdit, frame != nil { edit(&frame!.sky) }
             if let frame { r.update(frame, params: d.parameters, quality: .high, gentle: false, dt: 1.0 / 60, size: size) }
         }
         let f = try XCTUnwrap(frame)
@@ -473,6 +507,18 @@ final class GoldenHourBeachRendererTests: XCTestCase {
             XCTAssertGreaterThan(s.meanLuminance, 0.08, "\(q)")
             XCTAssertGreaterThan(s.variance, 0.002, "\(q)")
         }
+    }
+
+    /// After the rain the whole beach is wet: the dry sand near the camera turns darker and mirrors the blue sky.
+    func testBeachShinesAfterRain() throws {
+        let state = ThemeState(values: ["keys.show": .bool(false)])
+        let dry = try renderBeach(notes: [], at: 2, state: state) { $0.wetness = 0 }
+        let wet = try renderBeach(notes: [], at: 2, state: state) { $0.wetness = 0.9 }
+        let x = -0.33...0.33, y = -0.97 ... -0.86
+        let a = FramePatch.meanRGB(dry.image, x: x, y: y), b = FramePatch.meanRGB(wet.image, x: x, y: y)
+        let la = 0.2126 * a.x + 0.7152 * a.y + 0.0722 * a.z, lb = 0.2126 * b.x + 0.7152 * b.y + 0.0722 * b.z
+        XCTAssertGreaterThanOrEqual(abs(lb - la) / max(la, 1e-6), 0.08, "dry \(a) wet \(b)")
+        XCTAssertGreaterThan(b.z / max(b.x, 1e-6), 1.05 * a.z / max(a.x, 1e-6), "the wet sand reflects the sky: dry \(a) wet \(b)")
     }
 
     func testLinesShowOnTheSand() throws {
@@ -577,7 +623,8 @@ final class CoastRoadRendererTests: XCTestCase {
 
     /// Steps the road at 60 fps (notes go down at 0.5 s and stay held) and captures frames at the given times.
     private func roadShots(notes: [UInt8], at times: [Double], state: ThemeState, sky: SkySettings? = nil,
-                           width: Int = 640, height: Int = 360) throws -> (images: [CGImage], shots: [RoadShot], renderer: CoastRoadRenderer) {
+                           width: Int = 640, height: Int = 360, skyEdit: ((inout SkyState) -> Void)? = nil)
+        throws -> (images: [CGImage], shots: [RoadShot], renderer: CoastRoadRenderer) {
         guard let device = MTLCreateSystemDefaultDevice() else { throw XCTSkip("No Metal device") }
         let preview = try XCTUnwrap(PreviewRenderer(width: width, height: height))
         let r = try XCTUnwrap(CoastRoadRenderer(device: device))
@@ -595,7 +642,8 @@ final class CoastRoadRendererTests: XCTestCase {
             let t = Double(i) / 60
             elapsed = t
             if i == 30 { d.handle(notes.map { .noteOn(note: $0, velocity: 1) }, at: t) }
-            guard let f = d.step(dt: 1.0 / 60, t: t, quality: .high) as? RoadFrame else { continue }
+            guard var f = d.step(dt: 1.0 / 60, t: t, quality: .high) as? RoadFrame else { continue }
+            skyEdit?(&f.sky)
             r.update(f, params: d.parameters, quality: .high, gentle: false, dt: 1.0 / 60, size: size)
             if t >= next - 1e-9 {
                 shots.append(RoadShot(image: try XCTUnwrap(preview.capture(r)), frame: f, lampPosts: r.lampPosts))
@@ -650,6 +698,19 @@ final class CoastRoadRendererTests: XCTestCase {
             XCTAssertGreaterThan(s.meanLuminance, 0.03, "\(q)")
             XCTAssertGreaterThan(s.variance, 0.001, "\(q)")
         }
+    }
+
+    /// Wet tarmac at night: the lights above the road shine back from it as streaks in the road strip.
+    func testWetRoadReflectsTheLights() throws {
+        let state = ThemeState(values: ["keys.show": .bool(false), "lamps": .number(1)])
+        let notes: [UInt8] = [36, 40, 43, 48, 52, 55, 60, 64, 67, 72]
+        let dry = try roadShots(notes: notes, at: [3], state: state, sky: MoonlitLakeRendererTests.night) { $0.wetness = 0 }
+        let wet = try roadShots(notes: notes, at: [3], state: state, sky: MoonlitLakeRendererTests.night) { $0.wetness = 0.9 }
+        // Keys hidden: the window's bottom is at −0.9 and the road strip runs to −0.84; the lights on the road sit
+        // from −0.87 up, so the strip below them only shines by reflection.
+        let x = -0.85...0.85, y = -0.895 ... -0.872
+        let a = FramePatch.brightest(dry.images[0], x: x, y: y), b = FramePatch.brightest(wet.images[0], x: x, y: y)
+        XCTAssertGreaterThanOrEqual(b, 1.3 * a, "dry \(a) wet \(b)")
     }
 
     func testLampsLightAtBlueHour() throws {
@@ -740,6 +801,7 @@ final class WorldPreviewTests: XCTestCase {
             ("lake-rain-t5", sky(hour: 22, phase: 0.55, weather: .rain), .high, 5),
             ("lake-smooth-t5", sky(hour: 22, phase: 0.55), .lite, 5),
             ("lake-ripples-t2.5", sky(hour: 22, phase: 0.55), .high, 2.5),
+            ("lake-after-rain", sky(hour: 22, phase: 0.55, weather: .afterRain), .high, 5),
         ]
         for (name, s, q, t) in cases {
             let image = try XCTUnwrap(preview.render(themeID: MoonlitLakeModel.id, at: [t], quality: q, sky: s, mood: .serene).first)
@@ -766,6 +828,8 @@ final class WorldPreviewTests: XCTestCase {
             ("beach-smooth", sky(hour: 13, phase: 0.5), held, .lite, 5),
             ("beach-lines-t6", sky(hour: 13, phase: 0.5), held, .high, 6),
             ("beach-warp-t7", sky(hour: 13, phase: 0.5), warp, .high, 7),
+            ("beach-after-rain", sky(hour: 13, phase: 0.5, weather: .afterRain), held, .high, 5),
+            ("beach-blizzard", sky(hour: 13, phase: 0.5, weather: .blizzard), held, .high, 5),
         ]
         for (name, s, state, q, t) in cases {
             let image = try XCTUnwrap(preview.render(themeID: GoldenHourBeachModel.id, at: [t], state: state, quality: q, sky: s).first)
@@ -792,6 +856,8 @@ final class WorldPreviewTests: XCTestCase {
             ("road-smooth", sky(hour: 13, phase: 0.5), held, .lite, 5),
             ("road-lights-t6", sky(hour: 13, phase: 0.5), held, .high, 6),
             ("road-warp-t7", sky(hour: 13, phase: 0.5), warp, .high, 7),
+            ("road-after-rain-night", sky(hour: 1, phase: 0.5, weather: .afterRain), follow, .high, 5),
+            ("road-blizzard", sky(hour: 13, phase: 0.5, weather: .blizzard), held, .high, 5),
         ]
         for (name, s, state, q, t) in cases {
             let image = try XCTUnwrap(preview.render(themeID: CoastRoadModel.id, at: [t], state: state, quality: q, sky: s).first)

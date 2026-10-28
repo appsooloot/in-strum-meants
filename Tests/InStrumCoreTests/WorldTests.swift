@@ -401,4 +401,50 @@ final class WorldTests: XCTestCase {
         XCTAssertNil(rf.warp)
         XCTAssertEqual(rf.ripples.count, 1)
     }
+
+    // MARK: - After the rain and blizzards in every outdoor world
+
+    private func scenes(_ sky: SkyState) -> [(String, AmbienceScene)] {
+        var lake = MoonlitLakeModel(), beach = GoldenHourBeachModel(), road = CoastRoadModel()
+        lake.setSky(sky); beach.setSky(sky); road.setSky(sky)
+        let lp = ParameterSet(specs: MoonlitLakeModel.parameters, macroTargets: MoonlitLakeModel.macroTargets)
+        let bp = ParameterSet(specs: GoldenHourBeachModel.parameters, macroTargets: GoldenHourBeachModel.macroTargets)
+        let rp = ParameterSet(specs: CoastRoadModel.parameters, macroTargets: CoastRoadModel.macroTargets)
+        return [("lake", lake.step(dt: 1.0 / 30, params: lp, roles: RoleValues(), inputs: InputFrame(), quality: .high).ambience),
+                ("beach", beach.step(dt: 1.0 / 30, params: bp, roles: RoleValues(), inputs: InputFrame(), quality: .high).ambience),
+                ("road", road.step(dt: 1.0 / 30, params: rp, roles: RoleValues(), inputs: InputFrame(), quality: .high).ambience)]
+    }
+
+    private func daySky() -> SkyState {
+        var s = SkyState(); s.sun = SkyDirection(azimuth: 0, altitude: 30); s.hourOfDay = 13
+        return s
+    }
+
+    func testDripsAfterRainInEveryOutdoorWorld() {
+        var afterRain = daySky(); afterRain.wetness = 0.8
+        for (name, scene) in scenes(afterRain) {
+            XCTAssertEqual(scene.level(.drips), 0.8, accuracy: 1e-6, name)
+            XCTAssertEqual(scene.wetness, 0.8, accuracy: 1e-6, name)
+        }
+        var raining = afterRain; raining.rain = 0.5
+        for (name, scene) in scenes(raining) { XCTAssertEqual(scene.level(.drips), 0, name) }
+    }
+
+    func testBlizzardHowlsEverywhere() {
+        var blizzard = daySky(); blizzard.snow = 1; blizzard.gust = 1; blizzard.wind = 1
+        for (name, scene) in scenes(blizzard) { XCTAssertGreaterThanOrEqual(scene.level(.wind), 0.95, name) }
+    }
+
+    func testRoadSendsWetness() {
+        var wet = daySky(); wet.wetness = 0.6
+        XCTAssertEqual(scenes(wet).first { $0.0 == "road" }?.1.wetness ?? -1, 0.6, accuracy: 1e-6)
+    }
+
+    func testWeatherAmbienceHelper() {
+        var levels: [AmbienceSource: Double] = [.wind: 0.2]
+        var s = SkyState(); s.wetness = 0.4; s.snow = 1; s.gust = 0.5
+        WeatherAmbience.levels(s, base: &levels)
+        XCTAssertEqual(levels[.drips] ?? -1, 0.4, accuracy: 1e-6)
+        XCTAssertEqual(levels[.wind] ?? -1, 0.65, accuracy: 1e-6)
+    }
 }
