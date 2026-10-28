@@ -130,7 +130,7 @@ public final class LivingSky {
         }
         s.frost = frost * (1 - SkyPalette.smoothstep(0, 0.05, w.rain))
         s.halo = Self.halo(weather)
-        s.rainbow = Self.rainbow(weather, sunAltitude: s.sun.altitude)
+        s.rainbow = Self.rainbow(weather, sunAltitude: s.sun.altitude) * Float(min(1, max(0, settings.rainbowStrength)))
 
         // Wetness: rain soaks (faster the harder it rains), dry weather dries it over minutes; after the rain stays wet.
         if w.rain > 0.1 { wetness += (1 - wetness) * Float(1 - exp(-dt * Double(w.rain) / 90)) }

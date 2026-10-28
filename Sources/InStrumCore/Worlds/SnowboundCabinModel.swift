@@ -70,7 +70,7 @@ public struct SnowboundCabinModel: ThemeModel, MoodAware, SkyAware {
         func cold(_ k: WeatherKind) -> WeatherKind {
             switch k {
             case .drizzle, .rain, .sunShower, .sleet, .hail: return .snow
-            case .smokeHaze: return .mist
+            case .smokeHaze, .iceFog: return .mist
             case .monsoon: return .blizzard
             case .fogBank: return .mist
             case .storm: return .blizzard

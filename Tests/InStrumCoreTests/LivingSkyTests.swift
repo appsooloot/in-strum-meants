@@ -237,7 +237,7 @@ extension LivingSkyTests {
     }
 
     func testNewWeatherValues() {
-        XCTAssertEqual(WeatherKind.allCases, [.clear, .lightCloud, .overcast, .mist, .drizzle, .rain, .storm, .snow, .blizzard, .afterRain, .sunShower, .fogBank, .sleet, .monsoon, .hail, .smokeHaze])
+        XCTAssertEqual(WeatherKind.allCases, [.clear, .lightCloud, .overcast, .mist, .drizzle, .rain, .storm, .snow, .blizzard, .afterRain, .sunShower, .fogBank, .sleet, .monsoon, .hail, .smokeHaze, .iceFog])
         // cloud, rain, snow, mist, wind, halo, frost, gust (spec §6.1)
         let table: [WeatherKind: [Float]] = [
             .clear: [0, 0, 0, 0.1, 0.1, 0, 0.15, 0],
@@ -256,6 +256,7 @@ extension LivingSkyTests {
             .monsoon: [1, 1, 0, 0.45, 0.6, 0, 0, 0.4],
             .hail: [1, 0.7, 0.25, 0.2, 0.5, 0, 0, 0.4],
             .smokeHaze: [0.3, 0, 0, 0.8, 0.1, 0, 0, 0],
+            .iceFog: [0.2, 0, 0, 0.7, 0.02, 0.8, 0.8, 0],
         ]
         for k in WeatherKind.allCases {
             let v = k.values
@@ -308,6 +309,21 @@ extension LivingSkyTests {
         XCTAssertEqual([wild.pickBlendSeconds, wild.randomBlendSeconds, wild.spellMinutes], [120, 10, 2])
         let old = try JSONDecoder().decode(SkySettings.self, from: Data(#"{"weather":"rain"}"#.utf8))
         XCTAssertEqual(old.pickBlendSeconds, 12, "old saved settings get the defaults")
+    }
+
+    func testRainbowStrengthSetting() {
+        var s = SkySettings(); s.timeMode = .frozen; s.cityID = "melbourne"; s.weatherMode = .pick; s.weather = .sunShower
+        var best: Float = 0, dim: Float = 0
+        for hour in [8.0, 9, 10, 16, 17] {
+            s.frozenHour = hour; s.rainbowStrength = 1
+            best = max(best, LivingSky(settings: s, homeZone: melbourneZone).step(now: start, dt: 0).rainbow)
+            s.rainbowStrength = 0.5
+            dim = max(dim, LivingSky(settings: s, homeZone: melbourneZone).step(now: start, dt: 0).rainbow)
+            s.rainbowStrength = 0
+            XCTAssertEqual(LivingSky(settings: s, homeZone: melbourneZone).step(now: start, dt: 0).rainbow, 0)
+        }
+        XCTAssertGreaterThan(best, 0.5, "some hour shows a bow")
+        XCTAssertEqual(dim, best * 0.5, accuracy: 1e-4, "half strength halves the bow")
     }
 
     func testRainMeltsFrost() {

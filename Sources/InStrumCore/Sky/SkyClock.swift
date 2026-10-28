@@ -19,10 +19,12 @@ public struct SkySettings: Codable, Equatable {
     public var pickBlendSeconds: Double = 12
     public var randomBlendSeconds: Double = 60
     public var spellMinutes: Double = 12.5
+    /// Advanced: how bright rainbows are, 0 (none) … 1 (full).
+    public var rainbowStrength: Double = 1
 
     public init() {}
 
-    enum CodingKeys: String, CodingKey { case timeMode, dayMinutes, frozenHour, frozenPhase, cityID, weatherMode, weather, pickBlendSeconds, randomBlendSeconds, spellMinutes }
+    enum CodingKeys: String, CodingKey { case timeMode, dayMinutes, frozenHour, frozenPhase, cityID, weatherMode, weather, pickBlendSeconds, randomBlendSeconds, spellMinutes, rainbowStrength }
 
     /// Each field falls back on its own, and numbers are clamped, so one bad value never loses the rest.
     public init(from decoder: Decoder) throws {
@@ -37,6 +39,7 @@ public struct SkySettings: Codable, Equatable {
         weather = (try? c.decodeIfPresent(WeatherKind.self, forKey: .weather)) ?? d.weather
         pickBlendSeconds = min(120, max(1, (try? c.decodeIfPresent(Double.self, forKey: .pickBlendSeconds)) ?? d.pickBlendSeconds))
         randomBlendSeconds = min(300, max(10, (try? c.decodeIfPresent(Double.self, forKey: .randomBlendSeconds)) ?? d.randomBlendSeconds))
+        rainbowStrength = min(1, max(0, (try? c.decodeIfPresent(Double.self, forKey: .rainbowStrength)) ?? d.rainbowStrength))
         spellMinutes = min(60, max(2, (try? c.decodeIfPresent(Double.self, forKey: .spellMinutes)) ?? d.spellMinutes))
     }
 }
