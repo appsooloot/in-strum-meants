@@ -188,11 +188,157 @@ final class SpaceshipLoungeRendererTests: XCTestCase {
         XCTAssertEqual(lounge.streakScale, 0.5, accuracy: 1e-4, "gentle visuals halve the streaks")
         lounge.update(lf, params: ld.parameters, quality: .high, gentle: false, dt: 1.0 / 30, size: size)
         XCTAssertEqual(lounge.streakScale, 1, accuracy: 1e-4)
+
+        let bd = SceneDirector(themeID: GoldenHourBeachModel.id, state: ThemeState(), reaction: ReactionPresets.expressivePianist)
+        bd.sky.reset(settings: MoonlitLakeRendererTests.night)
+        bd.handle([60, 64, 67, 72].map { .noteOn(note: $0, velocity: 0.9) }, at: 0)
+        var bf: BeachFrame?
+        for i in 0..<90 { bf = bd.step(dt: 1.0 / 30, t: Double(i) / 30, quality: .high) as? BeachFrame }
+        let beachFrame = try XCTUnwrap(bf)
+        let plainBeach = try XCTUnwrap(GoldenHourBeachRenderer(device: device))
+        let gentleBeach = try XCTUnwrap(GoldenHourBeachRenderer(device: device))
+        for _ in 0..<10 {
+            plainBeach.update(beachFrame, params: bd.parameters, quality: .high, gentle: false, dt: 1.0 / 30, size: size)
+            gentleBeach.update(beachFrame, params: bd.parameters, quality: .high, gentle: true, dt: 1.0 / 30, size: size)
+        }
+        XCTAssertGreaterThan(plainBeach.glitterOut, 0.3)
+        XCTAssertLessThanOrEqual(gentleBeach.glitterOut, plainBeach.glitterOut * 0.55, "gentle visuals calm the sun's path")
     }
 
     func testWarpFieldFollowsQuality() {
         XCTAssertLessThan(WarpLayer.fieldCount(.lite), WarpLayer.fieldCount(.high))
         XCTAssertLessThanOrEqual(WarpLayer.fieldCount(.lite) + GalaxyWarp.cap, 600, "Smooth stays light")
+    }
+}
+
+/// Golden Hour Beach (Set 3's world) with Tide Lines and the shared Ocean layer.
+@MainActor
+final class GoldenHourBeachRendererTests: XCTestCase {
+    func testBeachShadersCompile() throws {
+        guard let device = MTLCreateSystemDefaultDevice() else { throw XCTSkip("No Metal device") }
+        let lib = try device.makeLibrary(source: GoldenHourBeachShaders.source, options: nil)
+        for name in ["beach_vertex", "beach_fragment", "beach_keys_vertex", "beach_keys_fragment"] {
+            XCTAssertNotNil(lib.makeFunction(name: name), name)
+        }
+    }
+
+    static var midday: SkySettings {
+        var s = SkySettings(); s.timeMode = .frozen; s.frozenHour = 13; s.frozenPhase = 0.5; s.cityID = "melbourne"
+        s.weatherMode = .pick; s.weather = .clear
+        return s
+    }
+
+    /// Steps the beach at 60 fps (notes go down at 0.5 s and stay held) and renders the frame at `seconds`.
+    private func renderBeach(notes: [UInt8], at seconds: Double, state: ThemeState, width: Int = 640, height: Int = 360)
+        throws -> (image: CGImage, renderer: GoldenHourBeachRenderer, frame: BeachFrame) {
+        guard let device = MTLCreateSystemDefaultDevice() else { throw XCTSkip("No Metal device") }
+        let preview = try XCTUnwrap(PreviewRenderer(width: width, height: height))
+        let r = try XCTUnwrap(GoldenHourBeachRenderer(device: device))
+        let d = SceneDirector(themeID: GoldenHourBeachModel.id, state: state, reaction: ReactionPresets.expressivePianist)
+        let start = Date(timeIntervalSince1970: 1_793_000_000)
+        var elapsed = 0.0
+        d.clock = { start.addingTimeInterval(elapsed) }
+        d.sky.reset(settings: Self.midday)
+        var frame: BeachFrame?
+        let size = CGSize(width: width, height: height)
+        for i in 1...Int(seconds * 60) {
+            let t = Double(i) / 60
+            elapsed = t
+            if i == 30 { d.handle(notes.map { .noteOn(note: $0, velocity: 1) }, at: t) }
+            frame = d.step(dt: 1.0 / 60, t: t, quality: .high) as? BeachFrame
+            if let frame { r.update(frame, params: d.parameters, quality: .high, gentle: false, dt: 1.0 / 60, size: size) }
+        }
+        let f = try XCTUnwrap(frame)
+        return (try XCTUnwrap(preview.capture(r)), r, f)
+    }
+
+    func testBeachPreviewIsStructured() throws {
+        guard MTLCreateSystemDefaultDevice() != nil else { throw XCTSkip("No Metal device") }
+        let preview = try XCTUnwrap(PreviewRenderer(width: 640, height: 360))
+        for q in [QualityLevel.lite, .high] {
+            let image = try XCTUnwrap(preview.render(themeID: GoldenHourBeachModel.id, at: [5], quality: q, sky: Self.midday).first)
+            let s = PreviewRenderer.stats(image)
+            XCTAssertGreaterThan(s.meanLuminance, 0.08, "\(q)")
+            XCTAssertGreaterThan(s.variance, 0.002, "\(q)")
+        }
+    }
+
+    func testLinesShowOnTheSand() throws {
+        // Keys hidden, glitter and foam off: the lines are the only thing the notes change.
+        let state = ThemeState(values: ["keys.show": .bool(false), "glitter": .number(0), "foam": .number(0)])
+        let notes: [UInt8] = [36, 48, 55, 60, 64, 67, 72, 76, 84, 96]
+        let played = try renderBeach(notes: notes, at: 1.5, state: state)
+        let quiet = try renderBeach(notes: [], at: 1.5, state: state)
+        XCTAssertGreaterThan(played.renderer.lineCount, 4)
+        XCTAssertEqual(quiet.renderer.lineCount, 0)
+        XCTAssertGreaterThan(PreviewRenderer.difference(played.image, quiet.image), 0.003)
+    }
+
+    func testSunAndMoonLightBlend() {
+        var s = SkyState()
+        s.moon = SkyDirection(azimuth: 20, altitude: 30); s.moonLit = 1
+        var last: (sun: Float, moon: Float)?
+        var alt = -10.0
+        while alt <= 6 + 1e-9 {
+            s.sun = SkyDirection(azimuth: 300, altitude: alt)
+            let l = OceanLight.lights(s)
+            if let last {
+                XCTAssertLessThan(abs(l.sun.w - last.sun), 0.05, "sun at \(alt)°")
+                XCTAssertLessThan(abs(l.moon.w - last.moon), 0.05, "moon at \(alt)°")
+            }
+            last = (l.sun.w, l.moon.w)
+            alt += 0.1
+        }
+        s.sun = SkyDirection(azimuth: 300, altitude: -10)
+        XCTAssertGreaterThan(OceanLight.lights(s).moon.w, 0.9, "the moon lights the sea at night")
+        s.sun = SkyDirection(azimuth: 300, altitude: 6)
+        XCTAssertGreaterThan(OceanLight.lights(s).sun.w, 0.9, "the sun lights it by day")
+        XCTAssertLessThan(OceanLight.lights(s).moon.w, 0.01)
+    }
+
+    func testOceanStaysSmoothAfterHours() throws {
+        guard let device = MTLCreateSystemDefaultDevice() else { throw XCTSkip("No Metal device") }
+        let state = ThemeState(values: ["keys.show": .bool(false)])
+        let base = try renderBeach(notes: [], at: 2, state: state).frame
+        let swell = OceanSwell(seed: 0xBEAC4)
+        func at(_ t: Double) -> BeachFrame {
+            var f = base
+            let shift = t - base.swellTime
+            f.time = t; f.swellTime = t
+            f.swellPhases = swell.phases(at: t)
+            f.upcoming = base.upcoming.map { var w = $0; w.breakTime += shift; return w }
+            f.recent = base.recent.map { var w = $0; w.breakTime += shift; return w }
+            return f
+        }
+        let preview = try XCTUnwrap(PreviewRenderer(width: 640, height: 360))
+        let size = CGSize(width: 640, height: 360)
+        func image(_ frames: [BeachFrame]) throws -> CGImage {
+            let r = try XCTUnwrap(GoldenHourBeachRenderer(device: device))
+            for f in frames { r.update(f, params: ThemeRegistry.parameterSet(for: GoldenHourBeachModel.id, state: state),
+                                       quality: .high, gentle: false, dt: 1.0 / 60, size: size) }
+            return try XCTUnwrap(preview.capture(r))
+        }
+        let late = 36_000.0
+        let a = try image((0..<30).map { at(late - Double(30 - $0) / 60) })
+        let b = try image((0..<31).map { at(late - Double(30 - $0) / 60) })
+        XCTAssertLessThan(PreviewRenderer.difference(a, b), 0.01, "one frame apart, ten hours in")
+        let early = try image((0..<30).map { at(60 - Double(30 - $0) / 60) })
+        let ratio = PreviewRenderer.stats(a).variance / max(PreviewRenderer.stats(early).variance, 1e-9)
+        XCTAssertGreaterThan(ratio, 0.5); XCTAssertLessThan(ratio, 2, "the sea keeps its detail after hours")
+    }
+
+    func testBeachFramesAnyAspect() throws {
+        for (w, h) in [(864, 360), (360, 360)] {
+            let shot = try renderBeach(notes: [60, 64, 67], at: 2, state: ThemeState(), width: w, height: h)
+            let s = PreviewRenderer.stats(shot.image)
+            XCTAssertGreaterThan(s.meanLuminance, 0.05, "\(w)×\(h)")
+            XCTAssertGreaterThan(s.variance, 0.001, "\(w)×\(h)")
+            XCTAssertEqual(shot.renderer.keyRects.count, 88)
+            for k in shot.renderer.keyRects {
+                XCTAssertGreaterThanOrEqual(k.x, -1); XCTAssertLessThanOrEqual(k.z, 1)
+                XCTAssertGreaterThanOrEqual(k.y, -1); XCTAssertLessThanOrEqual(k.w, 1)
+            }
+        }
     }
 }
 
@@ -221,6 +367,32 @@ final class WorldPreviewTests: XCTestCase {
         ]
         for (name, s, q, t) in cases {
             let image = try XCTUnwrap(preview.render(themeID: MoonlitLakeModel.id, at: [t], quality: q, sky: s, mood: .serene).first)
+            try PreviewRenderer.writePNG(image, to: url.appendingPathComponent("\(name).png"))
+        }
+    }
+
+    func testWriteBeachPreviews() throws {
+        guard let dir = ProcessInfo.processInfo.environment["PREVIEW_DIR"] else { throw XCTSkip("PREVIEW_DIR not set") }
+        guard MTLCreateSystemDefaultDevice() != nil else { throw XCTSkip("No Metal device") }
+        let url = URL(fileURLWithPath: dir, isDirectory: true)
+        try FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
+        let preview = try XCTUnwrap(PreviewRenderer(width: 1280, height: 720))
+        let held = ThemeState()
+        let follow = ThemeState(values: ["light.hold": .choice(SkyHold.follow.rawValue)])
+        let warp = ThemeState(values: ["visual": .choice("Galaxy Warp")])
+        let cases: [(String, SkySettings, ThemeState, QualityLevel, Double)] = [
+            ("beach-golden", sky(hour: 13, phase: 0.5), held, .high, 5),
+            ("beach-blue", sky(hour: 20.5, phase: 0.5), follow, .high, 5),
+            ("beach-night", sky(hour: 1, phase: 0.5), follow, .high, 5),
+            ("beach-rain", sky(hour: 13, phase: 0.5, weather: .rain), held, .high, 5),
+            ("beach-storm", sky(hour: 13, phase: 0.5, weather: .storm), held, .high, 5),
+            ("beach-fog", sky(hour: 13, phase: 0.5, weather: .mist), held, .high, 5),
+            ("beach-smooth", sky(hour: 13, phase: 0.5), held, .lite, 5),
+            ("beach-lines-t6", sky(hour: 13, phase: 0.5), held, .high, 6),
+            ("beach-warp-t7", sky(hour: 13, phase: 0.5), warp, .high, 7),
+        ]
+        for (name, s, state, q, t) in cases {
+            let image = try XCTUnwrap(preview.render(themeID: GoldenHourBeachModel.id, at: [t], state: state, quality: q, sky: s).first)
             try PreviewRenderer.writePNG(image, to: url.appendingPathComponent("\(name).png"))
         }
     }
