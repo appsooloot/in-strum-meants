@@ -1,6 +1,6 @@
 /// The app's own instruments (made entirely in the app, no recordings).
 public enum BuiltInEngine: String, Codable, CaseIterable {
-    case feltGlass, orbitPad, honeyTape, hazeBells
+    case feltGlass, orbitPad, honeyTape, hazeBells, cabinFelt, morningBox
 
     public var displayName: String {
         switch self {
@@ -8,6 +8,8 @@ public enum BuiltInEngine: String, Codable, CaseIterable {
         case .orbitPad: return "Orbit Pad"
         case .honeyTape: return "Honey Tape"
         case .hazeBells: return "Haze Bells"
+        case .cabinFelt: return "Cabin Felt"
+        case .morningBox: return "Morning Box"
         }
     }
 }
@@ -45,6 +47,14 @@ public enum PatchLibrary {
         Patch(id: "church-keys", name: "Church Keys", engine: .hazeBells, values: bells(bells: 0.45, organ: 0.80, echo: 0.25, crush: 0.10, drift: 0.20, space: 0.60), creditID: "high-by-the-beach"),
         Patch(id: "night-drive", name: "Night Drive", engine: .hazeBells, values: bells(bells: 0.80, organ: 0.30, echo: 0.65, crush: 0.15, drift: 0.35, space: 0.70), creditID: "high-by-the-beach"),
         Patch(id: "lo-fi", name: "Lo-Fi", engine: .hazeBells, values: bells(bells: 0.75, organ: 0.30, echo: 0.40, crush: 0.60, drift: 0.60, space: 0.45), creditID: "high-by-the-beach"),
+        Patch(id: "cabin-felt", name: "Cabin Felt", engine: .cabinFelt, values: cabin(felt: 0.60, horn: 0.30, fire: 0.50, wood: 0.50, space: 0.35, width: 0.50), creditID: "stay"),
+        Patch(id: "fireside", name: "Fireside", engine: .cabinFelt, values: cabin(felt: 0.55, horn: 0, fire: 0.70, wood: 0.60, space: 0.30, width: 0.45), creditID: "stay"),
+        Patch(id: "snow-horn", name: "Snow Horn", engine: .cabinFelt, values: cabin(felt: 0.70, horn: 0.75, fire: 0.45, wood: 0.45, space: 0.50, width: 0.55), creditID: "stay"),
+        Patch(id: "late-night", name: "Late Night", engine: .cabinFelt, values: cabin(felt: 0.85, horn: 0.20, fire: 0.60, wood: 0.35, space: 0.25, width: 0.40), creditID: "stay"),
+        Patch(id: "morning-box", name: "Morning Box", engine: .morningBox, values: morning(bars: 0.60, box: 0.20, bloom: 0.40, build: 0.50, haze: 0.35, space: 0.50, width: 0.55), creditID: "dunno"),
+        Patch(id: "music-box", name: "Music Box", engine: .morningBox, values: morning(bars: 0.50, box: 1, bloom: 0.10, build: 0.20, haze: 0.25, space: 0.40, width: 0.40), creditID: "dunno"),
+        Patch(id: "wall-of-light", name: "Wall of Light", engine: .morningBox, values: morning(bars: 0.45, box: 0.15, bloom: 0.85, build: 0.90, haze: 0.45, space: 0.65, width: 0.80), creditID: "dunno"),
+        Patch(id: "snooze", name: "Snooze", engine: .morningBox, values: morning(bars: 0.35, box: 0.30, bloom: 0.55, build: 0.40, haze: 0.70, space: 0.55, width: 0.50), creditID: "dunno"),
     ]
 
     public static func defaultPatch(for engine: BuiltInEngine) -> Patch {
@@ -63,6 +73,14 @@ public enum PatchLibrary {
 
     private static func tape(breath: Double, strings: Double, wow: Double, age: Double, reel: Double, space: Double, width: Double) -> [String: Double] {
         ["breath": breath, "strings": strings, "wow": wow, "age": age, "reel": reel, "space": space, "width": width]
+    }
+
+    private static func cabin(felt: Double, horn: Double, fire: Double, wood: Double, space: Double, width: Double) -> [String: Double] {
+        ["felt": felt, "horn": horn, "fire": fire, "wood": wood, "space": space, "width": width]
+    }
+
+    private static func morning(bars: Double, box: Double, bloom: Double, build: Double, haze: Double, space: Double, width: Double) -> [String: Double] {
+        ["bars": bars, "box": box, "bloom": bloom, "build": build, "haze": haze, "space": space, "width": width]
     }
 
     private static func pad(bloom: Double, drift: Double, motion: Double, shimmer: Double, brightness: Double, space: Double) -> [String: Double] {

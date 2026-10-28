@@ -4,7 +4,7 @@ import InStrumCore
 /// Original living art for each "Inspired by" card, drawn in code from the song's feeling (never artwork,
 /// photos or logos). The song's tempo is hidden in the motion: everything breathes at `pulsePeriod`.
 enum CardArt {
-    case comeBackToEarth, innerbloom, musicToWatchBoysTo, highByTheBeach
+    case comeBackToEarth, innerbloom, musicToWatchBoysTo, highByTheBeach, stay, dunno
 
     static func art(for creditID: String) -> CardArt? {
         switch creditID {
@@ -12,6 +12,8 @@ enum CardArt {
         case CreditLibrary.innerbloom.id: return .innerbloom
         case CreditLibrary.musicToWatchBoysTo.id: return .musicToWatchBoysTo
         case CreditLibrary.highByTheBeach.id: return .highByTheBeach
+        case CreditLibrary.stay.id: return .stay
+        case CreditLibrary.dunno.id: return .dunno
         default: return nil
         }
     }
@@ -24,6 +26,8 @@ enum CardArt {
         case .innerbloom: return .system(size: 24, weight: .medium, design: .default)
         case .musicToWatchBoysTo: return .custom("Didot", size: 30)
         case .highByTheBeach: return .custom("Futura-CondensedMedium", size: 28)
+        case .stay: return .system(size: 30, weight: .regular, design: .serif)
+        case .dunno: return .system(size: 26, weight: .light, design: .rounded)
         }
     }
 
@@ -33,7 +37,15 @@ enum CardArt {
         case .musicToWatchBoysTo: return 1.5
         case .highByTheBeach: return 3
         case .comeBackToEarth: return 0.5
+        case .stay: return 1
+        case .dunno: return 2
         }
+    }
+
+    /// How long one breath of the card lasts: a beat of the song, except "Stay", which is felt in half time
+    /// (134 BPM played as 67), so its snow falls at 60/67 s.
+    func pulse(for credit: Credit) -> Double {
+        self == .stay ? 2 * credit.pulsePeriod : credit.pulsePeriod
     }
     var titleCase: Bool { self == .innerbloom }
 
@@ -43,6 +55,8 @@ enum CardArt {
         case .innerbloom: Self.bloom(ctx, size, t, pulse)
         case .musicToWatchBoysTo: Self.goldenHaze(ctx, size, t, pulse)
         case .highByTheBeach: Self.coastLine(ctx, size, t, pulse)
+        case .stay: Self.cabinWindow(ctx, size, t, pulse)
+        case .dunno: Self.dawnBedroom(ctx, size, t, pulse)
         }
     }
 
@@ -274,6 +288,160 @@ enum CardArt {
         }
         for row in stride(from: 0.0, to: h, by: 3) {
             ctx.fill(Path(CGRect(x: 0, y: row, width: w, height: 0.6)), with: .color(.black.opacity(0.12)))
+        }
+    }
+
+    // MARK: - Stay: a warm window in the snow, one golden horn line curling across it
+
+    private static func cabinWindow(_ ctx: GraphicsContext, _ size: CGSize, _ t: Double, _ pulse: Double) {
+        let rect = CGRect(origin: .zero, size: size)
+        let w = size.width, h = size.height
+        let amber = Color(red: 1, green: 0.66, blue: 0.30)
+        // Snowy night outside.
+        ctx.fill(Path(rect), with: .linearGradient(
+            Gradient(colors: [Color(red: 0.03, green: 0.04, blue: 0.10), Color(red: 0.08, green: 0.09, blue: 0.17)]),
+            startPoint: .zero, endPoint: CGPoint(x: 0, y: h)))
+        let beat = (t / pulse).truncatingRemainder(dividingBy: 1)
+        let breath = 0.85 + 0.15 * exp(-beat * 3)
+        // The window and its glow on the snow.
+        let win = CGRect(x: w * 0.30, y: h * 0.17, width: w * 0.40, height: h * 0.56)
+        var glow = ctx
+        glow.blendMode = .plusLighter
+        let centre = CGPoint(x: win.midX, y: win.midY)
+        glow.fill(Path(rect), with: .radialGradient(Gradient(colors: [amber.opacity(0.32 * breath), amber.opacity(0.08), .clear]),
+                                                    center: centre, startRadius: win.width * 0.3, endRadius: w * 0.62))
+        ctx.fill(Path(win.insetBy(dx: -6, dy: -6)), with: .color(Color(red: 0.16, green: 0.09, blue: 0.05)))
+        // Four panes: three lit, one dim.
+        let gap: CGFloat = 5
+        let pw = (win.width - gap) / 2, ph = (win.height - gap) / 2
+        for row in 0..<2 {
+            for col in 0..<2 {
+                let pane = CGRect(x: win.minX + CGFloat(col) * (pw + gap), y: win.minY + CGFloat(row) * (ph + gap), width: pw, height: ph)
+                let lit = !(row == 0 && col == 1)
+                let top = lit ? Color(red: 1, green: 0.78, blue: 0.45) : Color(red: 0.30, green: 0.20, blue: 0.14)
+                let bottom = lit ? Color(red: 0.88, green: 0.46, blue: 0.16) : Color(red: 0.18, green: 0.11, blue: 0.08)
+                ctx.fill(Path(pane), with: .linearGradient(Gradient(colors: [top.opacity(lit ? breath : 1), bottom]),
+                                                           startPoint: CGPoint(x: pane.midX, y: pane.minY),
+                                                           endPoint: CGPoint(x: pane.midX, y: pane.maxY)))
+            }
+        }
+        // Snow on the sill.
+        var sill = Path()
+        sill.move(to: CGPoint(x: win.minX - 14, y: win.maxY + 8))
+        sill.addQuadCurve(to: CGPoint(x: win.maxX + 14, y: win.maxY + 8), control: CGPoint(x: win.midX, y: win.maxY - 2))
+        sill.addLine(to: CGPoint(x: win.maxX + 14, y: win.maxY + 13)); sill.addLine(to: CGPoint(x: win.minX - 14, y: win.maxY + 13))
+        sill.closeSubpath()
+        ctx.fill(sill, with: .color(Color(red: 0.86, green: 0.88, blue: 0.95).opacity(0.85)))
+        // One golden line curling across, like a horn phrase: it flows along at the pulse and glows on each beat.
+        var line = Path()
+        line.move(to: CGPoint(x: -10, y: h * 0.62))
+        line.addCurve(to: CGPoint(x: w * 0.47, y: h * 0.40), control1: CGPoint(x: w * 0.18, y: h * 0.70), control2: CGPoint(x: w * 0.30, y: h * 0.30))
+        line.addCurve(to: CGPoint(x: w * 0.56, y: h * 0.52), control1: CGPoint(x: w * 0.62, y: h * 0.48), control2: CGPoint(x: w * 0.60, y: h * 0.62))
+        line.addCurve(to: CGPoint(x: w + 10, y: h * 0.34), control1: CGPoint(x: w * 0.50, y: h * 0.40), control2: CGPoint(x: w * 0.80, y: h * 0.26))
+        let gold = Color(red: 1, green: 0.83, blue: 0.42)
+        glow.stroke(line, with: .color(gold.opacity(0.18 * breath)), style: StrokeStyle(lineWidth: 9, lineCap: .round))
+        ctx.stroke(line, with: .color(gold.opacity(0.9)),
+                   style: StrokeStyle(lineWidth: 1.8, lineCap: .round, dash: [26, 5], dashPhase: -t / pulse * 8))
+        // Six-armed frost in the corners.
+        let frost: [(CGFloat, CGFloat, CGFloat)] = [(0.05, 0.10, 16), (0.13, 0.05, 9), (0.03, 0.24, 8), (0.95, 0.10, 14),
+                                                    (0.87, 0.05, 8), (0.06, 0.90, 12), (0.15, 0.95, 7), (0.94, 0.88, 15), (0.84, 0.95, 8)]
+        for (fx, fy, r) in frost {
+            let c = CGPoint(x: w * fx, y: h * fy)
+            var star = Path()
+            for k in 0..<6 {
+                let a: CGFloat = CGFloat(k) * CGFloat.pi / 3 + 0.2
+                let ca: CGFloat = cos(a), sa: CGFloat = sin(a)
+                star.move(to: c); star.addLine(to: CGPoint(x: c.x + r * ca, y: c.y + r * sa))
+                for s: CGFloat in [0.45, 0.7] {
+                    let p = CGPoint(x: c.x + r * s * ca, y: c.y + r * s * sa)
+                    let len: CGFloat = r * 0.28 * (1.1 - s)
+                    for side: CGFloat in [-1, 1] {
+                        let b: CGFloat = a + side * CGFloat.pi / 3
+                        let cb: CGFloat = cos(b), sb: CGFloat = sin(b)
+                        star.move(to: p)
+                        star.addLine(to: CGPoint(x: p.x + len * cb, y: p.y + len * sb))
+                    }
+                }
+            }
+            ctx.stroke(star, with: .color(Color(red: 0.85, green: 0.92, blue: 1).opacity(0.45)), lineWidth: 0.8)
+        }
+        // Snow falling at the pulse: each flake crosses the card in eight beats.
+        for i in 0..<70 {
+            let speed = 0.8 + 0.4 * hash(i, 7)
+            let u = (t / (8 * pulse) * speed + hash(i, 3)).truncatingRemainder(dividingBy: 1)
+            let x = w * hash(i, 1) + 10 * sin(t * 0.9 + Double(i))
+            let y = -6 + u * (h + 12)
+            let r = 0.8 + 1.4 * hash(i, 5)
+            ctx.fill(Path(ellipseIn: CGRect(x: x - r, y: y - r, width: 2 * r, height: 2 * r)),
+                     with: .color(.white.opacity(0.35 + 0.4 * hash(i, 9))))
+        }
+    }
+
+    // MARK: - Dunno: a pastel dawn through a ten-pane window, a sheer curtain, one beam full of motes
+
+    private static func dawnBedroom(_ ctx: GraphicsContext, _ size: CGSize, _ t: Double, _ pulse: Double) {
+        let rect = CGRect(origin: .zero, size: size)
+        let w = size.width, h = size.height
+        ctx.fill(Path(rect), with: .linearGradient(
+            Gradient(stops: [.init(color: Color(red: 0.96, green: 0.74, blue: 0.80), location: 0),
+                             .init(color: Color(red: 0.78, green: 0.72, blue: 0.93), location: 0.5),
+                             .init(color: Color(red: 0.99, green: 0.82, blue: 0.68), location: 1)]),
+            startPoint: .zero, endPoint: CGPoint(x: w, y: h)))
+        // The window: two columns of five panes, glowing with the dawn.
+        let win = CGRect(x: w * 0.60, y: h * 0.10, width: w * 0.28, height: h * 0.62)
+        ctx.fill(Path(win.insetBy(dx: -5, dy: -5)), with: .color(Color(red: 0.97, green: 0.93, blue: 0.95).opacity(0.9)))
+        let gap: CGFloat = 4
+        let pw = (win.width - gap) / 2, ph = (win.height - 4 * gap) / 5
+        for row in 0..<5 {
+            for col in 0..<2 {
+                let pane = CGRect(x: win.minX + CGFloat(col) * (pw + gap), y: win.minY + CGFloat(row) * (ph + gap), width: pw, height: ph)
+                let warmth = Double(row) / 4
+                ctx.fill(Path(pane), with: .linearGradient(
+                    Gradient(colors: [Color(red: 1, green: 0.90 - 0.06 * warmth, blue: 0.86 - 0.12 * warmth),
+                                      Color(red: 1, green: 0.84 - 0.05 * warmth, blue: 0.74 - 0.10 * warmth)]),
+                    startPoint: CGPoint(x: pane.minX, y: pane.minY), endPoint: CGPoint(x: pane.maxX, y: pane.maxY)))
+            }
+        }
+        // One diagonal beam from the window down across the room.
+        var light = ctx
+        light.blendMode = .plusLighter
+        var beam = Path()
+        beam.move(to: CGPoint(x: win.minX, y: win.minY + 10))
+        beam.addLine(to: CGPoint(x: win.minX + 4, y: win.maxY))
+        beam.addLine(to: CGPoint(x: w * 0.12, y: h + 10))
+        beam.addLine(to: CGPoint(x: -w * 0.12, y: h + 10))
+        beam.closeSubpath()
+        let beatNow = (t / pulse).truncatingRemainder(dividingBy: 1)
+        let beamGlow = 0.80 + 0.20 * exp(-beatNow * 3)   // the light breathes on the beat
+        light.fill(beam, with: .linearGradient(Gradient(colors: [Color(red: 1, green: 0.93, blue: 0.82).opacity(0.42 * beamGlow), .clear]),
+                                               startPoint: CGPoint(x: win.minX, y: win.midY), endPoint: CGPoint(x: 0, y: h)))
+        // The sheer curtain over the left of the window: soft folds that sway.
+        for k in 0..<6 {
+            let x0 = win.minX - 10 + CGFloat(k) * win.width * 0.11
+            let sway = CGFloat(7 * sin(t * 0.8 + Double(k) * 0.9))
+            var fold = Path()
+            fold.move(to: CGPoint(x: x0, y: win.minY - 8))
+            fold.addCurve(to: CGPoint(x: x0 + sway, y: win.maxY + 10),
+                          control1: CGPoint(x: x0 + 6 + sway * 0.5, y: win.minY + win.height * 0.35),
+                          control2: CGPoint(x: x0 - 6 + sway, y: win.minY + win.height * 0.7))
+            ctx.stroke(fold, with: .color(.white.opacity(0.22)), lineWidth: win.width * 0.09)
+        }
+        // Motes drifting in the beam; seven brighter ones twinkle on the beat.
+        let beat = (t / pulse).truncatingRemainder(dividingBy: 1)
+        for i in 0..<48 {
+            let u = CGFloat((hash(i, 11) + t * 0.035 * (0.5 + hash(i, 12))).truncatingRemainder(dividingBy: 1))
+            let v = CGFloat(hash(i, 13))
+            // A point inside the beam: u runs from the window to the floor, v across it.
+            let top = CGPoint(x: win.minX + 2, y: win.minY + 10 + v * win.height * 0.9)
+            let bottom = CGPoint(x: -w * 0.12 + v * w * 0.24, y: h + 10)
+            let wobbleX = CGFloat(3 * sin(t * 0.7 + Double(i))), wobbleY = CGFloat(2 * cos(t * 0.5 + Double(i) * 1.3))
+            let x: CGFloat = top.x + (bottom.x - top.x) * u + wobbleX
+            let y: CGFloat = top.y + (bottom.y - top.y) * u + wobbleY
+            let bright = i < 7
+            let phase: Double = (beat + Double(i) / 7).truncatingRemainder(dividingBy: 1)
+            let flash: Double = bright ? 0.45 + 0.55 * exp(-phase * 5) : 0.35
+            let r: CGFloat = bright ? 2.2 : 1.1
+            light.fill(Path(ellipseIn: CGRect(x: x - r, y: y - r, width: 2 * r, height: 2 * r)), with: .color(.white.opacity(flash)))
         }
     }
 

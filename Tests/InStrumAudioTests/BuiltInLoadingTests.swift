@@ -51,4 +51,24 @@ final class BuiltInLoadingTests: XCTestCase {
         XCTAssertEqual(ids, ["fineTune", "transpose", "bells", "organ", "echo", "crush", "drift", "space",
                              "moodEnergy", "moodWarmth", "moodBrightness", "moodSpace", "moodMotion"])
     }
+
+    func testG_CabinFeltShowsDialsButNotTestHooks() throws {
+        let au = try BuiltInInstrumentAU(componentDescription: BuiltInCatalog.description(for: .cabinFelt), options: [])
+        let ids = Set(au.parameterTree?.allParameters.map(\.identifier) ?? [])
+        XCTAssertEqual(ids, ["fineTune", "transpose", "felt", "horn", "fire", "wood", "space", "width",
+                             "moodEnergy", "moodWarmth", "moodBrightness", "moodSpace", "moodMotion"])
+        XCTAssertFalse(ids.contains { $0.hasPrefix("debug") })
+        XCTAssertNil(au.parameterTree?.parameter(withAddress: AUParameterAddress(ISD_P_DEBUG_NO_MECHANICS)))
+        XCTAssertNil(au.parameterTree?.parameter(withAddress: AUParameterAddress(ISD_P_DEBUG_HORN_ONLY)))
+    }
+
+    func testH_MorningBoxShowsDialsButNotTestHooks() throws {
+        let au = try BuiltInInstrumentAU(componentDescription: BuiltInCatalog.description(for: .morningBox), options: [])
+        let ids = Set(au.parameterTree?.allParameters.map(\.identifier) ?? [])
+        XCTAssertEqual(ids, ["fineTune", "transpose", "bars", "box", "bloom", "build", "haze", "space", "width",
+                             "moodEnergy", "moodWarmth", "moodBrightness", "moodSpace", "moodMotion"])
+        XCTAssertFalse(ids.contains { $0.hasPrefix("debug") })
+        XCTAssertNil(au.parameterTree?.parameter(withAddress: AUParameterAddress(ISD_P_DEBUG_BOX_ONLY)))
+        XCTAssertNil(au.parameterTree?.parameter(withAddress: AUParameterAddress(ISD_P_DEBUG_WALL_ONLY)))
+    }
 }

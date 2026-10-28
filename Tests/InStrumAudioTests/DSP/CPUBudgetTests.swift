@@ -37,6 +37,40 @@ final class CPUBudgetTests: XCTestCase {
         XCTAssertLessThan(seconds / 10, 0.04, "Haze Bells used \(String(format: "%.1f", seconds * 10))% of real time")
     }
 
+    func testCabinFeltBudget() {
+        var events = [R.pedal(0, 127)]
+        for n: UInt8 in [36, 43, 48, 52, 55, 60, 64, 67, 71, 72, 76, 79] { events.append(R.noteOn(0, n, 90)) }
+        for i in 0..<8 { events.append(R.noteOn(0.5 + Double(i), UInt8(72 + i % 5), 90)) }
+        let seconds = bestOfThree { _ = R.render(ISD_ENGINE_CABIN_FELT, seconds: 10, events: events) }
+        XCTAssertLessThan(seconds / 10, 0.06, "Cabin Felt used \(String(format: "%.1f", seconds * 10))% of real time")
+    }
+
+    /// The worst case: the wall fully built (30 s of chords at build 1 first, untimed), then a 12-note chord for 10 s.
+    func testMorningBoxBudget() throws {
+        var best = Double.infinity
+        for _ in 0..<3 {
+            let s = try XCTUnwrap(isd_synth_create(ISD_ENGINE_MORNING_BOX, R.sr, 256))
+            defer { isd_synth_destroy(s) }
+            isd_synth_set_param(s, Int32(ISD_P_BUILD), 1)
+            var l = [Float](repeating: 0, count: 256), r = l
+            func play(_ bytes: [UInt8]) { bytes.withUnsafeBufferPointer { isd_synth_midi(s, $0.baseAddress, Int32($0.count), 0) } }
+            func render(_ seconds: Double) { for _ in 0..<Int(seconds * R.sr / 256) { isd_synth_render(s, &l, &r, 256) } }
+            let warm: [UInt8] = [61, 65, 68, 73]
+            for _ in 0..<30 {
+                for n in warm { play([0x90, n, 90]) }
+                render(0.95)
+                for n in warm { play([0x80, n, 0]) }
+                render(0.05)
+            }
+            for n: UInt8 in [36, 43, 48, 52, 55, 60, 64, 67, 71, 72, 76, 79] { play([0x90, n, 90]) }
+            let start = CFAbsoluteTimeGetCurrent()
+            render(10)
+            best = min(best, CFAbsoluteTimeGetCurrent() - start)
+            XCTAssertGreaterThanOrEqual(isd_synth_debug_count(s, ISD_DEBUG_WALL_UNISON), 5, "the wall should be built up")
+        }
+        XCTAssertLessThan(best / 10, 0.06, "Morning Box used \(String(format: "%.1f", best * 10))% of real time")
+    }
+
     func testWorldAmbienceBudget() {
         typealias A = AmbienceTests
         var beach: [A.Action] = [ISD_AMB_SURF, ISD_AMB_PALMS, ISD_AMB_GULLS, ISD_AMB_CRICKETS, ISD_AMB_BREEZE, ISD_AMB_RAIN_WATER].map { A.level($0, 1) }

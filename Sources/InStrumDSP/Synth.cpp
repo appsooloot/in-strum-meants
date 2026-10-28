@@ -5,6 +5,8 @@
 #include "OrbitPad.hpp"
 #include "HoneyTape.hpp"
 #include "HazeBells.hpp"
+#include "CabinFelt.hpp"
+#include "MorningBox.hpp"
 #include <algorithm>
 #include <atomic>
 #include <cmath>
@@ -79,6 +81,43 @@ const ISDParamInfo kHazeBellsParams[] = {
     {ISD_P_MOOD_MOTION, "moodMotion", "Mood motion", 0.f, 1.f, 0.5f, 0},
 };
 
+const ISDParamInfo kCabinFeltParams[] = {
+    {ISD_P_FINE_TUNE, "fineTune", "Fine tune", -50.f, 50.f, 0.f, 1},
+    {ISD_P_TRANSPOSE, "transpose", "Transpose", -12.f, 12.f, 0.f, 2},
+    {ISD_P_FELT, "felt", "Felt", 0.f, 1.f, 0.60f, 0},
+    {ISD_P_HORN, "horn", "Horn", 0.f, 1.f, 0.30f, 0},
+    {ISD_P_FIRE, "fire", "Fire", 0.f, 1.f, 0.50f, 0},
+    {ISD_P_WOOD, "wood", "Wood", 0.f, 1.f, 0.50f, 0},
+    {ISD_P_SPACE, "space", "Space", 0.f, 1.f, 0.35f, 0},
+    {ISD_P_WIDTH, "width", "Width", 0.f, 1.f, 0.50f, 0},
+    {ISD_P_MOOD_ENERGY, "moodEnergy", "Mood energy", 0.f, 1.f, 0.5f, 0},
+    {ISD_P_MOOD_WARMTH, "moodWarmth", "Mood warmth", 0.f, 1.f, 0.5f, 0},
+    {ISD_P_MOOD_BRIGHTNESS, "moodBrightness", "Mood brightness", 0.f, 1.f, 0.5f, 0},
+    {ISD_P_MOOD_SPACE, "moodSpace", "Mood space", 0.f, 1.f, 0.5f, 0},
+    {ISD_P_MOOD_MOTION, "moodMotion", "Mood motion", 0.f, 1.f, 0.5f, 0},
+    {ISD_P_DEBUG_NO_MECHANICS, "debugNoMechanics", "No mechanics (test)", 0.f, 1.f, 0.f, 3},
+    {ISD_P_DEBUG_HORN_ONLY, "debugHornOnly", "Horn only (test)", 0.f, 1.f, 0.f, 3},
+};
+
+const ISDParamInfo kMorningBoxParams[] = {
+    {ISD_P_FINE_TUNE, "fineTune", "Fine tune", -50.f, 50.f, 0.f, 1},
+    {ISD_P_TRANSPOSE, "transpose", "Transpose", -12.f, 12.f, 0.f, 2},
+    {ISD_P_BARS, "bars", "Bars", 0.f, 1.f, 0.60f, 0},
+    {ISD_P_BOX, "box", "Box", 0.f, 1.f, 0.20f, 0},
+    {ISD_P_BLOOM, "bloom", "Bloom", 0.f, 1.f, 0.40f, 0},
+    {ISD_P_BUILD, "build", "Build", 0.f, 1.f, 0.50f, 0},
+    {ISD_P_HAZE, "haze", "Haze", 0.f, 1.f, 0.35f, 0},
+    {ISD_P_SPACE, "space", "Space", 0.f, 1.f, 0.50f, 0},
+    {ISD_P_WIDTH, "width", "Width", 0.f, 1.f, 0.55f, 0},
+    {ISD_P_MOOD_ENERGY, "moodEnergy", "Mood energy", 0.f, 1.f, 0.5f, 0},
+    {ISD_P_MOOD_WARMTH, "moodWarmth", "Mood warmth", 0.f, 1.f, 0.5f, 0},
+    {ISD_P_MOOD_BRIGHTNESS, "moodBrightness", "Mood brightness", 0.f, 1.f, 0.5f, 0},
+    {ISD_P_MOOD_SPACE, "moodSpace", "Mood space", 0.f, 1.f, 0.5f, 0},
+    {ISD_P_MOOD_MOTION, "moodMotion", "Mood motion", 0.f, 1.f, 0.5f, 0},
+    {ISD_P_DEBUG_BOX_ONLY, "debugBoxOnly", "Box only (test)", 0.f, 1.f, 0.f, 3},
+    {ISD_P_DEBUG_WALL_ONLY, "debugWallOnly", "Wall only (test)", 0.f, 1.f, 0.f, 3},
+};
+
 struct ParamTable { const ISDParamInfo *items; int count; };
 
 ParamTable table(ISDEngine engine) {
@@ -87,6 +126,8 @@ ParamTable table(ISDEngine engine) {
     case ISD_ENGINE_ORBIT_PAD: return {kOrbitPadParams, (int)(sizeof kOrbitPadParams / sizeof kOrbitPadParams[0])};
     case ISD_ENGINE_HONEY_TAPE: return {kHoneyTapeParams, (int)(sizeof kHoneyTapeParams / sizeof kHoneyTapeParams[0])};
     case ISD_ENGINE_HAZE_BELLS: return {kHazeBellsParams, (int)(sizeof kHazeBellsParams / sizeof kHazeBellsParams[0])};
+    case ISD_ENGINE_CABIN_FELT: return {kCabinFeltParams, (int)(sizeof kCabinFeltParams / sizeof kCabinFeltParams[0])};
+    case ISD_ENGINE_MORNING_BOX: return {kMorningBoxParams, (int)(sizeof kMorningBoxParams / sizeof kMorningBoxParams[0])};
     default: return {nullptr, 0};
     }
 }
@@ -167,6 +208,8 @@ ISDSynth *isd_synth_create(ISDEngine engine, double sampleRate, int maxFrames) {
     case ISD_ENGINE_ORBIT_PAD: s->engine = std::make_unique<isd::OrbitPad>(sampleRate); break;
     case ISD_ENGINE_HONEY_TAPE: s->engine = std::make_unique<isd::HoneyTape>(sampleRate); break;
     case ISD_ENGINE_HAZE_BELLS: s->engine = std::make_unique<isd::HazeBells>(sampleRate); break;
+    case ISD_ENGINE_CABIN_FELT: s->engine = std::make_unique<isd::CabinFelt>(sampleRate); break;
+    case ISD_ENGINE_MORNING_BOX: s->engine = std::make_unique<isd::MorningBox>(sampleRate); break;
     default: delete s; return nullptr;
     }
     return s;

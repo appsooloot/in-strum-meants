@@ -31,7 +31,7 @@ jobs:
 
   previews:
     needs: test
-    if: github.event_name == 'push' && (github.ref == 'refs/heads/m3a' || github.ref == 'refs/heads/sets' || github.ref == 'refs/heads/sets-3-4')
+    if: github.event_name == 'push' && (github.ref == 'refs/heads/m3a' || github.ref == 'refs/heads/sets' || github.ref == 'refs/heads/sets-3-4' || github.ref == 'refs/heads/sets-5-6')
     runs-on: macos-15
     permissions:
       contents: write
@@ -124,17 +124,19 @@ jobs:
 
           **Install:** download the **.dmg** below and open it, drag *In Strum Meants* onto *Applications* (choose **Replace** if asked), then right-click the app → **Open** → **Open** (first time only). The .zip is a fallback.
 
-          **New in this build — a steadier Sound & MIDI.** Re-choosing the output you're already on no longer cuts the sound, a device that refuses to switch is never retried in a loop, a Bluetooth output that's still connecting is followed once it's ready, Rescan and switching a keyboard off release any held notes, and the output list updates while the panel is open. The gear button at the top right is **Sound & MIDI**:
+          **Preview build — two new instruments, Cabin Felt and Morning Box.** Try them before their worlds arrive: press **Choose Instrument**.
 
-          - **Output** — choose where the sound goes by name (speakers, headphones, an audio interface), or leave it on *Mac default output*. A green dot shows the sound is playing, and at what rate.
-          - **Restart audio** — brings the sound straight back if it cuts out. The app also checks itself every 2 seconds: if the sound stops it restarts it, and if your chosen output disappears while you play it plays to the Mac default output until it comes back. If your chosen output is missing when the app opens, it plays to the Mac default output: pick yours again here once it's connected.
-          - **Test sound** — plays middle C, to check the sound without the keyboard.
-          - **Audio buffer** now goes up to **1024** (safest). Crackles or dropouts? Choose 512 or 1024.
-          - **MIDI keyboards** — every connected keyboard, each with an on/off switch and a dot that lights when it sends a note. **Rescan** reconnects them, and **Channel** listens to one MIDI channel only (or All channels). The on-screen keys still play whatever the channel.
+          - **Cabin Felt** (after Mac Miller's "Stay"). Presets: Cabin Felt, Fireside, Snow Horn, Late Night. An upright felt piano played close in a small log cabin, with the soft key thump and damper "chuff" and warm wood around it, plus a mellow **horn** that follows your top line by itself: it slurs when you play legato and scoops up into fresh phrases.
+          - **Morning Box** (after Mac Miller's "Dunno"). Presets: Morning Box, Music Box, Wall of Light, Snooze. A celesta (or a music box: turn **Box** up) over a warm synth wall that **builds the longer you play** and settles when you stop.
 
-          **If the sound cuts in and out:** open Sound & MIDI, choose 512 or 1024, pick your output by name, then press Restart audio. Wired speakers or headphones are steadier than Bluetooth.
+          **What to try:**
+          - **Play-along tests:** "Stay" in **F♯ major** at its slow half-time pocket (about 67), and "Dunno" in **C♯ major** at 82. They should blend, never clash. If one sits off-pitch, use Fine tune under **Open Instrument**.
+          - **The horn** (Cabin Felt): play chords with a melody on top. Hold one melody note into the next for a slur; lift between phrases for a fresh scoop. **Horn** sets its level (0 is piano only, as in Fireside). **Felt** hushes the strike; **Fire** warms it.
+          - **The wall** (Morning Box): keep playing for a minute and hear it build (more voices, wider, brighter); stop and it slowly settles. **Build** sets how far it can grow (0 keeps it still). **Box** goes from celesta to music box, **Haze** adds a soft tape wobble.
 
-          Sets 1 to 4 (Moonlit Lake, Spaceship Lounge, Golden Hour Beach, Coast Road) are unchanged.
+          **Hear them first:** the *cabin-felt-demo.m4a* and *morning-box-demo.m4a* files below are short original clips rendered on the build machine (never the songs' melodies).
+
+          **Sound & MIDI** (gear button, top right): pick the output, restart the audio, switch MIDI keyboards on or off, set the channel. If the sound cuts in and out, choose 512 or 1024 there and press Restart audio.
 
           **Check each build:** instant key response · soft vs hard feels right · pedal (optional) lingers · visuals land with notes · unplugging stops all sound · reopening restores your instrument and set.
           NOTES
