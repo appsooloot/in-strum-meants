@@ -974,7 +974,7 @@ final class SnowboundCabinRendererTests: XCTestCase {
         XCTAssertFalse(own.contains("pow("), "squares and powers are written out")
     }
 
-    static func sky(hour: Double, weather: WeatherKind = .clear, phase: Double = 0.5) -> SkySettings {
+    nonisolated static func sky(hour: Double, weather: WeatherKind = .clear, phase: Double = 0.5) -> SkySettings {
         var s = SkySettings(); s.timeMode = .frozen; s.frozenHour = hour; s.frozenPhase = phase; s.cityID = "melbourne"
         s.weatherMode = .pick; s.weather = weather
         return s
