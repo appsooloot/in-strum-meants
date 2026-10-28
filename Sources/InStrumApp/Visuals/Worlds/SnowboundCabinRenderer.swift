@@ -186,7 +186,7 @@ final class SnowboundCabinRenderer: ThemeRenderer {
         cabinU[2] = SIMD4(night, fire, flareOut, frame.flareWarm)
         cabinU[3] = SIMD4(farLight, smoke, s.wind, s.mist)
         let qualityCode: Float = quality == .lite ? 0 : 1
-        cabinU[4] = SIMD4(spec.frameWidth, 0.1, qualityCode, limited.sparkle)
+        cabinU[4] = SIMD4(spec.frameWidth, 0.13, qualityCode, limited.sparkle)
         cabinU[5] = SIMD4(outside, s.snow)
         let ft = Float(frame.time.truncatingRemainder(dividingBy: 3600))
         let wobble: Float = sin(ft * 11.3) * sin(ft * 4.1 + 1)
@@ -209,7 +209,7 @@ final class SnowboundCabinRenderer: ThemeRenderer {
         }
 
         post = PostSettings(
-            bloom: 0.55, bloomThreshold: 0.85,
+            bloom: 0.5, bloomThreshold: 1.0,
             dof: quality == .lite ? 0 : 0.08, focusDepth: 0.05,
             grade: 0, grain: 0.02, vignette: 0.35,
             exposure: limited.exposure,

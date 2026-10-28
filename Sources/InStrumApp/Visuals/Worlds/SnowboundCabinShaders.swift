@@ -36,11 +36,12 @@ enum SnowboundCabinShaders {
         float2 u = f * f * (3.0 - 2.0 * f);
         return mix(mix(ch21(i), ch21(i + float2(1, 0)), u.x), mix(ch21(i + float2(0, 1)), ch21(i + float2(1, 1)), u.x), u.y);
     }
-    // Sharp-crested ridges: folded value noise, two octaves.
+    // Sharp-crested ridges: folded value noise, three octaves.
     float ridge(float x, float seed) {
         float a = 1.0 - abs(2.0 * cvn1(x + seed) - 1.0);
         float b = 1.0 - abs(2.0 * cvn1(x * 2.3 + seed * 1.7) - 1.0);
-        return a * 0.72 + b * 0.28;
+        float c = 1.0 - abs(2.0 * cvn1(x * 5.9 + seed * 2.9) - 1.0);
+        return a * 0.62 + b * 0.26 + c * 0.12;
     }
 
     // The pane around a window point and whether it's on a bar (as the Window Kit lays them out).
@@ -63,28 +64,37 @@ enum SnowboundCabinShaders {
         return p;
     }
 
-    // A row of snowy pines: coverage (soft-edged) and, through `snow`, how much of the hit is snow on the boughs.
-    float pines(float sx, float sy, float base, float height, float density, float seed, thread float& snow) {
+    // One snowy pine at cx: coverage (soft-edged), and through `snow` how much of the hit is snow on the boughs.
+    float pine(float sx, float sy, float cx, float base, float ht, float wBase, float r, thread float& snow) {
+        snow = 0.0;
+        float t = (sy - base) / ht;
+        if (t < -0.1 || t > 1.0) return 0.0;
+        float tier = fract(t * 6.0 + r);
+        float w = (1.0 - t) * wBase * (0.6 + 0.4 * (1.0 - tier)) + wBase * 0.012;
+        w *= 0.88 + 0.24 * cvn1(t * 40.0 + r * 13.0);             // ragged bough tips
+        float dx = abs(sx - cx);
+        float edge = max(0.0012, wBase * 0.012);
+        float inTree = 1.0 - smoothstep(w - edge, w + edge, dx);
+        if (t < 0.06) inTree = max(inTree, 1.0 - smoothstep(wBase * 0.05, wBase * 0.08, dx));
+        float s = smoothstep(0.5, 0.85, tier) * smoothstep(0.15, 0.85, dx / max(w, 1e-4)) + smoothstep(0.86, 0.96, t);
+        snow = saturate(s) * (0.55 + 0.45 * fract(r * 7.3));
+        return inTree;
+    }
+
+    // A row of snowy pines (some gaps): the nearest hit's coverage and snow.
+    float pines(float sx, float sy, float base, float height, float density, float seed, float gaps, thread float& snow) {
         float cell = floor(sx * density + seed);
         float hit = 0.0;
         snow = 0.0;
         for (int k = -1; k <= 1; k++) {
             float id = cell + float(k);
             float r = ch11(id * 1.37 + seed);
+            if (ch11(id * 3.71 + seed * 2.0) < gaps) continue;
             float cx = (id + 0.5 + (r - 0.5) * 0.6 - seed) / density;
             float ht = height * (0.55 + 0.6 * ch11(id * 2.11 + seed * 3.0));
-            float t = (sy - base) / ht;
-            if (t < -0.1 || t > 1.0) continue;
-            float tier = fract(t * 5.0 + r);
-            float w = (1.0 - t) * 0.42 / density * (0.62 + 0.38 * (1.0 - tier)) + 0.002;
-            float dx = abs(sx - cx);
-            float inTree = 1.0 - smoothstep(w - 0.0015, w + 0.0015, dx);
-            if (t < 0.06) inTree = max(inTree, 1.0 - smoothstep(0.0025, 0.004, dx));
-            if (inTree > hit) {
-                hit = inTree;
-                float s = smoothstep(0.5, 0.85, tier) * smoothstep(0.15, 0.85, dx / max(w, 1e-4)) + smoothstep(0.84, 0.95, t);
-                snow = saturate(s) * (0.55 + 0.45 * ch11(id * 5.3 + seed));
-            }
+            float sn;
+            float h = pine(sx, sy, cx, base, ht, 0.42 / density, r, sn);
+            if (h > hit) { hit = h; snow = sn; }
         }
         return hit;
     }
@@ -149,120 +159,157 @@ enum SnowboundCabinShaders {
             }
         }
 
-        // ---- the ground: the snow field from the window down to the forest's edge
-        float groundTop = horizon - 0.012 + 0.006 * sin(sx * 3.1);
+        float halfW = 0.5 * (c.rect.z - c.rect.x) * aspect;   // the window's half width in scene units
+        float glassH = c.rect.w - glassBottom;
+        float3 snowAmb = skyAmb * 0.95 + sunCol * saturate(Ls.y + 0.2) * 0.6 + moonCol;
+
+        // ---- two big pines just outside, half in view at the window's edges (nearest after the drifts)
+        for (int side = -1; side <= 1; side += 2) {
+            float snow;
+            float hit = pine(sx, sy, float(side) * (halfW + 0.03), glassBottom - 0.04, glassH * 0.95, 0.19, side < 0 ? 0.31 : 0.77, snow);
+            if (hit > 0.5) {
+                float3 col = mix(float3(0.012, 0.022, 0.02) * (skyAmb * 1.4 + fireCol * fire * 0.25 * night),
+                                 float3(0.92, 0.95, 1.0) * snowAmb * 0.95, snow);
+                ColorDepth o; o.color = float4(col, 1); o.depth = float4(0.2, 0, 0, 1); return o;
+            }
+        }
+
+        // ---- the ground: the snow field from the window out to the forest's edge
+        float groundTop = horizon - 0.014 + 0.007 * sin(sx * 3.1);
         if (sy < groundTop) {
             float t = saturate((groundTop - sy) / max(groundTop - glassBottom, 1e-3));   // 0 far … 1 near
-            float n = cvn2(float2(sx * 5.0, sy * 26.0 / (0.25 + t))) * 0.65 + cvn2(float2(sx * 13.0, sy * 61.0 / (0.25 + t)) + 3.7) * 0.35;
-            float3 snowLit = skyAmb * 1.05 + sunCol * saturate(Ls.y * 0.85 + 0.15 + (n - 0.5) * 0.4)
-                           + moonCol * saturate(Lm.y * 0.85 + 0.25);
-            float3 col = float3(0.92, 0.95, 1.0) * snowLit;
-            col = mix(col, col * float3(0.72, 0.84, 1.12), (1.0 - n) * 0.35);      // blue in the dips
+            float persp = 0.2 + t;
+            float n = cvn2(float2(sx * 3.5, sy * 20.0 / persp)) * 0.65 + cvn2(float2(sx * 9.0, sy * 52.0 / persp) + 3.7) * 0.35;
+            // Gentle drifts: lit faces toward the sun or moon, blue hollows away from them.
+            float lit = saturate(0.55 + (n - 0.5) * 1.4);
+            float3 col = float3(0.92, 0.95, 1.0) * (skyAmb * 0.9 + sunCol * 0.45 * saturate(Ls.y * 0.8 + 0.2) * (0.55 + 0.45 * lit)
+                                                     + moonCol * saturate(Lm.y * 0.8 + 0.3) * (0.6 + 0.4 * lit));
+            col = mix(col * float3(0.7, 0.82, 1.12), col, lit);
             // Glints: a facet per 2 px, catching the sun or moon when it's tilted just right.
-            if (t > 0.05) {
+            if (t > 0.04) {
                 float2 cell = floor(in.pos.xy * 0.5);
                 float3 h = hash33(float3(cell, 1.0));
-                float3 nf = normalize(float3((h.x - 0.5) * 0.7, 1.0, (h.y - 0.5) * 0.7));
+                float3 nf = normalize(float3((h.x - 0.5) * 0.8, 1.0, (h.y - 0.5) * 0.8));
                 float3 V = -normalize(float3(ndc.x * u.right.w, ndc.y * u.up.w, 1.0));
-                float tw = 0.65 + 0.35 * sin(time * (1.5 + 3.0 * h.z) + h.z * 40.0);
-                float gs = smoothstep(0.9965, 1.0, dot(nf, normalize(Ls + V))) * sunUp;
-                float gm = smoothstep(0.997, 1.0, dot(nf, normalize(Lm + V))) * moonUp;
-                col += (float3(1.0, 0.95, 0.85) * gs * 7.0 + float3(0.75, 0.82, 1.0) * gm * 3.0) * tw * sparkle * smoothstep(0.05, 0.3, t);
+                float tw = 0.6 + 0.4 * sin(time * (1.5 + 3.0 * h.z) + h.z * 40.0);
+                float gs = smoothstep(0.994, 1.0, dot(nf, normalize(Ls + V))) * sunUp;
+                float gm = smoothstep(0.995, 1.0, dot(nf, normalize(Lm + V))) * moonUp;
+                col += (float3(1.0, 0.95, 0.85) * gs * 5.0 + float3(0.75, 0.82, 1.0) * gm * 2.5) * tw * sparkle * smoothstep(0.04, 0.3, t);
             }
-            // The frozen creek, winding across the field and mirroring the sky.
-            float yc = glassBottom + (groundTop - glassBottom) * (0.48 + 0.13 * sin(sx * 2.1 + 0.7) + 0.06 * sin(sx * 5.3 + 2.0));
-            float hw = 0.004 + 0.028 * t;
+            // The frozen creek, winding across the field: narrow, half snowed over, mirroring the sky.
+            float yc = glassBottom + (groundTop - glassBottom) * (0.5 + 0.13 * sin(sx * 2.1 + 0.7) + 0.06 * sin(sx * 5.3 + 2.0));
+            float hw = (0.0025 + 0.014 * t) * (0.6 + 0.4 * sin(sx * 7.0 + 1.3));
             float off = abs(sy - yc);
-            if (off < hw && d.z < 0.0) {
+            if (off < hw * 1.6 && d.z < 0.0) {
                 float3 r = float3(d.x, d.y, -d.z);
                 float moonMask = 0.0;
-                float3 ice = skyRadiance(r, u, moonMask) * 0.5 + float3(0.5, 0.64, 0.76) * skyAmb * 0.35;
+                float3 ice = skyRadiance(r, u, moonMask) * 0.35 + float3(0.62, 0.72, 0.82) * (skyAmb * 0.8 + sunCol * 0.25 + moonCol * 0.5);
                 float crack = 1.0 - smoothstep(0.0, 0.035, abs(cvn2(float2(sx * 38.0, sy * 140.0)) - 0.5));
-                ice *= 1.0 - 0.3 * crack;
-                float bank = smoothstep(hw * 0.55, hw, off);
-                col = mix(ice, col * 1.08, bank);
+                ice *= 1.0 - 0.25 * crack;
+                float snowed = smoothstep(0.55, 0.7, cvn2(float2(sx * 16.0, sy * 50.0 / persp) + 4.4));
+                float bank = smoothstep(hw * 0.6, hw, off);
+                float3 rim = col * 1.12;
+                col = off < hw ? mix(mix(ice, col, snowed), rim, bank) : mix(rim, col, smoothstep(hw, hw * 1.6, off));
             }
             // At night the window's light falls on the snow below it, with the bars' shadows.
-            float poolH = 0.2 * (groundTop - glassBottom);
+            float poolH = 0.5 * (groundTop - glassBottom);
             float pw = (sy - glassBottom) / max(poolH, 1e-3);
             if (night > 0.01 && pw < 1.0) {
-                float pu = 0.5 + (win.x - 0.5) / (0.9 + 0.45 * pw);
+                float pu = 0.5 + (win.x - 0.5) / (0.85 + 0.5 * pw);
                 bool poolBar;
-                cabinPane(float2(pu, pw), c, poolBar);
-                float inside = (poolBar ? 0.0 : 1.0) * smoothstep(0.0, 0.06, pu) * smoothstep(1.0, 0.94, pu);
-                col += fireCol * fire * 0.55 * night * inside * (1.0 - 0.6 * pw) * float3(1.0, 0.85, 0.7);
+                cabinPane(float2(pu, 0.08 + 0.9 * pw), c, poolBar);
+                float inside = (poolBar ? 0.25 : 1.0) * smoothstep(0.0, 0.08, pu) * smoothstep(1.0, 0.92, pu) * smoothstep(1.0, 0.7, pw);
+                col += fireCol * fire * 0.9 * night * inside * (1.0 - 0.5 * pw) * float3(1.0, 0.88, 0.75);
             }
-            col = mix(col, haze * 1.05, (1.0 - t) * (0.12 + 0.4 * mist));
+            col = mix(col, haze * 1.02, (1.0 - t) * (0.1 + 0.4 * mist));
             ColorDepth o; o.color = float4(col, 1); o.depth = float4(0.3 + 0.4 * (1.0 - t), 0, 0, 1); return o;
         }
 
-        // ---- the far cabin, its window and its smoke (on the middle row of pines)
-        float cabX = 0.38, cabBase = horizon - 0.002, cabW = 0.05, cabH = 0.022;
+        // ---- the near row of pines along the far edge of the field
         float farLight = c.c.x;
-        float3 snowAmb = skyAmb * 1.05 + sunCol * saturate(Ls.y + 0.2) * 0.8 + moonCol;
-
-        // ---- pines, nearest row first
         float s3, s2, s1;
-        float p3 = pines(sx, sy, groundTop - 0.004, 0.115, 9.0, 7.31, s3);
+        float p3 = pines(sx, sy, groundTop - 0.008, 0.2, 5.5, 7.31, 0.35, s3);
         if (p3 > 0.5) {
-            float3 col = mix(float3(0.018, 0.03, 0.03) * (skyAmb + fireCol * fire * 0.2 * night), float3(0.92, 0.95, 1.0) * snowAmb, s3);
-            col = mix(col, haze, 0.1 + 0.3 * mist);
+            float3 col = mix(float3(0.016, 0.028, 0.027) * (skyAmb * 1.3 + fireCol * fire * 0.15 * night), float3(0.92, 0.95, 1.0) * snowAmb, s3);
+            col = mix(col, haze, 0.08 + 0.3 * mist);
             ColorDepth o; o.color = float4(col, 1); o.depth = float4(0.55, 0, 0, 1); return o;
         }
-        // The far cabin sits in front of the middle row.
+        // ---- the far cabin, its lit window and its chimney, in front of the middle row
+        float cabX = halfW * 0.38, cabBase = horizon - 0.012, cabW = 0.09, cabH = 0.04;
         {
             float cx = sx - cabX, cy = sy - cabBase;
-            float roof = cabH + 0.016 * (1.0 - abs(cx) / (cabW * 0.62));
+            float roof = cabH + 0.032 * (1.0 - abs(cx) / (cabW * 0.62));
             bool body = abs(cx) < cabW * 0.5 && cy > 0.0 && cy < cabH;
             bool roofHit = abs(cx) < cabW * 0.62 && cy >= cabH && cy < roof;
-            bool chimney = cx > -cabW * 0.32 && cx < -cabW * 0.2 && cy >= cabH && cy < cabH + 0.022;
+            bool chimney = cx > -cabW * 0.34 && cx < -cabW * 0.2 && cy >= cabH && cy < cabH + 0.04;
             if (body || roofHit || chimney) {
-                float3 col = float3(0.05, 0.035, 0.03) * (skyAmb * 1.2 + sunCol * 0.3);
-                if (roofHit) col = float3(0.92, 0.95, 1.0) * snowAmb * (0.8 + 0.2 * saturate((cy - cabH) / 0.016));
-                if (body && abs(cx - 0.008) < 0.006 && cy > cabH * 0.35 && cy < cabH * 0.75) {
-                    float3 lamp = float3(1.0, 0.68, 0.32) * 3.0 * farLight;
-                    col = mix(col, lamp + float3(0.04, 0.035, 0.03), farLight > 0.01 ? 1.0 : 0.0);
+                float logs = 0.75 + 0.25 * step(0.5, fract(cy / 0.008));
+                float3 col = float3(0.07, 0.045, 0.03) * logs * (skyAmb * 1.3 + sunCol * 0.35 * saturate(Ls.x * 0.5 + 0.5));
+                if (roofHit) col = float3(0.92, 0.95, 1.0) * snowAmb * (0.75 + 0.25 * saturate((cy - cabH) / 0.03));
+                if (chimney && !roofHit) col = float3(0.08, 0.07, 0.07) * skyAmb * 1.5;
+                bool window = body && abs(cx - 0.012) < 0.011 && cy > cabH * 0.3 && cy < cabH * 0.75;
+                if (window) {
+                    float muntin = step(0.0015, abs(cx - 0.012)) * step(0.0015, abs(cy - cabH * 0.525));
+                    col = farLight > 0.01 ? float3(1.0, 0.68, 0.32) * 2.6 * farLight * muntin + float3(0.03, 0.02, 0.015)
+                                          : float3(0.05, 0.06, 0.08) * skyAmb * 3.0;
                 }
-                col = mix(col, haze, 0.2 + 0.3 * mist);
-                ColorDepth o; o.color = float4(col, 1); o.depth = float4(0.65, 0, 0, 1); return o;
+                col = mix(col, haze, 0.15 + 0.3 * mist);
+                ColorDepth o; o.color = float4(col, 1); o.depth = float4(0.62, 0, 0, 1); return o;
             }
         }
-        float p2 = pines(sx, sy, horizon - 0.004, 0.075, 15.0, 3.17, s2);
-        // The far cabin's window glows faintly into the trees around it at night.
-        float2 glowD = float2(sx - cabX - 0.008, sy - cabBase - cabH * 0.55);
-        float cabinGlow = farLight * exp(-dot(glowD, glowD) * 900.0) * 0.35;
+        // The far cabin's window glows into the snow and the trees around it at night.
+        float2 glowD = float2((sx - cabX - 0.012) * 0.8, sy - cabBase - cabH * 0.5);
+        float cabinGlow = farLight * exp(-dot(glowD, glowD) * 260.0) * 0.4;
+        float p2 = pines(sx, sy, horizon - 0.01, 0.11, 10.0, 3.17, 0.15, s2);
         if (p2 > 0.5) {
-            float3 col = mix(float3(0.02, 0.035, 0.035) * skyAmb, float3(0.9, 0.94, 1.0) * snowAmb * 0.9, s2);
-            col = mix(col, haze * 0.95, 0.28 + 0.35 * mist) + float3(1.0, 0.65, 0.3) * cabinGlow;
+            float3 col = mix(float3(0.02, 0.034, 0.034) * skyAmb * 1.2, float3(0.9, 0.94, 1.0) * snowAmb * 0.92, s2);
+            col = mix(col, haze * 0.95, 0.2 + 0.35 * mist) + float3(1.0, 0.65, 0.3) * cabinGlow;
             ColorDepth o; o.color = float4(col, 1); o.depth = float4(0.7, 0, 0, 1); return o;
         }
-        float p1 = pines(sx, sy, horizon + 0.004, 0.045, 24.0, 1.93, s1);
+        // A strip of snow between the rows, glowing round the far cabin at night.
+        if (sy < horizon - 0.006) {
+            float3 col = float3(0.9, 0.93, 1.0) * snowAmb * 0.95 + float3(1.0, 0.65, 0.3) * cabinGlow * 1.5;
+            col = mix(col, haze, 0.25 + 0.35 * mist);
+            ColorDepth o; o.color = float4(col, 1); o.depth = float4(0.72, 0, 0, 1); return o;
+        }
+        float p1 = pines(sx, sy, horizon + 0.002, 0.06, 18.0, 1.93, 0.05, s1);
         float3 behind = float3(0);
         float behindA = 0.0;
         float behindDepth = 1.0;
         if (p1 > 0.5) {
-            float3 col = mix(float3(0.03, 0.045, 0.05) * skyAmb, float3(0.88, 0.92, 1.0) * snowAmb * 0.8, s1);
-            behind = mix(col, haze * 0.95, 0.48 + 0.3 * mist);
+            float3 col = mix(float3(0.03, 0.045, 0.05) * skyAmb, float3(0.88, 0.92, 1.0) * snowAmb * 0.85, s1);
+            behind = mix(col, haze * 0.95, 0.4 + 0.3 * mist);
             behindA = 1.0; behindDepth = 0.78;
         } else {
-            // ---- the mountains: a near ridge, then a far one in deeper haze
+            // ---- the mountains: a near ridge with forest on its lower slopes, then a high far range in deeper haze
             for (int k = 0; k < 2; k++) {
                 float seed = k == 0 ? 7.7 : 3.1;
-                float freq = k == 0 ? 1.9 : 1.15;
-                float h0 = k == 0 ? 0.03 : 0.1;
-                float amp = k == 0 ? 0.1 : 0.17;
+                float freq = k == 0 ? 1.6 : 0.85;
+                float h0 = k == 0 ? 0.035 : 0.09;
+                float amp = k == 0 ? 0.17 : 0.33;
                 float top = horizon + h0 + amp * ridge(sx * freq, seed);
                 if (sy < top) {
-                    float slope = (ridge((sx + 0.01) * freq, seed) - ridge((sx - 0.01) * freq, seed)) / 0.02 * amp;
-                    float3 n = normalize(float3(-slope, 1.0, 0.45));
+                    float slope = (ridge((sx + 0.006) * freq, seed) - ridge((sx - 0.006) * freq, seed)) / 0.012 * amp;
+                    float3 n = normalize(float3(-slope * 1.4, 1.0, 0.5));
                     float heightFrac = saturate((sy - horizon) / max(top - horizon, 1e-3));
-                    float rock = smoothstep(0.55, 0.75, abs(slope)) * smoothstep(0.45, 0.6, cvn2(float2(sx * 14.0, sy * 40.0)));
-                    float3 albedo = mix(float3(0.9, 0.93, 1.0), float3(0.18, 0.17, 0.18), rock * 0.8);
-                    float3 col = albedo * (skyAmb * 0.85 + sunCol * saturate(dot(n, Ls)) + moonCol * saturate(dot(n, Lm)) * 1.4);
+                    float sunFace = dot(n, Ls), moonFace = dot(n, Lm);
+                    float gully = smoothstep(0.6, 0.8, cvn2(float2(sx * 7.0 * freq, sy * 1.6 + seed))) * smoothstep(0.3, 0.6, heightFrac);
+                    float rock = saturate(gully * 0.75 + smoothstep(0.9, 1.4, abs(slope)) * 0.5);
+                    float3 albedo = mix(float3(0.9, 0.93, 1.0), float3(0.2, 0.19, 0.2), rock);
+                    float3 col = albedo * (skyAmb * 0.8 + sunCol * 0.85 * saturate(sunFace) + moonCol * 1.3 * saturate(moonFace));
+                    col *= mix(float3(0.72, 0.82, 1.05), float3(1.0), saturate(max(sunFace * sunUp, moonFace * moonUp) * 2.0 + 0.4));
                     // Alpenglow: the peaks catch the low sun pink-orange, from just before sunrise to a little after.
                     float alpen = smoothstep(-2.5, -0.5, sunAlt) * (1.0 - smoothstep(5.0, 8.0, sunAlt)) * (1.0 - 0.6 * cloud);
-                    col += float3(1.0, 0.42, 0.32) * alpen * 0.75 * smoothstep(0.25, 0.85, heightFrac) * saturate(dot(n, Ls) + 0.6);
-                    col = mix(col, haze, (k == 0 ? 0.3 : 0.52) + 0.35 * mist);
+                    col += float3(1.0, 0.42, 0.32) * alpen * 0.8 * smoothstep(0.3, 0.9, heightFrac) * saturate(sunFace + 0.6);
+                    if (k == 0) {
+                        // Forest on the near ridge's lower slopes, with a ragged tree line.
+                        float line = 0.36 + 0.1 * (cvn1(sx * 9.0 + 2.0) - 0.5) + 0.05 * (cvn1(sx * 31.0) - 0.5);
+                        float forest = 1.0 - smoothstep(line - 0.02, line + 0.02, heightFrac);
+                        float specks = smoothstep(0.55, 0.8, cvn2(float2(sx * 90.0, sy * 160.0)));
+                        float3 trees = mix(float3(0.03, 0.045, 0.045) * skyAmb * 1.3, float3(0.85, 0.9, 1.0) * snowAmb * 0.8, specks * 0.6);
+                        col = mix(col, trees, forest * 0.9);
+                    }
+                    col = mix(col, haze, (k == 0 ? 0.22 : 0.42) + 0.35 * mist);
                     behind = col; behindA = 1.0; behindDepth = k == 0 ? 0.85 : 0.92;
                     break;
                 }
@@ -271,23 +318,23 @@ enum SnowboundCabinShaders {
         // ---- the far cabin's chimney smoke, leaning with the wind, over whatever is behind it
         float smoke = 0.0;
         {
-            float chimX = cabX - cabW * 0.26, chimTop = cabBase + cabH + 0.022;
+            float chimX = cabX - cabW * 0.27, chimTop = cabBase + cabH + 0.04;
             float rise = sy - chimTop;
-            if (rise > 0.0 && rise < 0.24) {
-                float centre = chimX + rise * (0.15 + 0.9 * c.c.z) + 0.012 * sin(rise * 22.0 - time * 0.7);
-                float width = 0.003 + rise * 0.14;
+            if (rise > 0.0 && rise < 0.36) {
+                float centre = chimX + rise * (0.12 + 0.8 * c.c.z) + 0.015 * sin(rise * 18.0 - time * 0.7);
+                float width = 0.006 + rise * 0.16;
                 float q = (sx - centre) / width;
                 float body = exp(-q * q);
-                float n = cvn2(float2(sx * 34.0, sy * 34.0 - time * 0.5)) * 0.55 + cvn2(float2(sx * 70.0, sy * 70.0 - time * 0.9) + 5.1) * 0.3
-                        + cvn2(float2(sx * 140.0, sy * 140.0 - time * 1.4) + 9.3) * 0.15;
-                smoke = body * smoothstep(0.25, 0.75, n) * (1.0 - smoothstep(0.06, 0.24, rise)) * smoothstep(0.0, 0.01, rise) * c.c.y * 0.75;
+                float n = cvn2(float2(sx * 26.0, sy * 26.0 - time * 0.45)) * 0.55 + cvn2(float2(sx * 55.0, sy * 55.0 - time * 0.8) + 5.1) * 0.3
+                        + cvn2(float2(sx * 110.0, sy * 110.0 - time * 1.3) + 9.3) * 0.15;
+                smoke = body * smoothstep(0.2, 0.7, n) * (1.0 - smoothstep(0.1, 0.36, rise)) * smoothstep(0.0, 0.012, rise) * c.c.y * 0.9;
             }
         }
-        float3 smokeCol = skyAmb * 1.1 + sunCol * 0.25 + moonCol * 0.6;
+        float3 smokeCol = skyAmb * 1.15 + sunCol * 0.3 + moonCol * 0.6 + float3(1.0, 0.65, 0.3) * cabinGlow * 0.5;
         float3 col = behind * behindA * (1.0 - smoke) + smokeCol * smoke;
         float a = 1.0 - (1.0 - behindA) * (1.0 - smoke);
         // The cabin's glow also hazes the air (and sky) around it.
-        col += float3(1.0, 0.65, 0.3) * cabinGlow * 0.6;
+        col += float3(1.0, 0.65, 0.3) * cabinGlow * 0.5;
         if (a < 0.003 && cabinGlow < 0.003) discard_fragment();
         ColorDepth o; o.color = float4(col, max(a, 0.0)); o.depth = float4(behindA > 0.5 ? behindDepth : 0.9, 0, 0, 1);
         return o;
@@ -329,7 +376,7 @@ enum SnowboundCabinShaders {
         float2 jarP = float2(sx - (outer.x + 0.17) * aspect, sy - (sillTopY - 0.012));
         float2 mugP = float2(sx - (outer.z - 0.2) * aspect, sy - (sillTopY - 0.014));
         bool overWindow = p.x > outer.x && p.x < outer.z && p.y > outer.y && p.y < outer.w;
-        bool mayHit = (abs(jarP.x) < 0.034 && jarP.y > 0.0 && jarP.y < 0.1) || (mugP.x > -0.032 && mugP.x < 0.058 && mugP.y > 0.0 && mugP.y < 0.06);
+        bool mayHit = (abs(jarP.x) < 0.056 && jarP.y > 0.0 && jarP.y < 0.17) || (mugP.x > -0.052 && mugP.x < 0.1 && mugP.y > 0.0 && mugP.y < 0.1);
         if (overWindow && !mayHit) discard_fragment();
         float night = c.b.x, fire = c.b.y, flare = c.b.z;
         float3 fireCol = c.fire.rgb;
@@ -347,9 +394,9 @@ enum SnowboundCabinShaders {
         float sillTop = outer.y, sillH = c.d.y;
         float candleX = (outer.x + 0.17) * aspect, candleBase = sillTop - 0.012;
         float flick = c.fire.w;
-        float2 flameC = float2(candleX + 0.002 * sin(time * 9.0), candleBase + 0.068 + 0.004 * flick);
+        float2 flameC = float2(candleX + 0.003 * sin(time * 9.0), candleBase + 0.112 + 0.006 * flick);
         float2 fd = float2(sx, sy) - flameC;
-        float3 candleLight = float3(1.0, 0.62, 0.28) * (0.75 + 0.35 * flick) * (0.08 / (0.004 + dot(fd, fd) * 3.0));
+        float3 candleLight = float3(1.0, 0.62, 0.28) * (0.75 + 0.35 * flick) * (0.12 / (0.006 + dot(fd, fd) * 2.2));
 
         float3 col;
         float depth = 0.05;
@@ -357,7 +404,7 @@ enum SnowboundCabinShaders {
         bool onSill = sy <= sillTop && sy > sillTop - sillH && sx > sillX0 && sx < sillX1;
         if (onSill) {
             // A thick plank: a lit top face, a darker front face, varnished grain.
-            float topFace = sillTop - 0.035;
+            float topFace = sillTop - 0.045;
             float grain = cvn2(float2(sx * 2.5, sy * 60.0)) * 0.6 + cvn2(float2(sx * 9.0, sy * 140.0) + 2.3) * 0.4;
             float3 albedo = mix(float3(0.26, 0.15, 0.08), float3(0.45, 0.29, 0.16), grain);
             float lit = sy > topFace ? 1.0 : 0.45;
@@ -383,38 +430,38 @@ enum SnowboundCabinShaders {
         }
 
         // On the sill: the candle jar and a mug.
-        float jarW = 0.034, jarH = 0.085;
+        float jarW = 0.055, jarH = 0.14;
         float2 jp = float2(sx - candleX, sy - candleBase);
         if (abs(jp.x) < jarW && jp.y > 0.0 && jp.y < jarH) {
-            float edge = smoothstep(jarW - 0.005, jarW, abs(jp.x));
+            float edge = smoothstep(jarW - 0.008, jarW, abs(jp.x));
             float3 glass = (winLight + fireLight * 0.4) * 0.25 + float3(1.0, 0.62, 0.28) * (0.35 + 0.2 * flick) * (1.0 - jp.y / jarH);
-            bool wax = abs(jp.x) < jarW - 0.008 && jp.y < 0.045;
-            float3 waxCol = float3(0.9, 0.82, 0.68) * (float3(1.0, 0.62, 0.28) * (0.7 + 0.3 * flick) * (0.4 + jp.y / 0.045) + ambient);
+            bool wax = abs(jp.x) < jarW - 0.012 && jp.y < 0.075;
+            float3 waxCol = float3(0.9, 0.82, 0.68) * (float3(1.0, 0.62, 0.28) * (0.7 + 0.3 * flick) * (0.4 + jp.y / 0.075) + ambient);
             col = wax ? waxCol : mix(col, col * 0.6 + glass, 0.55) + float3(0.6, 0.62, 0.65) * edge * 0.25 * (0.3 + night);
-            if (jp.y > jarH - 0.006) col += float3(0.5) * 0.15;   // the rim
+            if (jp.y > jarH - 0.009) col += float3(0.5) * 0.15;   // the rim
         }
         // The flame: a small teardrop, bright core.
-        float2 fq = float2(fd.x / 0.007, (fd.y + 0.006) / (0.018 + 0.006 * flick));
+        float2 fq = float2(fd.x / 0.011, (fd.y + 0.01) / (0.03 + 0.01 * flick));
         float flame = 1.0 - smoothstep(0.6, 1.0, length(float2(fq.x * (1.0 + 0.6 * saturate(fq.y)), fq.y)));
         col = mix(col, float3(1.0, 0.55, 0.15) * 4.0 + float3(1.0, 0.95, 0.75) * 5.0 * smoothstep(0.4, 1.0, flame), flame);
 
         float mugX = (outer.z - 0.2) * aspect, mugBase = sillTop - 0.014;
         float2 mp = float2(sx - mugX, sy - mugBase);
-        float mugW = 0.032, mugH = 0.06;
-        float ring = abs(length(float2(mp.x - mugW - 0.004, mp.y - mugH * 0.5)) - 0.016);
-        bool handle = ring < 0.005 && mp.x > mugW - 0.002;
+        float mugW = 0.05, mugH = 0.095;
+        float ring = abs(length(float2(mp.x - mugW - 0.006, mp.y - mugH * 0.5)) - 0.026);
+        bool handle = ring < 0.008 && mp.x > mugW - 0.003;
         bool mugBody = abs(mp.x) < mugW && mp.y > 0.0 && mp.y < mugH;
         if (mugBody || handle) {
             float shade = mugBody ? sqrt(saturate(1.0 - (mp.x / mugW) * (mp.x / mugW))) : 0.6;
             float3 glaze = float3(0.62, 0.2, 0.16);
             col = glaze * (fireLight * (0.35 + 0.65 * shade * saturate(0.5 - mp.x / mugW)) + winLight * 0.8 + ambient + candleLight * 0.5);
             col += float3(1.0) * smoothstep(0.85, 1.0, shade) * 0.05 * (0.3 + night);
-            if (mugBody && mp.y > mugH - 0.005) col *= 0.5;
+            if (mugBody && mp.y > mugH - 0.008) col *= 0.5;
         }
         // Soft contact shadows on the sill.
         if (onSill) {
-            float sj = exp(-(jp.x * jp.x) / 0.002) * exp(-max(0.0, -jp.y) * 60.0) * step(jp.y, 0.0);
-            float sm = exp(-(mp.x * mp.x) / 0.002) * exp(-max(0.0, -mp.y) * 60.0) * step(mp.y, 0.0);
+            float sj = exp(-(jp.x * jp.x) / 0.005) * exp(-max(0.0, -jp.y) * 45.0) * step(jp.y, 0.0);
+            float sm = exp(-(mp.x * mp.x) / 0.005) * exp(-max(0.0, -mp.y) * 45.0) * step(mp.y, 0.0);
             col *= 1.0 - 0.4 * saturate(sm) - 0.2 * saturate(sj);
         }
         // Over the window only the jar, its flame and the mug are drawn.

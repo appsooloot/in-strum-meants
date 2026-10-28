@@ -135,7 +135,9 @@ enum WindowKitShaders {
         }
         float3 albedo = float3(0.88, 0.93, 1.0);
         // Frost scatters far more light than clear glass lets through: it reads white over the view, lit by the room.
-        float3 col = albedo * (scatter * 1.3 + 0.02 + inside * 0.45 * (0.6 + 0.4 * streak));
+        // Firelight on frost reads warm white, not orange: the room light is half desaturated on the crystals.
+        float3 roomOnFrost = mix(inside, float3(dot(inside, float3(0.2126, 0.7152, 0.0722))), 0.5) * 1.5;
+        float3 col = albedo * (scatter * 1.3 + 0.02 + roomOnFrost * 0.45 * (0.6 + 0.4 * streak));
         // Faint ribs where the fronts paused, and brighter fern veins along the needles, on the older frost.
         float ribs = 0.5 + 0.5 * sin(arrival * 260.0 + streak * 3.0);
         col *= (0.9 + 0.12 * ribs * age) * (0.85 + 0.4 * vein);
@@ -278,7 +280,7 @@ enum WindowKitShaders {
             float rings = 0.5 + 0.5 * sin(across * 7.0 + grain * 5.0);
             float3 albedo = mix(float3(0.2, 0.13, 0.08), float3(0.34, 0.23, 0.15), grain * 0.7 + rings * 0.3);
             float chink = 1.0 - smoothstep(0.82, 0.98, abs(across));
-            col = albedo * (inside * (0.25 + 0.95 * diff * roomFall) + u.light.rgb * 0.08 * nz) * mix(0.35, 1.0, chink);
+            col = albedo * (inside * (0.25 + 0.95 * diff * roomFall) + u.light.rgb * (0.12 + 0.3 * nz)) * mix(0.35, 1.0, chink);
         } else {
             // A painted sash: a flat face, chamfered inner edges catching or missing the light, brushed paint.
             float3 albedo = float3(0.88, 0.86, 0.81);
