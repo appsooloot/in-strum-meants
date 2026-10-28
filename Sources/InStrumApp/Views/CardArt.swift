@@ -4,13 +4,14 @@ import InStrumCore
 /// Original living art for each "Inspired by" card, drawn in code from the song's feeling (never artwork,
 /// photos or logos). The song's tempo is hidden in the motion: everything breathes at `pulsePeriod`.
 enum CardArt {
-    case comeBackToEarth, innerbloom, musicToWatchBoysTo
+    case comeBackToEarth, innerbloom, musicToWatchBoysTo, highByTheBeach
 
     static func art(for creditID: String) -> CardArt? {
         switch creditID {
         case CreditLibrary.comeBackToEarth.id: return .comeBackToEarth
         case CreditLibrary.innerbloom.id: return .innerbloom
         case CreditLibrary.musicToWatchBoysTo.id: return .musicToWatchBoysTo
+        case CreditLibrary.highByTheBeach.id: return .highByTheBeach
         default: return nil
         }
     }
@@ -22,6 +23,7 @@ enum CardArt {
         case .comeBackToEarth: return .system(size: 30, weight: .light, design: .serif)
         case .innerbloom: return .system(size: 24, weight: .medium, design: .default)
         case .musicToWatchBoysTo: return .custom("Didot", size: 30)
+        case .highByTheBeach: return .custom("Futura-CondensedMedium", size: 28)
         }
     }
 
@@ -29,6 +31,7 @@ enum CardArt {
         switch self {
         case .innerbloom: return 7
         case .musicToWatchBoysTo: return 1.5
+        case .highByTheBeach: return 3
         case .comeBackToEarth: return 0.5
         }
     }
@@ -39,6 +42,7 @@ enum CardArt {
         case .comeBackToEarth: Self.underwater(ctx, size, t, pulse)
         case .innerbloom: Self.bloom(ctx, size, t, pulse)
         case .musicToWatchBoysTo: Self.goldenHaze(ctx, size, t, pulse)
+        case .highByTheBeach: Self.coastLine(ctx, size, t, pulse)
         }
     }
 
@@ -208,6 +212,68 @@ enum CardArt {
             let jitter = 9 * (noise2(Double(k) * 0.7, t * 0.6) - 0.5) * (0.3 + d)
             path.fill(Path(CGRect(x: sun.x - w / 2 + jitter, y: y, width: w, height: 1.5 + 2.5 * d)),
                       with: .color(Color(red: 1, green: 0.9, blue: 0.7).opacity(0.35 * (1 - 0.6 * d))))
+        }
+    }
+
+    // MARK: - High by the Beach: one road curving along a dark coast, one light travelling it at the pulse
+
+    private static func coastLine(_ ctx: GraphicsContext, _ size: CGSize, _ t: Double, _ pulse: Double) {
+        let rect = CGRect(origin: .zero, size: size)
+        let w = size.width, h = size.height
+        ctx.fill(Path(rect), with: .linearGradient(
+            Gradient(stops: [.init(color: Color(red: 0.02, green: 0.03, blue: 0.10), location: 0),
+                             .init(color: Color(red: 0.07, green: 0.12, blue: 0.27), location: 0.52),
+                             .init(color: Color(red: 0.16, green: 0.20, blue: 0.36), location: 0.55),
+                             .init(color: Color(red: 0.02, green: 0.05, blue: 0.12), location: 1)]),
+            startPoint: .zero, endPoint: CGPoint(x: 0, y: h)))
+        // A few faint stars.
+        for i in 0..<26 {
+            let x = w * noise2(Double(i) * 7.1, 0.3), y = h * 0.48 * noise2(Double(i) * 3.3, 9.1)
+            let twinkle = 0.5 + 0.5 * sin(t * 1.3 + Double(i))
+            ctx.fill(Path(ellipseIn: CGRect(x: x, y: y, width: 1.6, height: 1.6)), with: .color(.white.opacity(0.15 + 0.25 * twinkle)))
+        }
+        // The coast: a dark headland sweeping in from the left and out to a point on the right.
+        let a = CGPoint(x: -10, y: h * 0.98), c1 = CGPoint(x: w * 0.25, y: h * 0.55), c2 = CGPoint(x: w * 0.55, y: h * 0.82)
+        let b = CGPoint(x: w * 0.98, y: h * 0.58)
+        var land = Path()
+        land.move(to: CGPoint(x: -10, y: h + 10)); land.addLine(to: CGPoint(x: -10, y: a.y - 40))
+        land.addCurve(to: CGPoint(x: b.x + 20, y: b.y - 22), control1: CGPoint(x: c1.x, y: c1.y - 40), control2: CGPoint(x: c2.x, y: c2.y - 30))
+        land.addLine(to: CGPoint(x: w + 10, y: h + 10)); land.closeSubpath()
+        ctx.fill(land, with: .color(Color(red: 0.01, green: 0.02, blue: 0.05)))
+        // The road along it.
+        var road = Path()
+        road.move(to: a); road.addCurve(to: b, control1: c1, control2: c2)
+        ctx.stroke(road, with: .color(Color(red: 0.75, green: 0.82, blue: 1).opacity(0.35)), style: StrokeStyle(lineWidth: 1.4, dash: [7, 6]))
+        // One light travels the road every eight beats, brightening on each beat.
+        let u = (t / (8 * pulse)).truncatingRemainder(dividingBy: 1)
+        func bezier(_ s: Double) -> CGPoint {
+            let m = 1 - s
+            return CGPoint(x: m * m * m * a.x + 3 * m * m * s * c1.x + 3 * m * s * s * c2.x + s * s * s * b.x,
+                           y: m * m * m * a.y + 3 * m * m * s * c1.y + 3 * m * s * s * c2.y + s * s * s * b.y)
+        }
+        let p = bezier(u)
+        let beat = (t / pulse).truncatingRemainder(dividingBy: 1)
+        let glow = 0.6 + 0.4 * exp(-beat * 5)
+        var light = ctx
+        light.blendMode = .plusLighter
+        light.fill(Path(ellipseIn: CGRect(x: p.x - 26, y: p.y - 26, width: 52, height: 52)),
+                   with: .radialGradient(Gradient(colors: [Color(red: 1, green: 0.85, blue: 0.6).opacity(0.5 * glow), .clear]),
+                                         center: p, startRadius: 0, endRadius: 26))
+        light.fill(Path(ellipseIn: CGRect(x: p.x - 2.5, y: p.y - 2.5, width: 5, height: 5)), with: .color(.white.opacity(glow)))
+        // Its reflection, broken up on the sea.
+        let q = CGPoint(x: p.x, y: h * 0.55 + (h * 0.55 - p.y) * -0.35 + 4)
+        for k in 0..<5 {
+            light.fill(Path(CGRect(x: q.x - 6 + 3 * sin(t * 2 + Double(k)), y: q.y + Double(k) * 5, width: 12 - Double(k) * 2, height: 1.2)),
+                       with: .color(Color(red: 1, green: 0.85, blue: 0.6).opacity(0.25 * glow * (1 - Double(k) / 5))))
+        }
+        // Lo-fi grain and faint scan lines.
+        let frame = Int(t * 12)
+        for i in 0..<140 {
+            let x = w * hash(i, frame), y = h * hash(frame, i + 999)
+            ctx.fill(Path(CGRect(x: x, y: y, width: 1, height: 1)), with: .color(.white.opacity(0.06)))
+        }
+        for row in stride(from: 0.0, to: h, by: 3) {
+            ctx.fill(Path(CGRect(x: 0, y: row, width: w, height: 0.6)), with: .color(.black.opacity(0.12)))
         }
     }
 
