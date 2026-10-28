@@ -332,6 +332,7 @@ public final class AppModel: ObservableObject {
 
     /// nil plays to the Mac's default output.
     public func selectOutputDevice(_ uid: String?) {
+        guard uid != outputDeviceUID || audioNote != nil else { return }   // already playing there: don't cut the sound
         if engine.selectOutputDevice(uid: uid) {
             outputDeviceUID = uid
             settings.outputDeviceUID = uid
@@ -372,10 +373,10 @@ public final class AppModel: ObservableObject {
     public func setMIDIChannel(_ channel: Int?) {
         let c = channel.flatMap { (1...16).contains($0) ? $0 : nil }
         guard c != midiChannel else { return }
-        panic()   // notes held on the old channel would never get their note-off
+        live.withLockUnchecked { $0.channel = c }
+        panic()   // after the switch: notes held on the old channel would never get their note-off
         midiChannel = c
         settings.midiChannel = c
-        live.withLockUnchecked { $0.channel = c }
         autosave()
     }
 
@@ -385,14 +386,17 @@ public final class AppModel: ObservableObject {
         var set = disabledMIDISources
         if enabled { set.remove(name) } else { set.insert(name) }
         guard set != disabledMIDISources else { return }
-        if !enabled { panic() }
         disabledMIDISources = set
         settings.disabledMIDISources = set.sorted()
         midi?.setDisabled(set)
+        if !enabled { panic() }   // after it's disconnected, so nothing it holds can hang
         autosave()
     }
 
-    public func rescanMIDI() { midi?.rescan() }
+    public func rescanMIDI() {
+        midi?.rescan()
+        panic()   // keys or the pedal held while the keyboards reconnect would otherwise hang
+    }
 
     /// True while this MIDI input is sending notes (lights its dot).
     public func midiActive(_ name: String) -> Bool {

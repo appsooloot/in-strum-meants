@@ -1,4 +1,5 @@
 import SwiftUI
+import Combine
 import InStrumCore
 import InStrumAudio
 
@@ -26,6 +27,8 @@ struct SettingsPopover: View {
             buffer = model.bufferFrames
             model.refreshOutputDevices()
         }
+        // An output plugged in while the panel is open appears without reopening it.
+        .onReceive(Timer.publish(every: 2, on: .main, in: .common).autoconnect()) { _ in model.refreshOutputDevices() }
     }
 
     // MARK: - Output
@@ -37,6 +40,9 @@ struct SettingsPopover: View {
                 Text("Mac default output").tag(String?.none)
                 ForEach(model.outputDevices) { device in
                     Text(device.name).tag(Optional(device.uid))
+                }
+                if let uid = model.outputDeviceUID, !model.outputDevices.contains(where: { $0.uid == uid }) {
+                    Text("Chosen output (not connected)").tag(Optional(uid))
                 }
             }
             .labelsHidden()
