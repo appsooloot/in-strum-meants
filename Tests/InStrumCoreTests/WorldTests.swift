@@ -137,6 +137,62 @@ final class WorldTests: XCTestCase {
         XCTAssertLessThan(f.sky.sun.altitude, -6)
     }
 
+    // MARK: - Golden Hour Beach
+
+    private func beachFrames(hour: Double = 13, seconds: Double = 30, notes: [UInt8] = [60, 64, 67], weather: WeatherKind = .clear,
+                             state: ThemeState = ThemeState()) -> [BeachFrame] {
+        let d = SceneDirector(themeID: GoldenHourBeachModel.id, state: state, reaction: ReactionPresets.expressivePianist)
+        var s = SkySettings(); s.timeMode = .frozen; s.frozenHour = hour; s.cityID = "melbourne"; s.weatherMode = .pick; s.weather = weather
+        d.sky.reset(settings: s)
+        var frames: [BeachFrame] = []
+        for i in 0..<Int(seconds * 30) {
+            if i == 30 { d.handle(notes.map { .noteOn(note: $0, velocity: 0.8) }, at: Double(i) / 30) }
+            if let f = d.step(dt: 1.0 / 30, t: Double(i) / 30, quality: .high) as? BeachFrame { frames.append(f) }
+        }
+        return frames
+    }
+
+    func testBeachIsRegistered() {
+        XCTAssertEqual(ThemeRegistry.resolve(GoldenHourBeachModel.id), GoldenHourBeachModel.id)
+        XCTAssertTrue(ThemeRegistry.all.contains { $0.id == GoldenHourBeachModel.id && $0.name == "Golden Hour Beach" })
+        XCTAssertTrue(ThemeRegistry.isWorld(GoldenHourBeachModel.id))
+        assertValidParameters(GoldenHourBeachModel.parameters)
+        let params = ThemeRegistry.parameterSet(for: GoldenHourBeachModel.id, state: ThemeState())
+        XCTAssertEqual(params.choice("light.hold"), "Golden hour")
+        XCTAssertEqual(params.choice("visual"), "Tide Lines")
+    }
+
+    func testBeachFrame() throws {
+        let frames = beachFrames()
+        let last = try XCTUnwrap(frames.last)
+        XCTAssertEqual(frames.count, 900)
+        XCTAssertTrue(frames.contains { !$0.lines.isEmpty }, "notes write lines")
+        XCTAssertTrue(frames.allSatisfy { (0...1).contains($0.washFront) })
+        XCTAssertEqual(last.sky.sun.altitude, 5, accuracy: 1e-6, "held at golden hour although it's 1 pm")
+        XCTAssertEqual(last.keys.count, 88)
+        // A wave is heard on exactly the frames where one broke.
+        var broke = 0
+        for (a, b) in zip(frames, frames.dropFirst()) where b.recent.last?.breakTime != a.recent.last?.breakTime { broke += 1 }
+        XCTAssertEqual(frames.filter { $0.ambience.wave != nil }.count, broke)
+        XCTAssertGreaterThan(broke, 1)
+        XCTAssertEqual(last.ambience.level(.gulls), 0, "gulls are off until they pass the ear test")
+        XCTAssertEqual(last.ambience.level(.surf), 0.9, accuracy: 1e-9)
+        XCTAssertEqual(last.ambience.surfDistance, 0.15, accuracy: 1e-9)
+    }
+
+    func testBeachWarpOptionStreaksInstead() throws {
+        var state = ThemeState(); state.values["visual"] = .choice("Galaxy Warp")
+        let frames = beachFrames(seconds: 3, state: state)
+        let last = try XCTUnwrap(frames.last)
+        XCTAssertNotNil(last.warp)
+        XCTAssertTrue(frames.allSatisfy { $0.lines.isEmpty })
+    }
+
+    func testStormySeaIsBigger() throws {
+        let calm = try XCTUnwrap(beachFrames(seconds: 2, notes: []).last), storm = try XCTUnwrap(beachFrames(seconds: 2, notes: [], weather: .storm).last)
+        XCTAssertGreaterThan(storm.swellScale, calm.swellScale)
+    }
+
     // MARK: - Galaxy Warp
 
     private func roles(energy: Double) -> RoleValues { var r = RoleValues(); r[.energy] = energy; return r }
