@@ -28,10 +28,14 @@ public struct SkySettings: Codable, Equatable {
     public var mistScale: Double = 1
     public var haloScale: Double = 1
     public var frostScale: Double = 1
+    /// Advanced: scale how hard it rains and snows, and how gusty it is (0…2).
+    public var rainScale: Double = 1
+    public var snowScale: Double = 1
+    public var gustScale: Double = 1
 
     public init() {}
 
-    enum CodingKeys: String, CodingKey { case timeMode, dayMinutes, frozenHour, frozenPhase, cityID, weatherMode, weather, pickBlendSeconds, randomBlendSeconds, spellMinutes, rainbowStrength, dryingMinutes, windScale, mistScale, haloScale, frostScale }
+    enum CodingKeys: String, CodingKey { case timeMode, dayMinutes, frozenHour, frozenPhase, cityID, weatherMode, weather, pickBlendSeconds, randomBlendSeconds, spellMinutes, rainbowStrength, dryingMinutes, windScale, mistScale, haloScale, frostScale, rainScale, snowScale, gustScale }
 
     /// Each field falls back on its own, and numbers are clamped, so one bad value never loses the rest.
     public init(from decoder: Decoder) throws {
@@ -52,6 +56,9 @@ public struct SkySettings: Codable, Equatable {
         mistScale = min(2, max(0, (try? c.decodeIfPresent(Double.self, forKey: .mistScale)) ?? d.mistScale))
         haloScale = min(1.5, max(0, (try? c.decodeIfPresent(Double.self, forKey: .haloScale)) ?? d.haloScale))
         frostScale = min(1.5, max(0, (try? c.decodeIfPresent(Double.self, forKey: .frostScale)) ?? d.frostScale))
+        rainScale = min(2, max(0, (try? c.decodeIfPresent(Double.self, forKey: .rainScale)) ?? d.rainScale))
+        snowScale = min(2, max(0, (try? c.decodeIfPresent(Double.self, forKey: .snowScale)) ?? d.snowScale))
+        gustScale = min(2, max(0, (try? c.decodeIfPresent(Double.self, forKey: .gustScale)) ?? d.gustScale))
         spellMinutes = min(60, max(2, (try? c.decodeIfPresent(Double.self, forKey: .spellMinutes)) ?? d.spellMinutes))
     }
 }

@@ -337,7 +337,14 @@ extension LivingSkyTests {
         XCTAssertEqual(low.wind, 0); XCTAssertEqual(low.halo, 0); XCTAssertEqual(low.frost, 0)
         s.mistScale = 2
         XCTAssertLessThanOrEqual(LivingSky(settings: s, homeZone: melbourneZone).step(now: start, dt: 0).mist, 1)
+        var r = SkySettings(); r.timeMode = .frozen; r.frozenHour = 13; r.cityID = "melbourne"; r.weatherMode = .pick; r.weather = .rain
+        let rain1 = LivingSky(settings: r, homeZone: melbourneZone).step(now: start, dt: 0).rain
+        r.rainScale = 0.5; r.gustScale = 0
+        let rainHalf = LivingSky(settings: r, homeZone: melbourneZone).step(now: start, dt: 0)
+        XCTAssertEqual(rainHalf.rain, rain1 * 0.5, accuracy: 1e-4)
+        XCTAssertEqual(rainHalf.gust, 0)
         let d = SkySettings()
+        XCTAssertEqual([d.rainScale, d.snowScale, d.gustScale], [1, 1, 1])
         XCTAssertEqual([d.windScale, d.mistScale, d.haloScale, d.frostScale, d.dryingMinutes, d.rainbowStrength], [1, 1, 1, 1, 8, 1])
     }
 

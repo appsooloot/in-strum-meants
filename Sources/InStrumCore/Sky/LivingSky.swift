@@ -169,6 +169,9 @@ public final class LivingSky {
         s.mist = scaled(s.mist, settings.mistScale, 1)
         s.halo = scaled(s.halo, settings.haloScale, 1)
         s.frost = scaled(s.frost, settings.frostScale, 1)
+        s.rain = scaled(s.rain, settings.rainScale, 1)
+        s.snow = scaled(s.snow, settings.snowScale, 1)
+        s.gust = scaled(s.gust, settings.gustScale, 1)
         return s
     }
 

@@ -91,6 +91,15 @@ struct SkyControls: View {
                     labelled("Mist and haze \(Int((sky.mistScale * 100).rounded()))%") {
                         Slider(value: Binding(get: { sky.mistScale }, set: { v in update { $0.mistScale = v } }), in: 0...2)
                     }
+                    labelled("Rain \(Int((sky.rainScale * 100).rounded()))%") {
+                        Slider(value: Binding(get: { sky.rainScale }, set: { v in update { $0.rainScale = v } }), in: 0...2)
+                    }
+                    labelled("Snow \(Int((sky.snowScale * 100).rounded()))%") {
+                        Slider(value: Binding(get: { sky.snowScale }, set: { v in update { $0.snowScale = v } }), in: 0...2)
+                    }
+                    labelled("Gusts \(Int((sky.gustScale * 100).rounded()))%") {
+                        Slider(value: Binding(get: { sky.gustScale }, set: { v in update { $0.gustScale = v } }), in: 0...2)
+                    }
                     labelled("Halos \(Int((sky.haloScale * 100).rounded()))%") {
                         Slider(value: Binding(get: { sky.haloScale }, set: { v in update { $0.haloScale = v } }), in: 0...1.5)
                     }
