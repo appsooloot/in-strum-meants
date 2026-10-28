@@ -240,7 +240,12 @@ enum FramePatch {
         let ctx = CGContext(data: &px, width: w, height: h, bitsPerComponent: 8, bytesPerRow: w * 4,
                             space: CGColorSpaceCreateDeviceRGB(), bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)
         ctx?.draw(image, in: CGRect(x: 0, y: 0, width: w, height: h))
-        return (0..<(w * h)).map { i in (0.2126 * Double(px[i * 4]) + 0.7152 * Double(px[i * 4 + 1]) + 0.0722 * Double(px[i * 4 + 2])) / 255 }
+        var out = [Double](repeating: 0, count: w * h)
+        for i in 0..<(w * h) {
+            let r: Double = Double(px[i * 4]), g: Double = Double(px[i * 4 + 1]), b: Double = Double(px[i * 4 + 2])
+            out[i] = (0.2126 * r + 0.7152 * g + 0.0722 * b) / 255
+        }
+        return out
     }
 
     /// Mean absolute luminance difference between two frames inside an NDC rectangle.
