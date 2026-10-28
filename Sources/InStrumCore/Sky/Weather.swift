@@ -1,6 +1,6 @@
 import Foundation
 
-public enum WeatherKind: String, Codable, CaseIterable { case clear, lightCloud, overcast, mist, drizzle, rain, storm, snow, blizzard, afterRain, sunShower, fogBank, sleet, monsoon, hail, smokeHaze, iceFog, thunderheads, dustStorm }
+public enum WeatherKind: String, Codable, CaseIterable { case clear, lightCloud, overcast, mist, drizzle, rain, storm, snow, blizzard, afterRain, sunShower, fogBank, sleet, monsoon, hail, smokeHaze, iceFog, thunderheads, dustStorm, flurries, freezingDrizzle, squall }
 
 /// Pick one yourself, or let the sky wander through beautiful weathers. (`.real` comes later.)
 public enum WeatherMode: String, Codable, CaseIterable { case pick, randomBeautiful }
@@ -39,6 +39,9 @@ public extension WeatherKind {
         case .iceFog: return WeatherValues(cloud: 0.2, rain: 0, snow: 0, mist: 0.7, wind: 0.02, halo: 0.8, frost: 0.8)
         case .thunderheads: return WeatherValues(cloud: 0.95, rain: 0, snow: 0, mist: 0.15, wind: 0.3, gust: 0.3)
         case .dustStorm: return WeatherValues(cloud: 0.5, rain: 0, snow: 0, mist: 0.9, wind: 0.9, gust: 0.7)
+        case .flurries: return WeatherValues(cloud: 0.55, rain: 0, snow: 0.3, mist: 0.2, wind: 0.15, halo: 0.2, frost: 0.4, gust: 0.1)
+        case .freezingDrizzle: return WeatherValues(cloud: 0.85, rain: 0.25, snow: 0, mist: 0.5, wind: 0.15, frost: 0.5)
+        case .squall: return WeatherValues(cloud: 1, rain: 0.9, snow: 0, mist: 0.3, wind: 1, gust: 1)
         case .sunShower: return WeatherValues(cloud: 0.5, rain: 0.3, snow: 0, mist: 0.25, wind: 0.2, gust: 0.1)
         }
     }
@@ -52,7 +55,10 @@ public extension WeatherKind {
     }
 
     /// Drizzle, rain and storms: what "after the rain" follows.
-    var isWet: Bool { self == .drizzle || self == .rain || self == .storm || self == .sleet || self == .monsoon || self == .hail }
+    var isWet: Bool { self == .drizzle || self == .rain || self == .storm || self == .sleet || self == .monsoon || self == .hail || self == .squall || self == .freezingDrizzle }
+
+    /// Left out of random weather when "Calm random weather" is on.
+    var isRough: Bool { [.storm, .blizzard, .monsoon, .hail, .squall, .dustStorm].contains(self) }
 
     /// How often "random beautiful" picks it (overcast only when chosen).
     var beautyWeight: Float {
@@ -64,6 +70,9 @@ public extension WeatherKind {
         case .blizzard: return 0.3
         case .afterRain: return 1.5
         case .sunShower: return 1
+        case .flurries: return 1
+        case .freezingDrizzle: return 0.4
+        case .squall: return 0.3
         case .thunderheads: return 0.4
         case .dustStorm: return 0.2
         case .iceFog: return 0.3
@@ -103,7 +112,7 @@ struct WeatherMachine {
         mode = settings.weatherMode
         let first: WeatherKind
         if settings.weatherMode == .pick { first = settings.weather }
-        else { var r = rng; first = Self.pick(excluding: nil, &r); rng = r }
+        else { var r = rng; first = Self.pick(excluding: nil, calm: settings.calmRandom, &r); rng = r }
         current = first; next = first; from = first.values
         var r = rng
         spellLeft = Self.spell(&r, minutes: min(60, max(2, settings.spellMinutes)))
@@ -130,7 +139,7 @@ struct WeatherMachine {
             mode = settings.weatherMode
             if mode == .pick { ice = WeatherKind.lightCloud.values.halo }
             spellLeft = Self.spell(&rng, minutes: sm)
-            if mode == .randomBeautiful { begin(Self.pick(excluding: transitioning ? next : current, &rng), seconds: rs) }
+            if mode == .randomBeautiful { begin(Self.pick(excluding: transitioning ? next : current, calm: settings.calmRandom, &rng), seconds: rs) }
         }
         switch mode {
         case .pick:
@@ -140,7 +149,7 @@ struct WeatherMachine {
             if spellLeft <= 0, !transitioning {
                 // After a wet spell, "after the rain" comes next 6 times in 10; otherwise the usual pick (without it).
                 if current.isWet && afterRng.unit() < 0.6 { begin(.afterRain, seconds: rs) }
-                else { begin(Self.pick(excluding: current, also: current.isWet ? .afterRain : nil, &rng), seconds: rs) }
+                else { begin(Self.pick(excluding: current, also: current.isWet ? .afterRain : nil, calm: settings.calmRandom, &rng), seconds: rs) }
                 spellLeft += Self.spell(&rng, minutes: sm)
             }
         }
@@ -162,8 +171,8 @@ struct WeatherMachine {
 
     private static func spell(_ rng: inout SeededRandom, minutes: Double) -> Double { (300 + 900 * Double(rng.unit())) * minutes / 12.5 }
 
-    private static func pick(excluding: WeatherKind?, also: WeatherKind? = nil, _ rng: inout SeededRandom) -> WeatherKind {
-        let choices = WeatherKind.allCases.filter { $0 != excluding && $0 != also && $0.beautyWeight > 0 }
+    private static func pick(excluding: WeatherKind?, also: WeatherKind? = nil, calm: Bool = false, _ rng: inout SeededRandom) -> WeatherKind {
+        let choices = WeatherKind.allCases.filter { $0 != excluding && $0 != also && $0.beautyWeight > 0 && !(calm && $0.isRough) }
         let total = choices.reduce(0) { $0 + $1.beautyWeight }
         var x = rng.unit() * total
         for k in choices {

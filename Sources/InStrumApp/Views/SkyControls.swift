@@ -76,6 +76,7 @@ struct SkyControls: View {
                     .labelsHidden()
                 }
                 DisclosureGroup("Advanced weather") {
+                    Toggle("Calm random weather (no storms, blizzards, hail…)", isOn: Binding(get: { sky.calmRandom }, set: { v in update { $0.calmRandom = v } }))
                     labelled("A picked weather takes \(Int(sky.pickBlendSeconds.rounded())) s to arrive") {
                         Slider(value: Binding(get: { sky.pickBlendSeconds }, set: { v in update { $0.pickBlendSeconds = v } }), in: 1...120, step: 1)
                     }
@@ -173,6 +174,9 @@ struct SkyControls: View {
         case .iceFog: return "Ice fog"
         case .thunderheads: return "Thunderheads"
         case .dustStorm: return "Dust storm"
+        case .flurries: return "Snow flurries"
+        case .freezingDrizzle: return "Freezing drizzle"
+        case .squall: return "Squall"
         case .smokeHaze: return "Smoke haze"
         case .monsoon: return "Monsoon"
         }

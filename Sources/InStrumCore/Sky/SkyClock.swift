@@ -32,10 +32,12 @@ public struct SkySettings: Codable, Equatable {
     public var rainScale: Double = 1
     public var snowScale: Double = 1
     public var gustScale: Double = 1
+    /// Advanced: keep random weather gentle (no storms, blizzards, monsoons, hail, squalls or dust storms).
+    public var calmRandom: Bool = false
 
     public init() {}
 
-    enum CodingKeys: String, CodingKey { case timeMode, dayMinutes, frozenHour, frozenPhase, cityID, weatherMode, weather, pickBlendSeconds, randomBlendSeconds, spellMinutes, rainbowStrength, dryingMinutes, windScale, mistScale, haloScale, frostScale, rainScale, snowScale, gustScale }
+    enum CodingKeys: String, CodingKey { case timeMode, dayMinutes, frozenHour, frozenPhase, cityID, weatherMode, weather, pickBlendSeconds, randomBlendSeconds, spellMinutes, rainbowStrength, dryingMinutes, windScale, mistScale, haloScale, frostScale, rainScale, snowScale, gustScale, calmRandom }
 
     /// Each field falls back on its own, and numbers are clamped, so one bad value never loses the rest.
     public init(from decoder: Decoder) throws {
@@ -59,6 +61,7 @@ public struct SkySettings: Codable, Equatable {
         rainScale = min(2, max(0, (try? c.decodeIfPresent(Double.self, forKey: .rainScale)) ?? d.rainScale))
         snowScale = min(2, max(0, (try? c.decodeIfPresent(Double.self, forKey: .snowScale)) ?? d.snowScale))
         gustScale = min(2, max(0, (try? c.decodeIfPresent(Double.self, forKey: .gustScale)) ?? d.gustScale))
+        calmRandom = (try? c.decodeIfPresent(Bool.self, forKey: .calmRandom)) ?? d.calmRandom
         spellMinutes = min(60, max(2, (try? c.decodeIfPresent(Double.self, forKey: .spellMinutes)) ?? d.spellMinutes))
     }
 }

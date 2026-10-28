@@ -237,7 +237,7 @@ extension LivingSkyTests {
     }
 
     func testNewWeatherValues() {
-        XCTAssertEqual(WeatherKind.allCases, [.clear, .lightCloud, .overcast, .mist, .drizzle, .rain, .storm, .snow, .blizzard, .afterRain, .sunShower, .fogBank, .sleet, .monsoon, .hail, .smokeHaze, .iceFog, .thunderheads, .dustStorm])
+        XCTAssertEqual(WeatherKind.allCases, [.clear, .lightCloud, .overcast, .mist, .drizzle, .rain, .storm, .snow, .blizzard, .afterRain, .sunShower, .fogBank, .sleet, .monsoon, .hail, .smokeHaze, .iceFog, .thunderheads, .dustStorm, .flurries, .freezingDrizzle, .squall])
         // cloud, rain, snow, mist, wind, halo, frost, gust (spec §6.1)
         let table: [WeatherKind: [Float]] = [
             .clear: [0, 0, 0, 0.1, 0.1, 0, 0.15, 0],
@@ -259,6 +259,9 @@ extension LivingSkyTests {
             .iceFog: [0.2, 0, 0, 0.7, 0.02, 0.8, 0.8, 0],
             .thunderheads: [0.95, 0, 0, 0.15, 0.3, 0, 0, 0.3],
             .dustStorm: [0.5, 0, 0, 0.9, 0.9, 0, 0, 0.7],
+            .flurries: [0.55, 0, 0.3, 0.2, 0.15, 0.2, 0.4, 0.1],
+            .freezingDrizzle: [0.85, 0.25, 0, 0.5, 0.15, 0, 0.5, 0],
+            .squall: [1, 0.9, 0, 0.3, 1, 0, 0, 1],
         ]
         for k in WeatherKind.allCases {
             let v = k.values
@@ -346,6 +349,20 @@ extension LivingSkyTests {
         let d = SkySettings()
         XCTAssertEqual([d.rainScale, d.snowScale, d.gustScale], [1, 1, 1])
         XCTAssertEqual([d.windScale, d.mistScale, d.haloScale, d.frostScale, d.dryingMinutes, d.rainbowStrength], [1, 1, 1, 1, 8, 1])
+    }
+
+    func testCalmRandomWeatherNeverGetsRough() {
+        for seed in 1...6 as ClosedRange<UInt64> {
+            var s = SkySettings(); s.timeMode = .frozen; s.weatherMode = .randomBeautiful; s.calmRandom = true
+            let sky = LivingSky(settings: s, seed: seed, homeZone: melbourneZone)
+            var now = start
+            for _ in 0..<4000 {
+                now = now.addingTimeInterval(5)
+                let st = sky.step(now: now, dt: 5)
+                XCTAssertFalse(st.weather.isRough || st.nextWeather.isRough, "seed \(seed): \(st.weather)")
+            }
+        }
+        XCTAssertTrue(WeatherKind.storm.isRough && !WeatherKind.rain.isRough)
     }
 
     func testRainMeltsFrost() {
