@@ -70,6 +70,14 @@ struct Biquad {
         double A = std::pow(10.0, dB / 40.0), w = 2 * M_PI * hz / sr, al = std::sin(w) / (2 * q), c = std::cos(w);
         set(1 + al * A, -2 * c, 1 - al * A, 1 + al / A, -2 * c, 1 - al / A);
     }
+    void setLowpass(double hz, double q, double sr) {
+        double w = 2 * M_PI * hz / sr, al = std::sin(w) / (2 * q), c = std::cos(w);
+        set((1 - c) / 2, 1 - c, (1 - c) / 2, 1 + al, -2 * c, 1 - al);
+    }
+    void setHighpass(double hz, double q, double sr) {
+        double w = 2 * M_PI * hz / sr, al = std::sin(w) / (2 * q), c = std::cos(w);
+        set((1 + c) / 2, -(1 + c), (1 + c) / 2, 1 + al, -2 * c, 1 - al);
+    }
     /// Constant 0 dB peak gain.
     void setBandpass(double hz, double q, double sr) {
         double w = 2 * M_PI * hz / sr, al = std::sin(w) / (2 * q), c = std::cos(w);

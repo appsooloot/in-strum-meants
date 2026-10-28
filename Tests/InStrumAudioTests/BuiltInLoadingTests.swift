@@ -36,4 +36,12 @@ final class BuiltInLoadingTests: XCTestCase {
                              "moodEnergy", "moodWarmth", "moodBrightness", "moodSpace", "moodMotion"])
         XCTAssertNil(au.parameterTree?.parameter(withAddress: AUParameterAddress(ISD_P_DEBUG_LAYER_A_ONLY)))
     }
+
+    func testE_HoneyTapeShowsDialsButNotTestHooks() throws {
+        let au = try BuiltInInstrumentAU(componentDescription: BuiltInCatalog.description(for: .honeyTape), options: [])
+        let ids = Set(au.parameterTree?.allParameters.map(\.identifier) ?? [])
+        XCTAssertEqual(ids, ["fineTune", "transpose", "breath", "strings", "wow", "age", "reel", "space", "width",
+                             "moodEnergy", "moodWarmth", "moodBrightness", "moodSpace", "moodMotion"])
+        XCTAssertNil(au.parameterTree?.parameter(withAddress: AUParameterAddress(ISD_P_DEBUG_NO_VIBRATO)))
+    }
 }

@@ -23,6 +23,12 @@ final class CPUBudgetTests: XCTestCase {
         XCTAssertLessThan(seconds / 10, 0.05, "Felt Glass used \(String(format: "%.1f", seconds * 10))% of real time")
     }
 
+    func testHoneyTapeBudget() {
+        let chord = [36, 43, 48, 52, 55, 60, 64, 67, 71, 72, 76, 79].map { R.noteOn(0, UInt8($0), 90) }
+        let seconds = bestOfThree { _ = R.render(ISD_ENGINE_HONEY_TAPE, seconds: 10, events: chord) }
+        XCTAssertLessThan(seconds / 10, 0.05, "Honey Tape used \(String(format: "%.1f", seconds * 10))% of real time")
+    }
+
     func testCombinedBudget() {
         var felt = [R.pedal(0, 127)]
         for n: UInt8 in [36, 43, 48, 52, 55, 60, 64, 67, 71, 72, 76, 79, 83, 84, 88, 91] { felt.append(R.noteOn(0, n, 90)) }

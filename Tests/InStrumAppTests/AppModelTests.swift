@@ -544,6 +544,17 @@ final class AppModelTests: XCTestCase {
         XCTAssertTrue(PatchLibrary.all.allSatisfy { $0.creditID.flatMap { CreditLibrary.credit(id: $0) } != nil })
     }
 
+    func testHoneyTapePresetsCarryTheirCredit() {
+        let presets = PatchLibrary.patches(for: .honeyTape)
+        XCTAssertEqual(presets.map(\.id), ["honey-tape", "sea-flute", "velvet-strings", "old-reel"])
+        for p in presets { XCTAssertTrue(p.displayName.hasSuffix("· after \"Music to Watch Boys To\""), p.displayName) }
+        XCTAssertEqual(PatchLibrary.defaultPatch(for: .honeyTape).id, "honey-tape")
+        let credit = try? XCTUnwrap(CreditLibrary.credit(id: "music-to-watch-boys-to"))
+        XCTAssertEqual(credit?.artist, "Lana Del Rey"); XCTAssertEqual(credit?.album, "Honeymoon")
+        XCTAssertEqual(credit?.year, 2015); XCTAssertEqual(credit?.trackNumber, 2)
+        XCTAssertEqual(credit?.key, "C♯ minor"); XCTAssertEqual(credit?.tempoBPM, 132)
+    }
+
     func testPresetNamesCarryCredit() {
         XCTAssertEqual(PatchLibrary.defaultPatch(for: .feltGlass).displayName, "Felt Glass · after \"Come Back to Earth\"")
         XCTAssertEqual(Patch(id: "x", name: "Plain", engine: .feltGlass, values: [:]).displayName, "Plain")

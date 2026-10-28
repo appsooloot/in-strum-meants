@@ -50,6 +50,7 @@ final class DemoRenderTests: XCTestCase {
         let demos: [(String, ISDEngine, [(time: Double, message: MIDIMessage)])] = [
             ("felt-glass", ISD_ENGINE_FELT_GLASS, DemoPhrases.feltGlass),
             ("orbit-pad", ISD_ENGINE_ORBIT_PAD, DemoPhrases.orbitPad),
+            ("honey-tape", ISD_ENGINE_HONEY_TAPE, DemoPhrases.honeyTape),
         ]
         var written = 0
         for (name, engine, phrase) in demos {

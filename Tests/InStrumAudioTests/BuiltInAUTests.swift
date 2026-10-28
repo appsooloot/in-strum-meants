@@ -83,8 +83,7 @@ final class BuiltInAUTests: XCTestCase {
 
     func testCatalogListsAvailableInstruments() throws {
         let all = BuiltInCatalog.instruments
-        XCTAssertTrue(all.contains { $0.name == "Felt Glass" })
-        XCTAssertTrue(all.contains { $0.name == "Orbit Pad" })
+        for engine in BuiltInEngine.allCases { XCTAssertTrue(all.contains { $0.name == engine.displayName }, engine.displayName) }
         XCTAssertTrue(all.allSatisfy { $0.manufacturer == "In Strum Meants" })
         for info in all {
             let engine = try XCTUnwrap(BuiltInCatalog.engine(for: info.choice()))
@@ -95,28 +94,40 @@ final class BuiltInAUTests: XCTestCase {
                                                                  componentManufacturer: kAudioUnitManufacturer_Apple)))
     }
 
+    /// Dials that keep a single note's pitch still enough to measure (the pad's drift, the tape's wow and the unison
+    /// strings move it; what's left is a symmetric unison, measured by its centre).
+    private func steady(_ e: AudioEngine, _ engine: BuiltInEngine) {
+        setParam(e, Int(ISD_P_SPACE), 0)
+        if engine == .orbitPad { setParam(e, Int(ISD_P_DRIFT), 0); setParam(e, Int(ISD_P_MOTION), 0) }
+        if engine == .honeyTape { setParam(e, Int(ISD_P_WOW), 0); setParam(e, Int(ISD_P_STRINGS), 0) }
+    }
+
     func testTuningHoldsAt44_1And96k() async throws {
-        for rate in [44_100.0, 96_000.0] {
-            let e = try await makeEngine(rate: rate)
-            setParam(e, Int(ISD_P_SPACE), 0)
-            e.send([0x90, 69, 100])
-            let out = try render(e, seconds: 1.4, block: 512, rate: rate)
-            let slice = Array(out[Int(0.3 * rate)..<Int(1.3 * rate)])
-            let cents = DSPTestKit.cents(DSPTestKit.fundamental(slice, sampleRate: rate, near: 440), 440)
-            XCTAssertEqual(cents, 0, accuracy: 2, "at \(rate) Hz")
+        for engine in BuiltInEngine.allCases {
+            for rate in [44_100.0, 96_000.0] {
+                let e = try await makeEngine(rate: rate, engine.displayName)
+                steady(e, engine)
+                e.send([0x90, 69, 100])
+                let out = try render(e, seconds: 1.4, block: 512, rate: rate)
+                let slice = Array(out[Int(0.3 * rate)..<Int(1.3 * rate)])
+                let cents = DSPTestKit.cents(DSPTestKit.clusterCentre(slice, sampleRate: rate, near: 440), 440)
+                XCTAssertEqual(cents, 0, accuracy: 2, "\(engine.displayName) at \(rate) Hz")
+            }
         }
     }
 
     func testRendersAnyBufferSize() async throws {
-        var levels: [Double] = []
-        for block in [256, 4096, 1] {
-            let e = try await makeEngine()
-            e.send([0x90, 60, 100])
-            let db = try level(e, seconds: 0.5, block: block)
-            levels.append(db)
+        for engine in BuiltInEngine.allCases {
+            var levels: [Double] = []
+            for block in [256, 4096, 1] {
+                let e = try await makeEngine(engine.displayName)
+                e.send([0x90, 60, 100])
+                let db = try level(e, seconds: 0.5, block: block)
+                levels.append(db)
+            }
+            XCTAssertEqual(levels[1], levels[0], accuracy: 0.5, engine.displayName)
+            XCTAssertEqual(levels[2], levels[0], accuracy: 0.5, engine.displayName)
         }
-        XCTAssertEqual(levels[1], levels[0], accuracy: 0.5)
-        XCTAssertEqual(levels[2], levels[0], accuracy: 0.5)
     }
 
     func testSwitchingWhileHeldIsSafe() async throws {
