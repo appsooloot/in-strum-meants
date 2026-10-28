@@ -134,7 +134,7 @@ public final class LivingSky {
 
         // Wetness: rain soaks (faster the harder it rains), dry weather dries it over minutes; after the rain stays wet.
         if w.rain > 0.1 { wetness += (1 - wetness) * Float(1 - exp(-dt * Double(w.rain) / 90)) }
-        else { wetness *= Float(exp(-dt / 480)) }
+        else { wetness *= Float(exp(-dt / (min(60, max(2, settings.dryingMinutes)) * 60))) }
         wetness = max(wetness, 0.85 * weather.weight(of: .afterRain))
         s.wetness = wetness
 

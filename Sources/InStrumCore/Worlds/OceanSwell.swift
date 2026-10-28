@@ -64,6 +64,8 @@ public struct OceanSwell {
             case .afterRain: return 0.9
             case .sunShower: return 1.1
             case .fogBank, .smokeHaze, .iceFog: return 0.8
+            case .thunderheads: return 1.2
+            case .dustStorm: return 1.3
             case .hail: return 1.4
             case .sleet: return 1.3
             case .monsoon: return 1.7

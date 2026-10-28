@@ -237,7 +237,7 @@ extension LivingSkyTests {
     }
 
     func testNewWeatherValues() {
-        XCTAssertEqual(WeatherKind.allCases, [.clear, .lightCloud, .overcast, .mist, .drizzle, .rain, .storm, .snow, .blizzard, .afterRain, .sunShower, .fogBank, .sleet, .monsoon, .hail, .smokeHaze, .iceFog])
+        XCTAssertEqual(WeatherKind.allCases, [.clear, .lightCloud, .overcast, .mist, .drizzle, .rain, .storm, .snow, .blizzard, .afterRain, .sunShower, .fogBank, .sleet, .monsoon, .hail, .smokeHaze, .iceFog, .thunderheads, .dustStorm])
         // cloud, rain, snow, mist, wind, halo, frost, gust (spec §6.1)
         let table: [WeatherKind: [Float]] = [
             .clear: [0, 0, 0, 0.1, 0.1, 0, 0.15, 0],
@@ -257,6 +257,8 @@ extension LivingSkyTests {
             .hail: [1, 0.7, 0.25, 0.2, 0.5, 0, 0, 0.4],
             .smokeHaze: [0.3, 0, 0, 0.8, 0.1, 0, 0, 0],
             .iceFog: [0.2, 0, 0, 0.7, 0.02, 0.8, 0.8, 0],
+            .thunderheads: [0.95, 0, 0, 0.15, 0.3, 0, 0, 0.3],
+            .dustStorm: [0.5, 0, 0, 0.9, 0.9, 0, 0, 0.7],
         ]
         for k in WeatherKind.allCases {
             let v = k.values

@@ -82,6 +82,9 @@ struct SkyControls: View {
                     labelled("Random weather blends over \(Int(sky.randomBlendSeconds.rounded())) s") {
                         Slider(value: Binding(get: { sky.randomBlendSeconds }, set: { v in update { $0.randomBlendSeconds = v } }), in: 10...300, step: 5)
                     }
+                    labelled("The ground dries over \(Int(sky.dryingMinutes.rounded())) min") {
+                        Slider(value: Binding(get: { sky.dryingMinutes }, set: { v in update { $0.dryingMinutes = v } }), in: 2...60, step: 1)
+                    }
                     labelled("Rainbows \(Int((sky.rainbowStrength * 100).rounded()))% bright") {
                         Slider(value: Binding(get: { sky.rainbowStrength }, set: { v in update { $0.rainbowStrength = v } }), in: 0...1)
                     }
@@ -147,6 +150,8 @@ struct SkyControls: View {
         case .sleet: return "Sleet"
         case .hail: return "Hail"
         case .iceFog: return "Ice fog"
+        case .thunderheads: return "Thunderheads"
+        case .dustStorm: return "Dust storm"
         case .smokeHaze: return "Smoke haze"
         case .monsoon: return "Monsoon"
         }
