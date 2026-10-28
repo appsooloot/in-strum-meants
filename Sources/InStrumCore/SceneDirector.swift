@@ -1,7 +1,25 @@
 import Foundation
 
+public protocol MoodAware { var mood: Mood { get set } }
+public protocol SkyAware { mutating func setSky(_ s: SkyState) }
+public enum MoodLook {
+    public static func exposure(_ m: Mood) -> Float { 0 }
+    public static func warmthOffset(_ m: Mood) -> Float { 1 }
+    public static func hazeScale(_ m: Mood) -> Float { 0 }
+    public static func driftScale(_ m: Mood) -> Float { 0 }
+    public static func reactionScale(_ m: Mood) -> Float { 0 }
+    public static func lingerScale(_ m: Mood) -> Float { 0 }
+    public static func ambienceCloseness(base: Double, _ m: Mood) -> Double { 0 }
+    public static func ambienceDensity(_ m: Mood) -> Double { 0 }
+}
+public struct ThemeEntry {
+    public let id: String
+    static func make<T: ThemeModel>(_ t: T.Type) -> ThemeEntry { ThemeEntry(id: T.id) }
+}
+
 /// The themes the app knows about.
 public enum ThemeRegistry {
+    public static let entries: [ThemeEntry] = []
     public static let all: [(id: String, name: String)] = [
         (MidnightSteinwayModel.id, MidnightSteinwayModel.displayName),
         (ButterflyGardenModel.id, ButterflyGardenModel.displayName),
@@ -55,6 +73,10 @@ public final class SceneDirector {
     private var box: AnyThemeBox
     private var analyzer = PlayingAnalyzer()
     private var held: Set<UInt8> = []
+
+    public var mood = Mood.neutral
+    public let sky = LivingSky(settings: SkySettings())
+    convenience init(entry: ThemeEntry, state: ThemeState, reaction: ReactionMap) { self.init(themeID: entry.id, state: state, reaction: reaction) }
 
     public init(themeID: String, state: ThemeState, reaction: ReactionMap) {
         let id = ThemeRegistry.resolve(themeID)

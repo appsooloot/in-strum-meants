@@ -68,7 +68,7 @@ final class PreviewRenderer {
         render(themeID: ButterflyGardenModel.id, at: times, state: ThemeState(values: params?.saved ?? [:]))
     }
 
-    private func capture(_ renderer: ThemeRenderer) -> CGImage? {
+    func capture(_ renderer: ThemeRenderer) -> CGImage? {
         guard let cb = queue.makeCommandBuffer() else { return nil }
         renderer.render(stack: stack, commandBuffer: cb)
         let pass = MTLRenderPassDescriptor()
@@ -122,6 +122,8 @@ final class PreviewRenderer {
         let variance = l.reduce(0) { $0 + ($1 - mean) * ($1 - mean) } / Double(l.count)
         return (mean, variance)
     }
+
+    static func brightestPatch(_ image: CGImage, radius: Int) -> Double { 0 }
 
     /// Mean absolute luminance difference (images must be the same size).
     static func difference(_ a: CGImage, _ b: CGImage) -> Double {

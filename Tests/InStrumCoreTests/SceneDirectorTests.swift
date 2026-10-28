@@ -51,4 +51,56 @@ final class SceneDirectorTests: XCTestCase {
         let s = d.step(dt: 0, t: 0, quality: .high) as? SteinwayFrame
         XCTAssertEqual(s?.scene.keys.first { $0.key.note == 60 }?.glow ?? 0, 1, accuracy: 0.01)
     }
+
+    func testRegistryKeepsOldThemes() {
+        for (id, specs, targets) in [(MidnightSteinwayModel.id, MidnightSteinwayModel.parameters, MidnightSteinwayModel.macroTargets),
+                                     (ButterflyGardenModel.id, ButterflyGardenModel.parameters, ButterflyGardenModel.macroTargets)] {
+            XCTAssertEqual(ThemeRegistry.resolve(id), id)
+            XCTAssertEqual(ThemeRegistry.parameters(for: id).map(\.id), specs.map(\.id))
+            XCTAssertEqual(Set(ThemeRegistry.macroTargets(for: id).keys), Set(targets.keys))
+            XCTAssertNotNil(ThemeRegistry.all.first { $0.id == id })
+        }
+        XCTAssertEqual(ThemeRegistry.all.first?.id, MidnightSteinwayModel.id)
+        XCTAssertEqual(Set(ThemeRegistry.entries.map(\.id)).count, ThemeRegistry.entries.count, "unique ids")
+    }
+
+    /// A model that records what it is given.
+    struct Probe: ThemeModel, MoodAware, SkyAware {
+        static let id = "probe", displayName = "Probe"
+        static let parameters: [ParamSpec] = []
+        static let macroTargets: [Macro: [(id: String, weight: Double)]] = [:]
+        var mood = Mood.neutral
+        var sky: SkyState?
+        init() {}
+        mutating func handle(_ e: PerformanceEvent) {}
+        mutating func setSky(_ s: SkyState) { sky = s }
+        mutating func step(dt: Double, params: ParameterSet, roles: RoleValues, inputs: InputFrame, quality: QualityLevel) -> (Mood, SkyState?) {
+            (mood, sky)
+        }
+    }
+
+    func testMoodAndSkyReachModels() {
+        let d = SceneDirector(entry: ThemeEntry.make(Probe.self), state: ThemeState(), reaction: ReactionPresets.expressivePianist)
+        var s = SkySettings(); s.timeMode = .frozen; s.frozenHour = 22; s.cityID = "melbourne"
+        d.sky.settings = s
+        d.mood = .dreamy
+        let f = d.step(dt: 1.0 / 60, t: 0, quality: .high) as? (Mood, SkyState?)
+        XCTAssertEqual(f?.0, .dreamy)
+        XCTAssertNotNil(f?.1 ?? nil)
+        XCTAssertLessThan(f?.1?.sun.altitude ?? 0, 0, "22:00 is night")
+    }
+
+    func testMoodLookIsNeutralAtHalf() {
+        let n = Mood.neutral
+        XCTAssertEqual(MoodLook.exposure(n), 1, accuracy: 1e-6)
+        XCTAssertEqual(MoodLook.warmthOffset(n), 0, accuracy: 1e-6)
+        for f in [MoodLook.hazeScale, MoodLook.driftScale, MoodLook.reactionScale, MoodLook.lingerScale] { XCTAssertEqual(f(n), 1, accuracy: 1e-6) }
+        XCTAssertEqual(MoodLook.ambienceCloseness(base: 0.5, n), 0.5, accuracy: 1e-9)
+        XCTAssertEqual(MoodLook.ambienceDensity(n), 1, accuracy: 1e-9)
+        XCTAssertGreaterThan(MoodLook.hazeScale(.serene), MoodLook.hazeScale(n))
+        XCTAssertLessThan(MoodLook.reactionScale(.serene), MoodLook.reactionScale(n))
+        XCTAssertGreaterThan(MoodLook.driftScale(.dreamy), MoodLook.driftScale(.serene))
+        XCTAssertLessThan(MoodLook.ambienceCloseness(base: 0.5, .dreamy), 0.5, "spacious moods sound further away")
+        XCTAssertEqual(MoodLook.ambienceCloseness(base: 0.05, .dreamy), 0, accuracy: 1e-9, "clamped")
+    }
 }
