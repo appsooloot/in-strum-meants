@@ -60,6 +60,7 @@ enum MoonlitLakeShaders {
             // Aerial perspective: the far ridge is a hazy silhouette, darker than the sky, lighter than the pines.
             float3 c = mix(horizon, zenith, 0.5) * 0.28;
             float haze = saturate(0.3 + 0.5 * mist) * (0.55 + 0.45 * exp(-max(alt, 0.0) / 0.02));
+            c += l.lightColor.rgb * 0.012 * l.light.w * night;   // moonlight on the far slopes
             return mix(c, horizon * (1.0 + 0.1 * night), haze * 0.55);
         }
         hit = false;
@@ -147,6 +148,9 @@ enum MoonlitLakeShaders {
             float2 wq = q * float2(2.6, 1.3) + float2(time * 0.15 * drift, time * 0.06 * drift);
             float2 calm = float2(vnoise3(float3(wq, time * 0.15)), vnoise3(float3(wq * 1.7 + 5.0, time * 0.2))) - 0.5;
             slope += calm * (0.035 + 0.25 * wind);
+            // Finer wavelets break up the moon's mirror image near the shore.
+            float2 fine = float2(vnoise3(float3(q * 6.0, time * 0.5)), vnoise3(float3(q * 6.0 + 9.0, time * 0.55))) - 0.5;
+            slope += fine * 0.04;
             slope /= (1.0 + f * 0.015);   // far rings fade into the mirror
             float3 nrm = normalize(float3(-(slope.x * rgt.x + slope.y * fwd.x), -(slope.x * rgt.y + slope.y * fwd.y), 1.0));
             float3 rd = reflect(d, nrm);
@@ -202,7 +206,7 @@ enum MoonlitLakeShaders {
     }
     fragment float4 firefly_fragment(GlowOut in [[stage_in]]) {
         float r2 = dot(in.uv, in.uv);
-        float core = exp(-r2 * 18.0), halo = exp(-r2 * 3.5) * 0.25;
+        float core = exp(-r2 * 8.0), halo = exp(-r2 * 2.5) * 0.3;
         float a = (core + halo) * in.alpha;
         return float4(float3(1.0, 0.86, 0.42) * 4.0 * a, 0.0);
     }
