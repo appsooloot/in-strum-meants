@@ -77,6 +77,7 @@ typedef enum {
     ISD_AMB_WATER, ISD_AMB_CRICKETS, ISD_AMB_BREEZE, ISD_AMB_OWL, ISD_AMB_RAIN_WATER, ISD_AMB_RAIN_GLASS,
     ISD_AMB_DAWN_CHORUS, ISD_AMB_SHIP_HUM, ISD_AMB_AIR_FLOW, ISD_AMB_CHIME, ISD_AMB_HULL_TICKS, ISD_AMB_WIND,
     ISD_AMB_SURF, ISD_AMB_PALMS, ISD_AMB_GULLS, ISD_AMB_ROAD, ISD_AMB_ENGINE, ISD_AMB_WINDOW_WIND, ISD_AMB_PASSING_CAR,
+    ISD_AMB_FIRE, ISD_AMB_KETTLE, ISD_AMB_STREET, ISD_AMB_DRIPS, ISD_AMB_CLOCK,
     ISD_AMB_COUNT
 } ISDAmbienceSource;
 
@@ -106,6 +107,15 @@ void isd_ambience_trigger_wave(ISDAmbience *ambience, float strength);
 void isd_ambience_set_speed(ISDAmbience *ambience, float speed);
 /// Any thread. 0 close, detailed surf … 1 a far, low roar.
 void isd_ambience_set_surf_distance(ISDAmbience *ambience, float distance);
+/// Any thread. 0 outdoors … 1 inside behind glass: outdoor sources (and thunder) lose their top and 9 dB, gliding
+/// over 2.5 s; indoor ones (fire, kettle, clock, the ship's sounds) and rain on the glass itself are untouched.
+void isd_ambience_set_indoors(ISDAmbience *ambience, float indoors);
+/// Any thread. 0…1: a wet road hisses under the tyres.
+void isd_ambience_set_wetness(ISDAmbience *ambience, float wetness);
+/// Any thread. 0…1: snow on the glass turns rain on the glass into fewer, softer, lower ticks.
+void isd_ambience_set_snow_on_glass(ISDAmbience *ambience, float snow);
+/// Internal (tests): the kettle starts a heating cycle now.
+void isd_ambience_debug_start_kettle(ISDAmbience *ambience);
 /// Render thread. Overwrites `left`/`right`.
 void isd_ambience_render(ISDAmbience *ambience, float *left, float *right, int frames);
 

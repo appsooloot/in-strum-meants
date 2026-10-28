@@ -559,6 +559,7 @@ public final class AppModel: ObservableObject {
         if sources.contains(where: { abs(a.level($0) - b.level($0)) > 0.01 }) { return true }
         if abs(a.activity - b.activity) > 0.05 { return true }
         if abs(a.speed - b.speed) > 0.02 || abs(a.surfDistance - b.surfDistance) > 0.01 { return true }
+        if abs(a.indoors - b.indoors) > 0.01 || abs(a.wetness - b.wetness) > 0.01 || abs(a.snowOnGlass - b.snowOnGlass) > 0.01 { return true }
         return abs(a.nightCool - b.nightCool) > 0.01 || abs(a.closeness - b.closeness) > 0.01 || abs(a.density - b.density) > 0.01
     }
 

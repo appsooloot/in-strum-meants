@@ -14,6 +14,7 @@ const float kGain[ISD_AMB_COUNT] = {
     /* water */ 0.475f, /* crickets */ 0.50f, /* breeze */ 0.427f, /* owl */ 0.05f, /* rain on water */ 0.617f, /* rain on glass */ 0.708f,
     /* dawn chorus */ 0.60f, /* ship hum */ 0.0845f, /* air flow */ 0.363f, /* chime */ 0.0525f, /* hull ticks */ 0.15f, /* wind */ 0.257f,
     /* surf */ 0.54f, /* palms */ 0.92f, /* gulls */ 0.06f, /* road */ 0.19f, /* engine */ 0.36f, /* window wind */ 0.61f, /* passing car */ 0.30f,
+    /* fire */ 0.45f, /* kettle */ 0.095f, /* street */ 0.067f, /* drips */ 0.30f, /* clock */ 0.30f,
 };
 
 /// sin(2πx) for x in cycles (any value). 9th-order odd polynomial after folding: error ≈ 2e-6.
@@ -328,18 +329,27 @@ class Rain final : public AmbienceSource {
     int nextRes = 0;
     SVF bedAL, bedAR, bedBL, bedBR;
     Wander swell;
-    float a = 1, dropRate;
+    float a = 1, dropRate, snowApplied = 0;
+
+    void setGlassBed(float lower, float sr) {
+        const float k = 1.f - 0.4f * lower;
+        bedAL.set(1800.f * k, 0.6f, sr); bedAR.set(1900.f * k, 0.6f, sr); bedBL.set(9000.f * k, 0.7f, sr); bedBR.set(9200.f * k, 0.7f, sr);
+    }
 
 public:
     Rain(uint64_t seed, bool onGlass, float sr) : rng(seed), glass(onGlass) {
         direct = 1.f; send = 0.4f;
+        indoor = onGlass;   // at the glass itself: never behind it
         dropRate = onGlass ? 220.f : 350.f;
-        if (glass) { bedAL.set(1800.f, 0.6f, sr); bedAR.set(1900.f, 0.6f, sr); bedBL.set(9000.f, 0.7f, sr); bedBR.set(9200.f, 0.7f, sr); }
+        if (glass) setGlassBed(0, sr);
         else { bedAL.set(1600.f, 0.5f, sr); bedAR.set(1700.f, 0.5f, sr); bedBL.set(6000.f, 0.7f, sr); bedBR.set(6200.f, 0.7f, sr); }
     }
     void render(float *l, float *r, int n, const AmbienceContext &c) override {
-        const float dt = (float)n / c.sr, p = dropRate * c.density / c.sr;
-        const float a1 = 0.85f + 0.3f * swell.next(rng, dt, 5.f), da = (a1 - a) / (float)n;
+        // Snow on the glass: fewer, softer, lower ticks.
+        const float snow = glass ? c.snowOnGlass : 0.f, soften = 1.f - 0.6f * snow;
+        if (glass && std::fabs(snow - snowApplied) > 0.005f) { snowApplied = snow; setGlassBed(snow, c.sr); }
+        const float dt = (float)n / c.sr, p = dropRate * c.density * soften / c.sr;
+        const float a1 = (0.85f + 0.3f * swell.next(rng, dt, 5.f)) * soften, da = (a1 - a) / (float)n;
         const int ring = (int)(0.06f * c.sr);
         for (int t = 0; t < n; ++t) {
             a += da;
@@ -352,7 +362,7 @@ public:
                 il = 3.f * amp * pl; ir = 3.f * amp * pr;   // the splash itself, through the bed filters
                 if (glass || rng.uniform() < 0.35f) {
                     Res &q = res[nextRes]; nextRes = (nextRes + 1) & 7;
-                    const float f = glass ? 2500.f * std::pow(2.8f, rng.uniform()) : 900.f * std::pow(3.9f, rng.uniform());
+                    const float f = glass ? 2500.f * (1.f - 0.4f * snow) * std::pow(2.8f, rng.uniform()) : 900.f * std::pow(3.9f, rng.uniform());
                     q.f.set(f, glass ? 8.f : 25.f, c.sr);
                     q.gl = pl * amp; q.gr = pr * amp; q.life = ring;
                     float lo, bp, hi; q.f.tick(glass ? 6.f : 12.f, lo, bp, hi);
@@ -367,8 +377,8 @@ public:
             }
             const float bl = bedBL.low(glass ? bedAL.high(0.35f * wl + il) : bedAL.band(0.5f * wl + il));
             const float br = bedBR.low(glass ? bedAR.high(0.35f * wr + ir) : bedAR.band(0.5f * wr + ir));
-            l[t] += a * bl + yl;
-            r[t] += a * br + yr;
+            l[t] += a * bl + soften * yl;
+            r[t] += a * br + soften * yr;
         }
     }
 };
@@ -779,7 +789,7 @@ class Road final : public AmbienceSource {
     FastRandom rng;
     Pink pinkL, pinkR;
     Brown brown;
-    SVF lpL, lpR, rumble, thumpLP;
+    SVF lpL, lpR, rumble, thumpLP, hissL, hissR;
     float toJoint = 12, thumpT = 10, thumpGap = 0.1f, thumpPh = 0, thumpAmp = 0;
 
 public:
@@ -789,7 +799,8 @@ public:
         const float v = 8.f + 22.f * sp;   // metres per second (about 30–110 km/h)
         lpL.set(300.f + 900.f * sp, 0.7f, fsr); lpR.set(320.f + 880.f * sp, 0.7f, fsr);
         rumble.set(90.f, 1.f, fsr); thumpLP.set(400.f, 0.7f, fsr);
-        const float level = 0.3f + 0.7f * sp;
+        hissL.set(6300.f, 0.55f, fsr); hissR.set(6600.f, 0.55f, fsr);
+        const float level = 0.3f + 0.7f * sp, hiss = 0.22f * sp * c.wetness;   // a wet road: tyre spray
         // Joints every ~30 m: a pair of thumps, front then rear wheels.
         if ((toJoint -= v * dt) <= 0) {
             toJoint = 30.f * (0.8f + 0.4f * rng.uniform());
@@ -806,8 +817,9 @@ public:
                 }
                 thumpT += invSr;
             }
-            l[t] += level * (tyreL + low) + th;
-            r[t] += level * (tyreR + low) + th;
+            const float wl = hiss > 0 ? hiss * hissL.band(rng.bipolar()) : 0.f, wr = hiss > 0 ? hiss * hissR.band(rng.bipolar()) : 0.f;
+            l[t] += level * (tyreL + low) + th + wl;
+            r[t] += level * (tyreR + low) + th + wr;
         }
     }
 };
@@ -905,6 +917,310 @@ public:
     }
 };
 
+
+// ---------------------------------------------------------------- Short noise bursts and decaying tones (shared)
+/// A filtered noise burst: an attack of a fraction of a millisecond, an exponential tail.
+struct Burst {
+    SVF f;
+    float amp = 0, decay = 0, gl = 0.7f, gr = 0.7f;
+    int left = 0;
+    void start(float hz, float q, float seconds, float a, float pan, float sr) {
+        f.clear(); f.set(hz, q, sr);
+        amp = a; left = (int)(seconds * sr); decay = std::exp(-2.5f / std::max(1.f, (float)left));   // ends near −22 dB
+        panGains(pan, gl, gr);
+    }
+    bool on() const { return left > 0 || amp > 1e-5f; }
+    inline float next(FastRandom &rng) {
+        const float x = left > 0 ? rng.bipolar() * amp : 0.f;
+        if (left > 0) { --left; amp *= decay; } else amp = 0.f;
+        return f.band(x);
+    }
+};
+
+/// A decaying sine with an optional upward glide (drips, thumps, pings).
+struct Ping {
+    float ph = 0, inc = 0, glide = 0, glideStep = 0, amp = 0, decay = 1, gl = 0.7f, gr = 0.7f;
+    void start(float hz, float t60, float a, float pan, float sr, float rise = 0.f, float riseSeconds = 0.015f) {
+        ph = 0; inc = hz / sr; glide = 0; glideStep = rise > 0 ? rise / (riseSeconds * sr) : 0;
+        glideTo = rise; amp = a; decay = std::pow(10.f, -3.f / (std::max(0.005f, t60) * sr));
+        panGains(pan, gl, gr);
+    }
+    float glideTo = 0;
+    bool on() const { return amp > 1e-5f; }
+    inline float next() {
+        if (amp <= 1e-5f) { amp = 0; return 0.f; }
+        if (glide < glideTo) glide = std::min(glideTo, glide + glideStep);
+        ph += inc * (1.f + glide);
+        if (ph >= 1.f) ph -= 1.f;
+        const float y = amp * sin2pi(ph);
+        amp *= decay;
+        return y;
+    }
+};
+
+// ---------------------------------------------------------------- Fireplace
+class Fire final : public AmbienceSource {
+    FastRandom rng;
+    Pink pinkL, pinkR;
+    SVF roarL, roarR, hissF;
+    Wander flicker, breathe, crackleRate, popRate;
+    Burst crackles[10];
+    Ping thumps[3];
+    int nextCrackle = 0, nextThump = 0;
+    float toHiss = 30, hissT = -1, hissDur = 2, hissAmp = 0, toSettle = 90, shower = 0;
+
+public:
+    explicit Fire(uint64_t seed) : rng(seed) { direct = 1.f; send = 0.35f; indoor = true; }
+    void wake(const AmbienceContext &c) override {
+        toHiss = (20.f + 40.f * rng.uniform()) / c.density;
+        toSettle = (60.f + 120.f * rng.uniform()) / c.density;
+    }
+    void crackle(float sr, float scale) {
+        Burst &b = crackles[nextCrackle]; nextCrackle = (nextCrackle + 1) % 10;
+        const float u = rng.uniform();
+        b.start(1000.f * std::pow(5.f, rng.uniform()), 1.4f, 0.001f + 0.004f * rng.uniform(), scale * (3.5f + 3.f * u * u), 0.7f * rng.bipolar(), sr);
+    }
+    void render(float *l, float *r, int n, const AmbienceContext &c) override {
+        const float fsr = c.sr, dt = (float)n / fsr;
+        roarL.set(300.f, 0.6f, fsr); roarR.set(320.f, 0.6f, fsr); hissF.set(5500.f, 0.9f, fsr);
+        const float roar = 0.4f * (0.55f + 0.45f * flicker.next(rng, dt, 0.35f)) * (0.8f + 0.2f * breathe.next(rng, dt, 3.f));
+        // Crackles 2–8 a second (a shower of them as a log settles), pops 0.1–0.5 a second with a low thump.
+        const float cr = (2.f + 6.f * crackleRate.next(rng, dt, 4.f)) * c.density * (shower > 0 ? 8.f : 1.f);
+        const float pr = (0.1f + 0.4f * popRate.next(rng, dt, 8.f)) * c.density;
+        if (shower > 0) shower -= dt;
+        if ((toHiss -= dt) <= 0) {
+            hissT = 0; hissDur = 1.f + 2.f * rng.uniform(); hissAmp = 0.05f + 0.06f * rng.uniform();
+            toHiss = (20.f + 40.f * rng.uniform()) / c.density;
+        }
+        if ((toSettle -= dt) <= 0) {
+            Ping &p = thumps[nextThump]; nextThump = (nextThump + 1) % 3;
+            p.start(65.f + 15.f * rng.uniform(), 0.35f, 0.9f, 0.2f * rng.bipolar(), fsr);
+            shower = 1.f;
+            toSettle = (60.f + 120.f * rng.uniform()) / c.density;
+        }
+        const float pc = cr / fsr, pp = pr / fsr, invSr = 1.f / fsr;
+        for (int t = 0; t < n; ++t) {
+            if (rng.uniform() < pc) crackle(fsr, 1.f);
+            if (rng.uniform() < pp) {
+                crackle(fsr, 1.8f);
+                Ping &p = thumps[nextThump]; nextThump = (nextThump + 1) % 3;
+                p.start(60.f + 60.f * rng.uniform(), 0.18f, 0.5f + 0.3f * rng.uniform(), 0.5f * rng.bipolar(), fsr);
+            }
+            float yl = roar * roarL.band(pinkL.next(rng.bipolar())), yr = roar * roarR.band(pinkR.next(rng.bipolar()));
+            for (auto &b : crackles) {
+                if (!b.on()) continue;
+                const float y = b.next(rng);
+                yl += y * b.gl; yr += y * b.gr;
+            }
+            for (auto &p : thumps) {
+                if (!p.on()) continue;
+                const float y = p.next();
+                yl += y * p.gl; yr += y * p.gr;
+            }
+            if (hissT >= 0) {
+                const float x = hissT / hissDur, env = x < 1.f ? std::sin(kPi * x) : 0.f;
+                const float h = hissAmp * env * hissF.band(rng.bipolar());
+                yl += h; yr += 0.9f * h;
+                hissT += invSr;
+                if (hissT > hissDur) hissT = -1;
+            }
+            l[t] += yl; r[t] += yr;
+        }
+    }
+};
+
+// ---------------------------------------------------------------- Kettle (an occasional cycle in the kitchen)
+class Kettle final : public AmbienceSource {
+    FastRandom rng;
+    Brown brown;
+    SVF rumbleBand, rumbleTop, clickF;
+    Ping bubbles[6];
+    Partial clink[3];
+    int nextBubble = 0;
+    float untilNext = 120, rumble = 0, clickLeft = 0;
+    double t = -1, clinkAt = -1;   // seconds into the cycle (double: a float drifts by seconds over 100 s of samples)
+    bool clicked = false;
+
+    static constexpr double kClickAt = 100.0;   // seconds from switching on to the click
+
+public:
+    explicit Kettle(uint64_t seed) : rng(seed) { direct = 1.f; send = 0.4f; indoor = true; }
+    float interval(const AmbienceContext &c) { return (240.f + 240.f * rng.uniform()) / c.density; }
+    void wake(const AmbienceContext &c) override { untilNext = interval(c) * (0.15f + 0.35f * rng.uniform()); }
+    void start(const AmbienceContext &c) { t = 0; clicked = false; clinkAt = -1; untilNext = interval(c); }
+    void render(float *l, float *r, int n, const AmbienceContext &c) override {
+        const float fsr = c.sr, dt = (float)n / fsr, invSr = 1.f / fsr;
+        const double step = 1.0 / (double)fsr;
+        if (t < 0 && (untilNext -= dt) <= 0) start(c);
+        if (t < 0) return;
+        rumbleBand.set(160.f, 0.5f, fsr); rumbleTop.set(400.f, 0.7f, fsr); clickF.set(3000.f, 0.5f, fsr);
+        // Heating: a rumble rising over 90 s; bubbles from 70 s, densest in the last 20 s; then the click and,
+        // a few seconds later, the clink of the switch settling.
+        float target = 0;
+        const float tf = (float)t;
+        if (!clicked) { const float x = std::min(1.f, tf / 90.f); target = x * std::sqrt(x); }
+        const float boil = std::min(1.f, (tf - 70.f) / 30.f);
+        const float bubbleRate = (!clicked && tf > 70.f) ? 2.f + 36.f * boil * boil : 0.f;
+        const float pb = bubbleRate / fsr;
+        for (int i = 0; i < n; ++i) {
+            rumble += (target - rumble) * (clicked ? 2.f * invSr : 0.5f * invSr);
+            float y = rumble * 1.4f * rumbleTop.low(rumbleBand.band(brown.next(rng.bipolar()) * 8.f));
+            if (rng.uniform() < pb) {
+                Ping &b = bubbles[nextBubble]; nextBubble = (nextBubble + 1) % 6;
+                b.start(400.f * std::pow(4.f, rng.uniform()), 0.025f + 0.03f * rng.uniform(), 0.06f + 0.1f * rng.uniform(), 0.4f * rng.bipolar(), fsr, 0.3f, 0.01f);
+            }
+            float yl = y, yr = y;
+            for (auto &b : bubbles) { if (!b.on()) continue; const float s = b.next(); yl += s * b.gl; yr += s * b.gr; }
+            if (!clicked && t >= kClickAt) { clicked = true; clickLeft = 0.002f * fsr; clinkAt = t + 3.0 + 7.0 * rng.uniform(); }
+            if (clickLeft > 0) { const float k = clickF.high(rng.bipolar() * 8.f); yl += k; yr += k; clickLeft -= 1.f; }
+            if (clinkAt > 0 && t >= clinkAt) {
+                const float hz[3] = {2800.f, 4100.f, 6300.f}, amp[3] = {0.35f, 0.25f, 0.15f};
+                for (int k = 0; k < 3; ++k) clink[k].start(hz[k] * (0.98f + 0.04f * rng.uniform()), 0.6f, amp[k], fsr);
+                clinkAt = -1;
+            }
+            float ping = 0;
+            for (auto &p : clink) if (p.mag > 0) { ping += p.next(); if (p.energy() < 1e-12f) p.mag = 0; }
+            l[i] += yl + ping; r[i] += yr + 0.9f * ping;
+            t += step;
+        }
+        if (clicked && t > kClickAt + 20.0) t = -1;   // the cycle is over; the next comes after `untilNext`
+        if (t >= 0) untilNext -= dt;
+    }
+};
+
+// ---------------------------------------------------------------- A waking street, far below the window
+class Street final : public AmbienceSource {
+    FastRandom rng;
+    Brown brownL, brownR;
+    SVF bedL, bedR, bedTopL, bedTopR, brake, busLow;
+    Wander swell;
+    struct Car { SVF f; float t = -1, dur = 5, pan = 0, dir = 1, amp = 1; } cars[3];
+    Partial bell[4];
+    Ping door, busTone;
+    float toCar = 5, toBell = 90, toBus = 120, toDoor = 60, bellSecond = -1, bellF = 2900, busT = -1;
+
+public:
+    explicit Street(uint64_t seed) : rng(seed) { direct = 1.f; send = 0.5f; }
+    void wake(const AmbienceContext &c) override {
+        toCar = (2.f + 6.f * rng.uniform()) / c.density;
+        toBell = (60.f + 120.f * rng.uniform()) / c.density;
+        toBus = (90.f + 150.f * rng.uniform()) / c.density;
+        toDoor = (45.f + 105.f * rng.uniform()) / c.density;
+    }
+    void render(float *l, float *r, int n, const AmbienceContext &c) override {
+        const float fsr = c.sr, dt = (float)n / fsr, invSr = 1.f / fsr;
+        bedL.set(220.f, 0.5f, fsr); bedR.set(240.f, 0.5f, fsr); bedTopL.set(600.f, 0.7f, fsr); bedTopR.set(620.f, 0.7f, fsr);
+        const float bed = 0.75f + 0.25f * swell.next(rng, dt, 6.f);
+        if ((toCar -= dt) <= 0) {
+            for (auto &car : cars) if (car.t < 0) {
+                car.t = 0; car.dur = 4.f + 4.f * rng.uniform(); car.dir = rng.uniform() < 0.5f ? -1.f : 1.f; car.amp = 0.6f + 0.5f * rng.uniform();
+                break;
+            }
+            toCar = (6.f + 14.f * rng.uniform()) / c.density;
+        }
+        if ((toBell -= dt) <= 0) {
+            const float f = 2600.f + 600.f * rng.uniform();
+            bellF = f;
+            bell[0].start(f, 0.9f, 0.18f, fsr); bell[1].start(f * 1.19f, 0.6f, 0.08f, fsr);
+            bellSecond = 0.17f;
+            toBell = (60.f + 120.f * rng.uniform()) / c.density;
+        }
+        if (bellSecond > 0 && (bellSecond -= dt) <= 0) {
+            bell[2].start(bellF, 0.9f, 0.16f, fsr); bell[3].start(bellF * 1.19f, 0.6f, 0.07f, fsr);   // the second ring
+            bellSecond = -1;
+        }
+        if ((toBus -= dt) <= 0) { busT = 0; busTone.start(48.f + 8.f * rng.uniform(), 30.f, 0.f, 0.3f * rng.bipolar(), fsr); toBus = (90.f + 150.f * rng.uniform()) / c.density; }
+        if ((toDoor -= dt) <= 0) { door.start(120.f, 0.25f, 0.5f, 0.6f * rng.bipolar(), fsr); toDoor = (45.f + 105.f * rng.uniform()) / c.density; }
+        busLow.set(300.f, 0.7f, fsr);
+        for (int i = 0; i < n; ++i) {
+            float yl = bed * bedTopL.low(bedL.band(brownL.next(rng.bipolar()) * 6.f));
+            float yr = bed * bedTopR.low(bedR.band(brownR.next(rng.bipolar()) * 6.f));
+            for (auto &car : cars) {
+                if (car.t < 0) continue;
+                const float x = (car.t / car.dur) * 2.f - 1.f, env = std::exp(-(x / 0.45f) * (x / 0.45f)) * car.amp;
+                car.f.set(500.f * (1.f - 0.3f * std::tanh(2.f * x)), 0.9f, fsr);
+                float gl, gr; panGains(0.7f * car.dir * x, gl, gr);
+                const float s = env * car.f.band(rng.bipolar()) * 0.5f;
+                yl += s * gl; yr += s * gr;
+                car.t += invSr;
+                if (car.t > car.dur) car.t = -1;
+            }
+            float ring = 0;
+            for (auto &p : bell) if (p.mag > 0) { ring += p.next(); if (p.energy() < 1e-12f) p.mag = 0; }
+            yl += 0.8f * ring; yr += ring;
+            if (busT >= 0) {
+                // A bus: its engine swells over six seconds, then the air brakes sigh down through the band.
+                const float x = busT / 6.f, env = x < 1.f ? std::sin(kPi * x) : 0.f;
+                const float engine = env * (0.25f * std::sin(kTwoPi * busTone.ph) + 0.4f * busLow.low(rng.bipolar()));
+                busTone.ph += busTone.inc; if (busTone.ph >= 1.f) busTone.ph -= 1.f;
+                float sigh = 0;
+                if (busT > 5.f && busT < 6.5f) {
+                    const float u = (busT - 5.f) / 1.5f;
+                    brake.set(3000.f * std::pow(800.f / 3000.f, u), 1.2f, fsr);
+                    sigh = 0.35f * (1.f - u) * brake.band(rng.bipolar());
+                }
+                yl += engine + sigh; yr += 0.8f * engine + sigh;
+                busT += invSr;
+                if (busT > 7.f) busT = -1;
+            }
+            if (door.on()) { const float d = door.next(); yl += d * door.gl; yr += d * door.gr; }
+            l[i] += yl; r[i] += yr;
+        }
+    }
+};
+
+// ---------------------------------------------------------------- Drips (after the rain)
+class Drips final : public AmbienceSource {
+    FastRandom rng;
+    Wander rate;
+    Ping drops[6];
+    int next = 0;
+
+public:
+    explicit Drips(uint64_t seed) : rng(seed) { direct = 1.f; send = 0.45f; }
+    void render(float *l, float *r, int n, const AmbienceContext &c) override {
+        const float fsr = c.sr, dt = (float)n / fsr;
+        // 0.5–4 drips a second, thinning as the level falls.
+        const float perSecond = (0.5f + 3.5f * rate.next(rng, dt, 6.f)) * std::max(0.f, level) * c.density;
+        const float p = perSecond / fsr;
+        for (int i = 0; i < n; ++i) {
+            if (rng.uniform() < p) {
+                Ping &d = drops[next]; next = (next + 1) % 6;
+                const bool gutter = rng.uniform() < 0.3f;
+                const float hz = 1000.f * std::pow(3.f, rng.uniform()) * (gutter ? 1.6f : 1.f);
+                d.start(hz, 0.07f + 0.12f * rng.uniform(), 0.4f + 0.6f * rng.uniform(), 0.8f * rng.bipolar(), fsr, 0.2f, 0.015f);
+            }
+            float yl = 0, yr = 0;
+            for (auto &d : drops) { if (!d.on()) continue; const float y = d.next(); yl += y * d.gl; yr += y * d.gr; }
+            l[i] += yl; r[i] += yr;
+        }
+    }
+};
+
+// ---------------------------------------------------------------- A clock on the wall
+class Clock final : public AmbienceSource {
+    FastRandom rng;
+    Burst tick;
+    SVF body;
+    double toTick = 0.25;
+    bool tock = false;
+
+public:
+    explicit Clock(uint64_t seed) : rng(seed) { direct = 1.f; send = 0.5f; indoor = true; }
+    void render(float *l, float *r, int n, const AmbienceContext &c) override {
+        const double period = 1.0, invSr = 1.0 / (double)c.sr;
+        for (int i = 0; i < n; ++i) {
+            toTick -= invSr;
+            if (toTick <= 0) {
+                toTick += period;
+                tick.start(tock ? 2600.f : 3200.f, 4.f, 0.003f, 6.f, tock ? 0.15f : -0.15f, c.sr);
+                tock = !tock;
+            }
+            if (tick.on()) { const float y = tick.next(rng); l[i] += y * tick.gl; r[i] += y * tick.gr; }
+        }
+    }
+};
+
 } // namespace amb
 
 using namespace amb;
@@ -997,6 +1313,14 @@ Ambience::Ambience(double sampleRate, uint64_t seed) : sr(sampleRate), room(samp
     sources[ISD_AMB_ENGINE] = std::make_unique<EngineHum>(s(17));
     sources[ISD_AMB_WINDOW_WIND] = std::make_unique<WindowWind>(s(18));
     sources[ISD_AMB_PASSING_CAR] = std::make_unique<PassingCar>(s(19));
+    sources[ISD_AMB_FIRE] = std::make_unique<Fire>(s(20));
+    auto kettleSource = std::make_unique<Kettle>(s(21));
+    kettle = kettleSource.get();
+    sources[ISD_AMB_KETTLE] = std::move(kettleSource);
+    sources[ISD_AMB_STREET] = std::make_unique<Street>(s(22));
+    sources[ISD_AMB_DRIPS] = std::make_unique<Drips>(s(23));
+    sources[ISD_AMB_CLOCK] = std::make_unique<Clock>(s(24));
+    for (int i : {ISD_AMB_SHIP_HUM, ISD_AMB_AIR_FLOW, ISD_AMB_CHIME, ISD_AMB_HULL_TICKS}) sources[i]->indoor = true;
     closeness.init(sampleRate, 300.0);
     closeness.snap(0.5f);
 }
@@ -1012,6 +1336,11 @@ void Ambience::setLevel(int source, float level) {
 }
 
 void Ambience::triggerThunder(float distance) { thunder->trigger(distance); }
+
+void Ambience::startKettle() {
+    if (ramps[ISD_AMB_KETTLE].silent()) kettle->wake(ctx);
+    kettle->start(ctx);
+}
 
 void Ambience::triggerWave(float strength) {
     if (ramps[ISD_AMB_SURF].to <= 0.f) return;   // silent, or fading out as the world changes
@@ -1030,6 +1359,20 @@ void Ambience::render(float *left, float *right, int frames) {
 void Ambience::processBlock(float *left, float *right, int n) {
     for (int t = 0; t < n; ++t) closeness.next();
     ctx.speed += (speedTarget - ctx.speed) * (1.f - std::exp(-(float)n / (0.5f * (float)sr)));
+    // Indoors glides over about 2.5 s; wetness and snow on the glass over about a second.
+    const float glide = 1.f - std::exp(-(float)n / (0.8f * (float)sr)), slow = 1.f - std::exp(-(float)n / (0.3f * (float)sr));
+    indoors += (indoorsTarget - indoors) * glide;
+    if (std::fabs(indoorsTarget - indoors) < 1e-4f) indoors = indoorsTarget;
+    ctx.wetness += (wetTarget - ctx.wetness) * slow;
+    ctx.snowOnGlass += (snowTarget - ctx.snowOnGlass) * slow;
+    if (std::fabs(indoors - indoorsApplied) > 0.002f) {
+        indoorsApplied = indoors;
+        // The window: a 2-pole low-pass from 20 kHz (open air) down to 1.2 kHz (inside), and up to 9 dB quieter.
+        const float cutoff = 20000.f * std::pow(1200.f / 20000.f, indoors);
+        const float g = std::tan(kPi * std::min(cutoff, 0.45f * (float)sr) / (float)sr), k = 1.41421356f;
+        windowA1 = 1.f / (1.f + g * (g + k)); windowA2 = g * windowA1; windowA3 = g * windowA2;
+        windowGain = std::pow(10.f, -9.f * indoors / 20.f);
+    }
     const float c = closeness.value;
     if (std::fabs(c - closenessApplied) > 0.005f) {
         closenessApplied = c;
@@ -1042,24 +1385,30 @@ void Ambience::processBlock(float *left, float *right, int n) {
         room.configure(0.25f, 0.5f, 8.f, 0.f);
     }
 
+    // Outdoor sources (and thunder) and indoor ones on separate buses: only the outdoor ones go through the window.
     float dl[kBlock] = {}, dr[kBlock] = {}, sl[kBlock] = {}, sr2[kBlock] = {};
+    float ol[kBlock] = {}, orr[kBlock] = {}, osl[kBlock] = {}, osr[kBlock] = {};
     float tl[kBlock], tr[kBlock];
-    bool any = false;
+    bool any = false, outdoor = false;
     for (int i = 0; i < ISD_AMB_COUNT; ++i) {
         Ramp &r = ramps[i];
         if (r.silent()) continue;
         const float g0 = r.value, g1 = r.advance(n);
         std::fill(tl, tl + n, 0.f); std::fill(tr, tr + n, 0.f);
+        sources[i]->level = g1;
         sources[i]->render(tl, tr, n, ctx);
         const float k = kGain[i], d = sources[i]->direct, s = sources[i]->send, step = (g1 - g0) / (float)n;
+        const bool in = sources[i]->indoor;
+        float *bl = in ? dl : ol, *br = in ? dr : orr, *bsl = in ? sl : osl, *bsr = in ? sr2 : osr;
         float g = g0;
         for (int t = 0; t < n; ++t) {
             g += step;
             const float xl = tl[t] * g * k, xr = tr[t] * g * k;
-            dl[t] += xl * d; dr[t] += xr * d;
-            sl[t] += xl * s; sr2[t] += xr * s;
+            bl[t] += xl * d; br[t] += xr * d;
+            bsl[t] += xl * s; bsr[t] += xr * s;
         }
         any = true;
+        outdoor = outdoor || !in;
     }
     if (thunder->active()) {
         // A near clap peaks about −7 dBFS (RMS ≈ −18) and a far one sits near the beds; never into the limiter.
@@ -1068,9 +1417,23 @@ void Ambience::processBlock(float *left, float *right, int n) {
         thunder->render(tl, tr, n, (float)sr);
         for (int t = 0; t < n; ++t) {
             const float xl = tl[t] * kThunderGain, xr = tr[t] * kThunderGain;
-            dl[t] += xl; dr[t] += xr; sl[t] += 0.7f * xl; sr2[t] += 0.7f * xr;
+            ol[t] += xl; orr[t] += xr; osl[t] += 0.7f * xl; osr[t] += 0.7f * xr;
         }
-        any = true;
+        any = true; outdoor = true;
+    }
+    if (outdoor) {
+        float *bus[4] = {ol, orr, osl, osr};
+        const bool open = indoors <= 0.f;   // outdoors: exactly as before, while the filter keeps tracking
+        for (int b = 0; b < 4; ++b) {
+            OneSVF &f = window[b];
+            float *x = bus[b];
+            for (int t = 0; t < n; ++t) {
+                const float v3 = x[t] - f.ic2, v1 = windowA1 * f.ic1 + windowA2 * v3, v2 = f.ic2 + windowA2 * f.ic1 + windowA3 * v3;
+                f.ic1 = 2.f * v1 - f.ic1; f.ic2 = 2.f * v2 - f.ic2;
+                if (!open) x[t] = v2 * windowGain;
+            }
+        }
+        for (int t = 0; t < n; ++t) { dl[t] += ol[t]; dr[t] += orr[t]; sl[t] += osl[t]; sr2[t] += osr[t]; }
     }
     // Air absorption and width on the direct sound.
     if (any) {
@@ -1122,6 +1485,9 @@ struct ISDAmbience {
     std::atomic<float> speed{0.f}, surfDistance{0.f}, waveStrength{0.5f};
     std::atomic<int> waveSeq{0};
     int waveSeen = 0;
+    std::atomic<float> indoors{0.f}, wetness{0.f}, snowOnGlass{0.f};
+    std::atomic<int> kettleSeq{0};
+    int kettleSeen = 0;
     ISDAmbience(double sr, uint64_t seed) : engine(sr, seed) {
         for (int i = 0; i < ISD_AMB_COUNT; ++i) { levels[i].store(0.f); applied[i] = 0.f; }
     }
@@ -1162,6 +1528,11 @@ void isd_ambience_trigger_wave(ISDAmbience *a, float strength) {
 void isd_ambience_set_speed(ISDAmbience *a, float v) { if (a && std::isfinite(v)) a->speed.store(isd::clamp01(v), std::memory_order_relaxed); }
 void isd_ambience_set_surf_distance(ISDAmbience *a, float v) { if (a && std::isfinite(v)) a->surfDistance.store(isd::clamp01(v), std::memory_order_relaxed); }
 
+void isd_ambience_set_indoors(ISDAmbience *a, float v) { if (a && std::isfinite(v)) a->indoors.store(isd::clamp01(v), std::memory_order_relaxed); }
+void isd_ambience_set_wetness(ISDAmbience *a, float v) { if (a && std::isfinite(v)) a->wetness.store(isd::clamp01(v), std::memory_order_relaxed); }
+void isd_ambience_set_snow_on_glass(ISDAmbience *a, float v) { if (a && std::isfinite(v)) a->snowOnGlass.store(isd::clamp01(v), std::memory_order_relaxed); }
+void isd_ambience_debug_start_kettle(ISDAmbience *a) { if (a) a->kettleSeq.fetch_add(1, std::memory_order_release); }
+
 void isd_ambience_render(ISDAmbience *a, float *left, float *right, int frames) {
     if (!a || frames <= 0) return;
     isd::DenormalGuard guard;
@@ -1179,6 +1550,11 @@ void isd_ambience_render(ISDAmbience *a, float *left, float *right, int frames) 
     a->engine.setSurfDistance(a->surfDistance.load(std::memory_order_relaxed));
     const int waves = a->waveSeq.load(std::memory_order_acquire);
     if (waves != a->waveSeen) { a->waveSeen = waves; a->engine.triggerWave(a->waveStrength.load(std::memory_order_relaxed)); }
+    a->engine.setIndoors(a->indoors.load(std::memory_order_relaxed));
+    a->engine.setWetness(a->wetness.load(std::memory_order_relaxed));
+    a->engine.setSnowOnGlass(a->snowOnGlass.load(std::memory_order_relaxed));
+    const int kettles = a->kettleSeq.load(std::memory_order_acquire);
+    if (kettles != a->kettleSeen) { a->kettleSeen = kettles; a->engine.startKettle(); }
     a->engine.render(left, right, frames);
 }
 

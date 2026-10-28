@@ -74,6 +74,9 @@ public final class AmbienceAU: AUAudioUnit {
         isd_ambience_set_activity(a, Float(max(s.scene.activity, s.playing ? 1 : 0)))
         isd_ambience_set_speed(a, Float(s.scene.speed))
         isd_ambience_set_surf_distance(a, Float(s.scene.surfDistance))
+        isd_ambience_set_indoors(a, Float(s.scene.indoors))
+        isd_ambience_set_wetness(a, Float(s.scene.wetness))
+        isd_ambience_set_snow_on_glass(a, Float(s.scene.snowOnGlass))
         if let distance = thunder, s.enabled { isd_ambience_trigger_thunder(a, Float(distance)) }
         if let strength = wave, s.enabled { isd_ambience_trigger_wave(a, Float(strength)) }
     }
@@ -99,6 +102,11 @@ public final class AmbienceAU: AUAudioUnit {
         case .engine: return ISD_AMB_ENGINE
         case .windowWind: return ISD_AMB_WINDOW_WIND
         case .passingCar: return ISD_AMB_PASSING_CAR
+        case .fire: return ISD_AMB_FIRE
+        case .kettle: return ISD_AMB_KETTLE
+        case .street: return ISD_AMB_STREET
+        case .drips: return ISD_AMB_DRIPS
+        case .clock: return ISD_AMB_CLOCK
         }
     }
 
