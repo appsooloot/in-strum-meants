@@ -25,9 +25,9 @@ final class InspiredByCardTests: XCTestCase {
             let s = PreviewRenderer.stats(a)
             XCTAssertGreaterThan(s.meanLuminance, 0.05, c.id)
             XCTAssertGreaterThan(s.variance, 0.001, c.id)
-            // Half a beat later the art has moved.
-            let b = try XCTUnwrap(Self.render(c, at: 0.2 + c.pulsePeriod / 2), c.id)
-            XCTAssertGreaterThan(PreviewRenderer.difference(a, b), 0.0005, c.id)
+            // A beat later the art has moved (the rising ring is half way up; the bloom has opened further).
+            let b = try XCTUnwrap(Self.render(c, at: 0.2 + c.pulsePeriod), c.id)
+            XCTAssertGreaterThan(PreviewRenderer.difference(a, b), 0.001, c.id)
         }
     }
 }

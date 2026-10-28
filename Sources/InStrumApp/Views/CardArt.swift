@@ -75,11 +75,11 @@ enum CardArt {
         let cycle = 2 * pulse
         let k = (t.truncatingRemainder(dividingBy: cycle)) / cycle
         let cx = size.width * 0.72, cy = size.height * (0.92 - 0.8 * k)
-        let radius = 10 + 26 * k
+        let radius = 14 + 40 * k
         var ring = ctx
         ring.blendMode = .plusLighter
         let ringRect = CGRect(x: cx - radius, y: cy - radius * 0.45, width: radius * 2, height: radius * 0.9)
-        ring.stroke(Path(ellipseIn: ringRect), with: .color(.white.opacity(0.55 * (1 - k) * min(1, k * 6))), lineWidth: 1.5)
+        ring.stroke(Path(ellipseIn: ringRect), with: .color(.white.opacity(0.7 * (1 - k) * min(1, k * 6))), lineWidth: 2)
         // Surfacing: a brief brightening at the top.
         let surface = max(0, 1 - abs(k - 0.95) / 0.05)
         ring.fill(Path(rect), with: .linearGradient(Gradient(colors: [Color.white.opacity(0.12 * surface), .clear]),
