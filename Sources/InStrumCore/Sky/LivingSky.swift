@@ -62,12 +62,14 @@ public final class LivingSky {
         nextFlash = 3
     }
 
-    public func step(now: Date, dt rawDt: Double) -> SkyState {
+    /// `hold` keeps the sun at a chosen altitude for worlds that hold the light; everything else keeps running.
+    public func step(now: Date, dt rawDt: Double, hold: SkyHold = .follow) -> SkyState {
         let dt = min(1, max(0, rawDt))
         let reading = clock.read(now: now, dt: dt, settings: settings)
         var s = SkyState()
         let t = reading.instant
         s.sun = Solar.direction(at: t, from: clock.location)
+        if let altitude = hold.altitude { s.sun.altitude = altitude }
         s.moonPhase = reading.moonPhase
         if reading.virtualMoon {
             s.moon = clock.virtualMoon(at: t, phase: reading.moonPhase)
@@ -113,6 +115,28 @@ public final class LivingSky {
             return (weather.current == .storm ? 1 - b : 0) + (weather.next == .storm ? b : 0)
         }
         return weather.current == .storm ? 1 : 0
+    }
+}
+
+/// A world can hold the light at a favourite moment: only the sun's altitude is held (its direction, the moon,
+/// the clock and the weather keep running), and the Living Sky settings are never changed.
+public enum SkyHold: String, CaseIterable, Codable {
+    case follow = "Follow the sky", goldenHour = "Golden hour", blueHour = "Blue hour"
+
+    /// The held sun altitude in degrees, or nil to follow the sky.
+    public var altitude: Double? {
+        switch self {
+        case .follow: return nil
+        case .goldenHour: return 5
+        case .blueHour: return -6
+        }
+    }
+
+    /// The world parameter that chooses it.
+    public static func spec(default d: SkyHold) -> ParamSpec {
+        ParamSpec(id: "light.hold", name: "Hold the light", group: "Light",
+                  help: "Keep the world at golden hour or blue hour, or follow the Living Sky",
+                  kind: .choice(allCases.map(\.rawValue)), defaultValue: .choice(d.rawValue))
     }
 }
 
