@@ -12,7 +12,7 @@ constexpr float kRampSeconds = 2.5f;
 // rare events (owl, chime, ticks) are set by ear-safe peak levels. See AmbienceTests.
 const float kGain[ISD_AMB_COUNT] = {
     /* water */ 0.475f, /* crickets */ 0.50f, /* breeze */ 0.427f, /* owl */ 0.05f, /* rain on water */ 0.617f, /* rain on glass */ 0.708f,
-    /* dawn chorus */ 0.60f, /* ship hum */ 0.0758f, /* air flow */ 0.363f, /* chime */ 0.0525f, /* hull ticks */ 0.15f, /* wind */ 0.257f,
+    /* dawn chorus */ 0.60f, /* ship hum */ 0.0845f, /* air flow */ 0.363f, /* chime */ 0.0525f, /* hull ticks */ 0.15f, /* wind */ 0.257f,
 };
 
 /// sin(2πx) for x in cycles (any value). 9th-order odd polynomial after folding: error ≈ 2e-6.
@@ -466,7 +466,7 @@ public:
         for (int c = 0; c < 2; ++c)
             for (int h = 0; h < 3; ++h) {
                 tones[c][2 * h].start(f[h], 0, amp[h], sr);
-                tones[c][2 * h + 1].start(f[h] + 0.1f + 0.2f * rng.uniform(), 0, 0.7f * amp[h], sr);
+                tones[c][2 * h + 1].start(f[h] + 0.1f + 0.2f * rng.uniform(), 0, 0.45f * amp[h], sr);   // gentle beating
             }
         lowL.set(200.f, 0.7f, sr); lowR.set(200.f, 0.7f, sr);
     }
