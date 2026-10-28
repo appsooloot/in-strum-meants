@@ -203,6 +203,25 @@ final class SpaceshipLoungeRendererTests: XCTestCase {
         }
         XCTAssertGreaterThan(plainBeach.glitterOut, 0.3)
         XCTAssertLessThanOrEqual(gentleBeach.glitterOut, plainBeach.glitterOut * 0.55, "gentle visuals calm the sun's path")
+
+        let rd = SceneDirector(themeID: CoastRoadModel.id, state: ThemeState(values: ["lamps": .number(1), "bloom": .number(1)]),
+                               reaction: ReactionPresets.expressivePianist)
+        rd.sky.reset(settings: MoonlitLakeRendererTests.night)
+        rd.handle([60, 64, 67].map { .noteOn(note: $0, velocity: 0.9) }, at: 0)
+        var rf: RoadFrame?
+        for i in 0..<60 { rf = rd.step(dt: 1.0 / 30, t: Double(i) / 30, quality: .high) as? RoadFrame }
+        let roadFrame = try XCTUnwrap(rf)
+        XCTAssertGreaterThan(roadFrame.bloom, 0.5)
+        let plainRoad = try XCTUnwrap(CoastRoadRenderer(device: device))
+        let gentleRoad = try XCTUnwrap(CoastRoadRenderer(device: device))
+        for _ in 0..<10 {
+            plainRoad.update(roadFrame, params: rd.parameters, quality: .high, gentle: false, dt: 1.0 / 30, size: size)
+            gentleRoad.update(roadFrame, params: rd.parameters, quality: .high, gentle: true, dt: 1.0 / 30, size: size)
+        }
+        XCTAssertGreaterThan(plainRoad.bloomOut, 0.3)
+        XCTAssertGreaterThan(plainRoad.lampOut, 0.3)
+        XCTAssertLessThanOrEqual(gentleRoad.bloomOut, plainRoad.bloomOut * 0.55, "gentle visuals calm the chord bloom")
+        XCTAssertLessThanOrEqual(gentleRoad.lampOut, plainRoad.lampOut * 0.55, "and the lamps")
     }
 
     func testWarpFieldFollowsQuality() {
@@ -342,6 +361,107 @@ final class GoldenHourBeachRendererTests: XCTestCase {
     }
 }
 
+/// Coast Road (Set 4's world) with Coast Lights.
+@MainActor
+final class CoastRoadRendererTests: XCTestCase {
+    func testRoadShadersCompile() throws {
+        guard let device = MTLCreateSystemDefaultDevice() else { throw XCTSkip("No Metal device") }
+        let lib = try device.makeLibrary(source: CoastRoadShaders.source, options: nil)
+        for name in ["road_vertex", "road_fragment", "road_lights_vertex", "road_lights_fragment", "road_frame_fragment",
+                     "road_keys_vertex", "road_keys_fragment"] {
+            XCTAssertNotNil(lib.makeFunction(name: name), name)
+        }
+    }
+
+    /// Steps the road at 60 fps (notes go down at 0.5 s and stay held) and renders the frame at `seconds`.
+    private func renderRoad(notes: [UInt8], at seconds: Double, state: ThemeState, sky: SkySettings = GoldenHourBeachRendererTests.midday,
+                            width: Int = 640, height: Int = 360) throws -> (image: CGImage, renderer: CoastRoadRenderer) {
+        guard let device = MTLCreateSystemDefaultDevice() else { throw XCTSkip("No Metal device") }
+        let preview = try XCTUnwrap(PreviewRenderer(width: width, height: height))
+        let r = try XCTUnwrap(CoastRoadRenderer(device: device))
+        let d = SceneDirector(themeID: CoastRoadModel.id, state: state, reaction: ReactionPresets.expressivePianist)
+        let start = Date(timeIntervalSince1970: 1_793_000_000)
+        var elapsed = 0.0
+        d.clock = { start.addingTimeInterval(elapsed) }
+        d.sky.reset(settings: sky)
+        let size = CGSize(width: width, height: height)
+        for i in 1...Int(seconds * 60) {
+            let t = Double(i) / 60
+            elapsed = t
+            if i == 30 { d.handle(notes.map { .noteOn(note: $0, velocity: 1) }, at: t) }
+            if let f = d.step(dt: 1.0 / 60, t: t, quality: .high) as? RoadFrame {
+                r.update(f, params: d.parameters, quality: .high, gentle: false, dt: 1.0 / 60, size: size)
+            }
+        }
+        return (try XCTUnwrap(preview.capture(r)), r)
+    }
+
+    func testRoadPreviewIsStructured() throws {
+        guard MTLCreateSystemDefaultDevice() != nil else { throw XCTSkip("No Metal device") }
+        let preview = try XCTUnwrap(PreviewRenderer(width: 640, height: 360))
+        for q in [QualityLevel.lite, .high] {
+            let image = try XCTUnwrap(preview.render(themeID: CoastRoadModel.id, at: [5], quality: q,
+                                                     sky: GoldenHourBeachRendererTests.midday).first)
+            let s = PreviewRenderer.stats(image)
+            XCTAssertGreaterThan(s.meanLuminance, 0.03, "\(q)")
+            XCTAssertGreaterThan(s.variance, 0.001, "\(q)")
+        }
+    }
+
+    func testLampsLightAtBlueHour() throws {
+        // No notes, keys hidden: the lamps are the only change.
+        func patch(lamps: Double) throws -> Double {
+            let shot = try renderRoad(notes: [], at: 3, state: ThemeState(values: ["lamps": .number(lamps), "keys.show": .bool(false)]))
+            return PreviewRenderer.brightestPatch(shot.image, radius: 4)
+        }
+        let lit = try patch(lamps: 1), dark = try patch(lamps: 0)
+        XCTAssertGreaterThan(lit, 1.3 * dark, "lamps light up at blue hour")
+    }
+
+    func testCoastLightsShowWhilePlaying() throws {
+        let state = ThemeState(values: ["keys.show": .bool(false), "bloom": .number(0)])
+        let played = try renderRoad(notes: [36, 43, 52, 60, 64, 67, 76, 84, 91], at: 1.2, state: state)
+        let quiet = try renderRoad(notes: [], at: 1.2, state: state)
+        XCTAssertGreaterThan(played.renderer.lightCount, 4)
+        XCTAssertEqual(quiet.renderer.lightCount, 0)
+        XCTAssertGreaterThan(PreviewRenderer.difference(played.image, quiet.image), 0.002)
+    }
+
+    func testRoadFramesAnyAspect() throws {
+        for (w, h) in [(864, 360), (360, 360)] {
+            let shot = try renderRoad(notes: [60, 64, 67], at: 2, state: ThemeState(), width: w, height: h)
+            let s = PreviewRenderer.stats(shot.image)
+            XCTAssertGreaterThan(s.meanLuminance, 0.03, "\(w)×\(h)")
+            XCTAssertGreaterThan(s.variance, 0.001, "\(w)×\(h)")
+            XCTAssertEqual(shot.renderer.keyRects.count, 88)
+            for k in shot.renderer.keyRects {
+                XCTAssertGreaterThanOrEqual(k.x, -1); XCTAssertLessThanOrEqual(k.z, 1)
+                XCTAssertGreaterThanOrEqual(k.y, -1); XCTAssertLessThanOrEqual(k.w, 1)
+            }
+        }
+    }
+
+    func testLightBudgetFollowsQuality() {
+        XCTAssertEqual(CoastRoadRenderer.lightBudget(.lite), 64)
+        XCTAssertEqual(CoastRoadRenderer.lightBudget(.high), CoastLights.cap)
+    }
+
+    func testWeatherLayerReusesItsBuffers() throws {
+        guard let device = MTLCreateSystemDefaultDevice() else { throw XCTSkip("No Metal device") }
+        let preview = try XCTUnwrap(PreviewRenderer(width: 160, height: 90))
+        let r = try XCTUnwrap(SkyOnlyRenderer(device: device))
+        var s = SkySettings(); s.timeMode = .frozen; s.frozenHour = 13; s.cityID = "melbourne"; s.weatherMode = .pick; s.weather = .rain
+        let rain = LivingSky(settings: s, homeZone: TimeZone(identifier: "Australia/Melbourne")!)
+            .step(now: Date(timeIntervalSince1970: 1_793_000_000), dt: 0)
+        for i in 0..<120 {
+            r.update(rain, quality: .high, size: CGSize(width: 160, height: 90), dt: 1.0 / 60, time: Float(i) / 60, surface: .water(horizonY: -0.3))
+            _ = preview.capture(r)
+        }
+        XCTAssertGreaterThan(r.weather.particleCount, 300, "heavy enough to need a buffer")
+        XCTAssertLessThanOrEqual(r.weather.bufferAllocations, 4, "instance buffers are kept and grown, not made every frame")
+    }
+}
+
 /// World preview frames for the CI previews branch (PREVIEW_DIR).
 @MainActor
 final class WorldPreviewTests: XCTestCase {
@@ -393,6 +513,32 @@ final class WorldPreviewTests: XCTestCase {
         ]
         for (name, s, state, q, t) in cases {
             let image = try XCTUnwrap(preview.render(themeID: GoldenHourBeachModel.id, at: [t], state: state, quality: q, sky: s).first)
+            try PreviewRenderer.writePNG(image, to: url.appendingPathComponent("\(name).png"))
+        }
+    }
+
+    func testWriteRoadPreviews() throws {
+        guard let dir = ProcessInfo.processInfo.environment["PREVIEW_DIR"] else { throw XCTSkip("PREVIEW_DIR not set") }
+        guard MTLCreateSystemDefaultDevice() != nil else { throw XCTSkip("No Metal device") }
+        let url = URL(fileURLWithPath: dir, isDirectory: true)
+        try FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
+        let preview = try XCTUnwrap(PreviewRenderer(width: 1280, height: 720))
+        let held = ThemeState()
+        let golden = ThemeState(values: ["light.hold": .choice(SkyHold.goldenHour.rawValue)])
+        let follow = ThemeState(values: ["light.hold": .choice(SkyHold.follow.rawValue)])
+        let warp = ThemeState(values: ["visual": .choice("Galaxy Warp")])
+        let cases: [(String, SkySettings, ThemeState, QualityLevel, Double)] = [
+            ("road-blue", sky(hour: 13, phase: 0.5), held, .high, 5),
+            ("road-golden", sky(hour: 13, phase: 0.5), golden, .high, 5),
+            ("road-night", sky(hour: 1, phase: 0.5), follow, .high, 5),
+            ("road-rain", sky(hour: 13, phase: 0.5, weather: .rain), held, .high, 5),
+            ("road-fog", sky(hour: 13, phase: 0.5, weather: .mist), held, .high, 5),
+            ("road-smooth", sky(hour: 13, phase: 0.5), held, .lite, 5),
+            ("road-lights-t6", sky(hour: 13, phase: 0.5), held, .high, 6),
+            ("road-warp-t7", sky(hour: 13, phase: 0.5), warp, .high, 7),
+        ]
+        for (name, s, state, q, t) in cases {
+            let image = try XCTUnwrap(preview.render(themeID: CoastRoadModel.id, at: [t], state: state, quality: q, sky: s).first)
             try PreviewRenderer.writePNG(image, to: url.appendingPathComponent("\(name).png"))
         }
     }
