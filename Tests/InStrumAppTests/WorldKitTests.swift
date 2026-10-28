@@ -374,7 +374,7 @@ final class CoastRoadRendererTests: XCTestCase {
     }
 
     /// Steps the road at 60 fps (notes go down at 0.5 s and stay held) and renders the frame at `seconds`.
-    private func renderRoad(notes: [UInt8], at seconds: Double, state: ThemeState, sky: SkySettings = GoldenHourBeachRendererTests.midday,
+    private func renderRoad(notes: [UInt8], at seconds: Double, state: ThemeState, sky: SkySettings? = nil,
                             width: Int = 640, height: Int = 360) throws -> (image: CGImage, renderer: CoastRoadRenderer) {
         guard let device = MTLCreateSystemDefaultDevice() else { throw XCTSkip("No Metal device") }
         let preview = try XCTUnwrap(PreviewRenderer(width: width, height: height))
@@ -383,7 +383,7 @@ final class CoastRoadRendererTests: XCTestCase {
         let start = Date(timeIntervalSince1970: 1_793_000_000)
         var elapsed = 0.0
         d.clock = { start.addingTimeInterval(elapsed) }
-        d.sky.reset(settings: sky)
+        d.sky.reset(settings: sky ?? GoldenHourBeachRendererTests.midday)
         let size = CGSize(width: width, height: height)
         for i in 1...Int(seconds * 60) {
             let t = Double(i) / 60
