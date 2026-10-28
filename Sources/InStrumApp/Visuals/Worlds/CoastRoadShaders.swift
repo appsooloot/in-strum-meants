@@ -1,0 +1,274 @@
+/// Metal source for Coast Road: the view from the passenger seat, out the side window and down to the sea
+/// from about 60 m up. Far headlands in haze, the Ocean layer from height with white water at the cliff base,
+/// coastal scrub along the cliff edge, guardrail posts streaming past, road lamps lit from dusk, sea fog, the
+/// window frame and glass, Coast Lights (additive) and a dashboard-amber keyboard.
+/// Built on SkyShaders.common and OceanShaders.common. Smooth rules: no ray marching, ≤ 2 noise octaves on
+/// Smooth, and every scroll is a wrapped phase (the car can drive all night without a seam or a jump).
+enum CoastRoadShaders {
+    static let source = SkyShaders.common + OceanShaders.common + """
+    struct RoadU {
+        float4 a;   // keys top (NDC y), aspect, roll (radians), haze 0…1
+        float4 b;   // far scroll, mid scroll (wrapped to 40), post phase 0…1, lamp phase 0…1
+        float4 c;   // lamps lit 0…1 (after the limiter), night 0…1, speed 0…1, fog 0…1
+        float4 d;   // seconds since the last break (< 0 none), its strength, cliff-base scroll (wrapped), wind
+        float4 w;   // window: half width (x·aspect units), bottom, top, corner radius
+    };
+    struct RoadOut { float4 pos [[position]]; float2 ndc; };
+
+    constant float kSeaBelow = 60.0;        // metres from the road down to the sea
+    constant float kPostSpacing = 0.62;     // guardrail posts on screen (aspect units)
+    constant float kLampSpacing = 3.3;      // lamps on screen (aspect units)
+
+    vertex RoadOut road_vertex(uint vid [[vertex_id]]) {
+        float2 p[3] = { float2(-1, -1), float2(3, -1), float2(-1, 3) };
+        RoadOut o;
+        o.pos = float4(p[vid], 0, 1);
+        o.ndc = p[vid];
+        return o;
+    }
+
+    float sdRoundBox(float2 p, float2 b, float r) {
+        float2 q = abs(p) - b + r;
+        return length(max(q, 0.0)) + min(max(q.x, q.y), 0.0) - r;
+    }
+
+    /// Signed distance to the side window's glass (aspect units; > 0 outside it, on the car's trim). The front
+    /// edge (right: the car drives that way) slants with the A-pillar.
+    float windowDistance(float2 p, constant RoadU& u) {
+        float hw = u.w.x, bottom = u.w.y, top = u.w.z;
+        float2 c = float2(0.0, 0.5 * (bottom + top));
+        float d = sdRoundBox(p - c, float2(hw, 0.5 * (top - bottom)), u.w.w);
+        // The A-pillar: a slanted cut across the top-right corner.
+        float2 n = normalize(float2(1.0, 0.55));
+        d = max(d, dot(p - float2(hw - 0.05, top - 0.02), n) + 0.12);
+        return d;
+    }
+
+    /// The outside world's screen frame: rotated by the road's roll about the window's centre.
+    float2 outside(float2 ndc, constant RoadU& u) {
+        float2 p = float2(ndc.x * u.a.y, ndc.y);
+        float r = u.a.z, cr = cos(r), sr = sin(r);
+        return float2(p.x * cr - p.y * sr, p.x * sr + p.y * cr);
+    }
+
+    /// Where the scrub meets the sky or sea on screen (y), by x (aspect units) and the mid layer's scroll.
+    float scrubLine(float x, float scroll, float base) {
+        float n = vnoiseP(float3((x + scroll) * 1.6, 2.0, 1.0), 64.0) * 0.07
+                + vnoiseP(float3((x + scroll) * 5.0, 5.0, 3.0), 200.0) * 0.025;
+        return base + n;
+    }
+
+    fragment ColorDepth road_fragment(RoadOut in [[stage_in]], constant SkyU& sky [[buffer(0)]], constant RoadU& u [[buffer(1)]],
+                                      constant OceanU& o [[buffer(2)]]) {
+        ColorDepth out;
+        float2 ndc = in.ndc;
+        if (ndc.y < u.a.x) { out.color = float4(0, 0, 0, 1); out.depth = float4(0.05, 0, 0, 1); return out; }
+        float2 p = outside(ndc, u);
+        float3 d = normalize(sky.forward.xyz + sky.right.xyz * ndc.x * sky.right.w + sky.up.xyz * ndc.y * sky.up.w);
+        float alt = asin(clamp(d.z, -1.0, 1.0)), az = atan2(d.x, d.y);
+        float camAz = atan2(sky.forward.x, sky.forward.y);
+        float azRel = az - camAz;
+        if (azRel > 3.14159) azRel -= 6.28318;
+        if (azRel < -3.14159) azRel += 6.28318;
+        float3 horizon = sky.horizon.rgb, zenith = sky.zenith.rgb;
+        float haze = u.a.w, lampsLit = u.c.x, night = u.c.y, speed = u.c.z, fog = u.c.w;
+        float bottom = u.w.y;
+        float lightW = saturate(o.sun.w + o.moon.w);
+        float3 lightCol = (o.sun.w * o.sunColor.rgb + o.moon.w * o.moonColor.rgb) / max(o.sun.w + o.moon.w, 1e-3);
+        float3 hazeCol = horizon * (1.0 + 0.1 * night);
+        float3 lampCol = float3(1.0, 0.72, 0.42);
+        float3 ambient = zenith * 0.25 + horizon * 0.35;
+
+        // Near layers (aspect units, rolled with the world).
+        float railY = bottom + 0.2;
+        float scrubY = scrubLine(p.x, u.b.y, bottom + 0.34);
+        // Lamps: posts every kLampSpacing with an arm reaching over the road, lit from dusk.
+        float lampDx = (fract(p.x / kLampSpacing + u.b.w) - 0.5) * kLampSpacing;
+        float headY = u.w.z - 0.2;
+        float post = smoothstep(0.012, 0.007, abs(lampDx)) * step(p.y, headY + 0.015) * step(scrubY - 0.05, p.y);
+        float armY = headY + 0.012 + 0.16 * (lampDx / 0.16) * (1.0 - lampDx / 0.16) * 0.25;
+        float arm = smoothstep(0.008, 0.004, abs(p.y - armY)) * step(0.0, lampDx) * step(lampDx, 0.165);
+        float lampBody = max(post, arm);
+
+        float3 col = float3(0);
+        float alpha = 0.0;
+        float depth = 1.0;
+        if (p.y < scrubY) {
+            // The scrub along the cliff edge, then the guardrail and the road edge.
+            float n = vnoiseP(float3((p.x + u.b.y) * 9.0, p.y * 9.0, 2.0), 360.0);
+            float3 scrub = float3(0.05, 0.06, 0.035) * (0.6 + 0.6 * n);
+            col = scrub * (ambient + lightCol * lightW * 0.35) + scrub * float3(0.25, 0.22, 0.12) * (1.0 - night) * 0.3;
+            // The lamps' pools of light on the scrub.
+            float pool = exp(-(lampDx * lampDx) / 0.35) * exp(-max(scrubY - p.y, 0.0) / 0.25);
+            col += lampCol * pool * lampsLit * 0.35;
+            depth = 0.25;
+            // Guardrail posts streaming past, blurred by speed.
+            float postDx = (fract(p.x / kPostSpacing + u.b.z) - 0.5) * kPostSpacing;
+            float blur = 0.004 + 0.05 * speed;
+            float postCover = smoothstep(0.011 + blur, 0.011, abs(postDx)) * (0.011 / (0.011 + blur * 0.5)) * step(p.y, railY);
+            // The rail: a galvanised beam with a soft highlight from the sky and the lamps.
+            float beam = smoothstep(0.022, 0.016, abs(p.y - railY + 0.005));
+            float3 metal = float3(0.08, 0.085, 0.09) * (ambient * 1.6 + lightCol * lightW * 0.4)
+                         + lampCol * lampsLit * 0.12 * exp(-(lampDx * lampDx) / 0.6);
+            float shine = exp(-pow((p.y - railY - 0.008) / 0.005, 2.0));
+            col = mix(col, metal, max(beam, postCover * 0.95));
+            col += (horizon * 0.25 + lampCol * lampsLit * 0.3) * shine * beam;
+            // The road's edge below the rail.
+            if (p.y < bottom + 0.06) {
+                col = float3(0.018, 0.017, 0.016) * (ambient + 0.4) + lampCol * lampsLit * 0.03;
+                depth = 0.1;
+            }
+            alpha = 1.0;
+        } else if (alt < 0.0) {
+            // The sea from height (the Ocean layer, travelling with the car).
+            float t = kSeaBelow / max(-d.z, 1e-4);
+            float3 P = d * t;
+            float2 fwd = normalize(sky.forward.xy), rgt = float2(fwd.y, -fwd.x);
+            float f = dot(P.xy, fwd), s = dot(P.xy, rgt);
+            float2 q = float2(s, f);
+            float2 slope = oceanSlope(q, o);
+            float3 nrm = oceanNormal(slope, fwd, rgt);
+            col = oceanShade(d, nrm, q, f, sky, o);
+            // White water at the cliff base, surging with each break.
+            float above = p.y - scrubY;
+            float since = u.d.x, last = u.d.y, base = u.d.z;
+            float surge = last > 0.0 && since >= 0.0 ? last * exp(-since / 3.0) * smoothstep(0.0, 0.6, since) : 0.0;
+            float width = 0.02 + 0.03 * vnoiseP(float3((p.x + base) * 4.0, 1.0, 0.0), 200.0) + 0.04 * surge;
+            float lace = smoothstep(0.3, 0.7, vnoiseP(float3((p.x + base) * 12.0, above * 30.0, 2.0 * sin(o.phases.x)), 600.0));
+            float white = exp(-above / width) * (0.35 + 0.65 * lace) * (0.5 + 0.8 * surge);
+            float3 foamCol = (horizon * 0.55 + 0.3) * (0.5 + 0.6 * lightW) + lightCol * 0.2 * lightW;
+            col = mix(col, foamCol, saturate(white));
+            col = mix(col, hazeCol, saturate(haze * 0.75 * (1.0 - exp(-f / 900.0))));
+            depth = 0.6 + 0.4 * saturate(f / 3000.0);
+            alpha = 1.0;
+        } else {
+            // Far headlands: two or three ridgelines in haze above the horizon, scrolling very slowly.
+            float hl = -1.0;
+            for (int i = 0; i < 3; i++) {
+                float k = float(i);
+                float x = azRel * (2.0 + k) + u.b.x * (0.4 + 0.5 * k) + k * 7.3;
+                float present = smoothstep(0.35, 0.6, vnoise3(float3(x * 0.35, k, 0.0)));
+                float h = (0.4 + 0.45 * (3.0 - k) * present + 0.5 * vnoise3(float3(x * 2.0, k + 4.0, 1.0)) * present) * 0.0174533 * present;
+                if (alt < h && h > hl) {
+                    hl = h;
+                    float far = (3.0 - k) / 3.0;
+                    float3 c = mix(horizon, zenith, 0.35) * (0.25 + 0.15 * k) + o.sunColor.rgb * 0.02 * o.sun.w;
+                    col = mix(c, hazeCol, saturate(0.35 + 0.35 * far + 0.3 * haze));
+                }
+            }
+            if (hl > 0.0) { alpha = 1.0; depth = 0.97; }
+        }
+        // Premultiplied from here: lamp posts over everything, fog over the view, lamp heads glowing on top.
+        col *= alpha;
+        if (lampBody > 0.0) {
+            float3 postCol = float3(0.02, 0.02, 0.022) * (zenith + horizon * 0.5) + lampCol * lampsLit * 0.05;
+            col = col * (1.0 - lampBody) + postCol * lampBody;
+            alpha = alpha + (1.0 - alpha) * lampBody;
+            depth = min(depth, 0.2);
+        }
+        if (fog > 0.001) {
+            float fn = vnoiseP(float3((p.x + u.b.y * 0.625) * 0.8, p.y * 2.5, 1.0 + sin(o.phases.y)), 20.0);
+            float low = exp(-max(p.y - scrubY + 0.15, 0.0) / 0.5);
+            float3 fogCol = hazeCol * 0.95 + lampCol * lampsLit * 0.06;
+            float fa = saturate(fog * (0.25 + 0.75 * fn) * (0.35 + 0.65 * low)) * (alt < 0.0 || p.y < scrubY ? 1.0 : 0.5);
+            col = col * (1.0 - fa) + fogCol * fa;
+            alpha = alpha + (1.0 - alpha) * fa;
+        }
+        float2 head = float2(lampDx - 0.16, p.y - headY + 0.01);
+        float hd2 = dot(head * float2(1.0, 1.6), head * float2(1.0, 1.6));
+        col += lampCol * lampsLit * (exp(-hd2 / 0.0009) * 5.0 + exp(-hd2 / 0.012) * 0.6);
+        if (alpha < 0.002 && hd2 > 0.1) discard_fragment();
+        out.color = float4(col, alpha);
+        out.depth = float4(depth, 0, 0, 1);
+        return out;
+    }
+
+    // Coast Lights: per instance (x, y, trail length, radius) and (r, g, b, brightness), NDC before the roll.
+    struct LightInstance { float4 pos; float4 colour; };
+    struct LightOut { float4 pos [[position]]; float2 local; float4 colour; float trail; float radius; };
+    vertex LightOut road_lights_vertex(uint vid [[vertex_id]], uint iid [[instance_id]], constant LightInstance* lights [[buffer(0)]],
+                                       constant RoadU& u [[buffer(1)]]) {
+        float2 c[6] = { float2(0, 0), float2(1, 0), float2(0, 1), float2(1, 0), float2(1, 1), float2(0, 1) };
+        LightInstance l = lights[iid];
+        float r = l.pos.w, trail = l.pos.z;
+        float2 lo = float2(-r * 2.5, -r * 2.5), hi = float2(trail + r * 2.5, r * 2.5);
+        float2 local = mix(lo, hi, c[vid]);
+        // Aspect units, rotated by the roll, then back to NDC.
+        float aspect = u.a.y, ro = u.a.z, cr = cos(ro), sr = sin(ro);
+        float2 q = float2(l.pos.x * aspect + local.x, l.pos.y + local.y);
+        float2 rq = float2(q.x * cr + q.y * sr, -q.x * sr + q.y * cr);   // the world's frame back to the screen's
+        LightOut o;
+        o.pos = float4(rq.x / aspect, rq.y, 0, 1);
+        o.local = local;
+        o.colour = l.colour;
+        o.trail = trail;
+        o.radius = r;
+        return o;
+    }
+    fragment float4 road_lights_fragment(LightOut in [[stage_in]]) {
+        float r = in.radius;
+        float2 q = in.local;
+        float core = exp(-dot(q, q) / (r * r));
+        float along = saturate(q.x / max(in.trail, 1e-4));
+        float streak = in.trail > 0.0 && q.x > 0.0 ? exp(-(q.y * q.y) / (r * r * 0.25)) * pow(1.0 - along, 2.0) * step(q.x, in.trail) : 0.0;
+        float3 c = in.colour.rgb * in.colour.w * (core * 2.2 + streak * 0.9 + exp(-dot(q, q) / (r * r * 5.0)) * 0.25);
+        return float4(c, 0.0);
+    }
+
+    // The car around the window: door trim and headliner lit by the sky and the dashboard, a rubber seal
+    // along the glass, and faint reflections on the glass itself.
+    fragment ColorDepth road_frame_fragment(RoadOut in [[stage_in]], constant RoadU& u [[buffer(1)]], constant SkyU& sky [[buffer(0)]]) {
+        float2 ndc = in.ndc;
+        float2 p = float2(ndc.x * u.a.y, ndc.y);
+        float dist = windowDistance(p, u);
+        float px = 2.0 / 720.0;
+        float cover = smoothstep(-px, px, dist);
+        float3 ambient = sky.zenith.rgb * 0.08 + sky.horizon.rgb * 0.12;
+        float3 dash = float3(1.0, 0.55, 0.18);
+        float keysTop = u.a.x;
+        if (cover < 0.004) {
+            // On the glass: a faint diagonal sheen and the dashboard's glow reflected low down.
+            float sheen = exp(-pow((p.x * 0.35 + p.y - 0.25) / 0.35, 2.0)) * 0.025;
+            float dashRefl = exp(-max(p.y - u.w.y, 0.0) / 0.12) * 0.04;
+            float3 c = ambient * sheen * 3.0 + dash * dashRefl * 0.25;
+            ColorDepth o; o.color = float4(c, 0.0); o.depth = float4(0.05, 0, 0, 0);
+            return o;
+        }
+        float3 trim = float3(0.018, 0.017, 0.016) + ambient * 0.5;
+        trim += dash * 0.05 * exp(-max(ndc.y - keysTop, 0.0) / 0.3);          // the dashboard's glow on the door
+        trim *= 0.8 + 0.2 * smoothstep(-1.0, 1.0, ndc.y);
+        float seal = exp(-max(dist, 0.0) / 0.01);
+        trim = mix(trim, float3(0.006), seal * 0.6);
+        trim += (sky.horizon.rgb * 0.06) * exp(-pow((dist - 0.018) / 0.006, 2.0));   // a lit edge on the trim
+        ColorDepth o;
+        o.color = float4(trim * cover, cover);
+        o.depth = float4(0.04, 0, 0, 1);
+        return o;
+    }
+
+    // Keys: rect (x0, y0, x1, y1) and info (isBlack, glow, pressed, light); dashboard amber.
+    struct RoadKey { float4 rect; float4 info; };
+    struct RoadKeyOut { float4 pos [[position]]; float2 uv; float4 info; };
+    vertex RoadKeyOut road_keys_vertex(uint vid [[vertex_id]], uint iid [[instance_id]], constant RoadKey* keys [[buffer(0)]]) {
+        float2 c[6] = { float2(0, 0), float2(1, 0), float2(0, 1), float2(1, 0), float2(1, 1), float2(0, 1) };
+        RoadKey k = keys[iid];
+        RoadKeyOut o;
+        o.uv = c[vid];
+        o.pos = float4(mix(k.rect.xy, k.rect.zw, o.uv), 0, 1);
+        o.info = k.info;
+        return o;
+    }
+    fragment ColorDepth road_keys_fragment(RoadKeyOut in [[stage_in]]) {
+        bool black = in.info.x > 0.5;
+        float glow = in.info.y, pressed = in.info.z, light = in.info.w;
+        float3 base = black ? float3(0.004, 0.004, 0.005) : float3(0.03, 0.03, 0.032);
+        float sheen = pow(in.uv.y, 6.0) * (black ? 0.04 : 0.1) * (1.0 - 0.5 * pressed);
+        float edge = smoothstep(0.0, 0.06, in.uv.x) * smoothstep(1.0, 0.94, in.uv.x);
+        float3 amber = float3(1.0, 0.55, 0.18);
+        float3 c = base + float3(0.8, 0.8, 0.85) * sheen * (0.3 + 0.5 * light) + amber * glow * (1.7 * (0.3 + 0.7 * in.uv.y));
+        c *= 0.55 + 0.45 * edge;
+        ColorDepth o; o.color = float4(c, 1); o.depth = float4(0.05, 0, 0, 1);
+        return o;
+    }
+    """
+}

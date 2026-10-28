@@ -120,8 +120,6 @@ enum OceanShaders {
 /// The sea's tile across the shore (metres): a camera travelling along the coast passes its distance wrapped to it.
 enum OceanTile {
     static let metres = 400.0
-    /// The swell components' across-shore wavenumbers × the tile, in cycles (whole numbers, so the tile repeats).
-    static let cycles: [Double] = [0, 0.3926991 * 0.08, -0.4619989 * 0.17, 0.1208305 * 0.26].map { $0 * 400 / (2 * .pi) }
     static func wrap(_ distance: Double) -> Float { Float(distance.truncatingRemainder(dividingBy: metres)) }
 }
 

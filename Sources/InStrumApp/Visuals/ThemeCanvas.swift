@@ -15,6 +15,7 @@ final class ThemeCanvas: NSObject, MTKViewDelegate {
     private var moonlitLake: MoonlitLakeRenderer?
     private var lounge: SpaceshipLoungeRenderer?
     private var beach: GoldenHourBeachRenderer?
+    private var road: CoastRoadRenderer?
     private var autoQuality: AutoQuality
     private var lastTime: CFTimeInterval = 0
     private var seenVersion = -1
@@ -111,6 +112,10 @@ final class ThemeCanvas: NSObject, MTKViewDelegate {
             if beach == nil { beach = GoldenHourBeachRenderer(device: device) }
             beach?.update(b, params: director.parameters, quality: level, gentle: model.gentleVisuals, dt: dt, size: size)
             renderer = beach
+        } else if let r = frame as? RoadFrame {
+            if road == nil { road = CoastRoadRenderer(device: device) }
+            road?.update(r, params: director.parameters, quality: level, gentle: model.gentleVisuals, dt: dt, size: size)
+            renderer = road
         } else {
             renderer = nil
         }

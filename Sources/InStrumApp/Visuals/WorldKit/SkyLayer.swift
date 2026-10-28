@@ -16,6 +16,8 @@ final class SkyLayer {
     var viewAzimuth: Double?
     var horizonY: Float = -0.33
     var verticalFOV: Double = 60
+    /// The view's roll in degrees (a road's gentle curves); 0 keeps the horizon level.
+    var roll: Double = 0
     /// Apparent sizes are enlarged for the screen (real: 0.26°), as a long lens would show them.
     var moonRadiusDegrees: Double = 1.25
     var sunRadiusDegrees: Double = 0.9
@@ -50,7 +52,9 @@ final class SkyLayer {
         let right = SIMD3<Float>(Float(cos(az)), Float(-sin(az)), 0)
         let forward = f0 * cos(pitch) + up0 * sin(pitch)
         let up = -f0 * sin(pitch) + up0 * cos(pitch)
-        return (right, up, forward, tanV * aspect, tanV)
+        guard roll != 0 else { return (right, up, forward, tanV * aspect, tanV) }
+        let r = Float(roll * .pi / 180)
+        return (right * cos(r) + up * sin(r), up * cos(r) - right * sin(r), forward, tanV * aspect, tanV)
     }
 
     func update(_ s: SkyState, quality: QualityLevel, size: CGSize, time: Float) {
@@ -88,6 +92,10 @@ final class WeatherLayer {
 
     var gentle = false
     private(set) var particleCount = 0
+    /// Instance buffers made so far: a ring of three, grown only when too small (never one per frame).
+    private(set) var bufferAllocations = 0
+    private var ring: [MTLBuffer?] = [nil, nil, nil]
+    private var slot = 0
     /// Multiply into the world's exposure (1 = no lightning).
     private(set) var exposureBoost: Float = 1
 
@@ -216,23 +224,31 @@ final class WeatherLayer {
     }
 
     func draw(_ e: MTLRenderCommandEncoder) {
-        func drawSet(_ pipeline: MTLRenderPipelineState, _ items: [SIMD4<Float>], kind: Float) {
-            guard !items.isEmpty else { return }
+        let sets: [(MTLRenderPipelineState, [SIMD4<Float>], Float)] = [
+            (particlePipeline, instances, kind), (ringPipeline, ringInstances, 0), (particlePipeline, beadInstances, 2),
+        ]
+        // This frame's slot in the ring holds all three sets (256-byte aligned); it grows only when too small.
+        func aligned(_ n: Int) -> Int { (n + 255) / 256 * 256 }
+        let total = sets.reduce(0) { $0 + aligned($1.1.count * MemoryLayout<SIMD4<Float>>.stride) }
+        guard total > 0 else { return }
+        slot = (slot + 1) % ring.count
+        if (ring[slot]?.length ?? 0) < total {
+            ring[slot] = e.device.makeBuffer(length: max(total, 64 * 1024), options: .storageModeShared)
+            bufferAllocations += 1
+        }
+        guard let buf = ring[slot] else { return }
+        var offset = 0
+        for (pipeline, items, kind) in sets where !items.isEmpty {
+            let bytes = items.count * MemoryLayout<SIMD4<Float>>.stride
+            items.withUnsafeBytes { raw in (buf.contents() + offset).copyMemory(from: raw.baseAddress!, byteCount: bytes) }
             var u = SIMD4<Float>(aspect, kind, tilt, brightness)
             e.setRenderPipelineState(pipeline)
-            items.withUnsafeBytes { raw in
-                if raw.count <= 4096 { e.setVertexBytes(raw.baseAddress!, length: raw.count, index: 0) }
-                else if let buf = e.device.makeBuffer(bytes: raw.baseAddress!, length: raw.count, options: .storageModeShared) {
-                    e.setVertexBuffer(buf, offset: 0, index: 0)
-                }
-            }
+            e.setVertexBuffer(buf, offset: offset, index: 0)
             e.setVertexBytes(&u, length: MemoryLayout<SIMD4<Float>>.size, index: 1)
             e.setFragmentBytes(&u, length: MemoryLayout<SIMD4<Float>>.size, index: 0)
             e.drawPrimitives(type: .triangle, vertexStart: 0, vertexCount: 6, instanceCount: items.count)
+            offset += aligned(bytes)
         }
-        drawSet(particlePipeline, instances, kind: kind)
-        drawSet(ringPipeline, ringInstances, kind: 0)
-        drawSet(particlePipeline, beadInstances, kind: 2)
     }
 }
 
