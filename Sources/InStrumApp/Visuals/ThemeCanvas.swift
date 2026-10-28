@@ -13,6 +13,7 @@ final class ThemeCanvas: NSObject, MTKViewDelegate {
     private var butterfly: ButterflyRenderer?
     private var steinway: SteinwayRenderer?
     private var moonlitLake: MoonlitLakeRenderer?
+    private var lounge: SpaceshipLoungeRenderer?
     private var autoQuality: AutoQuality
     private var lastTime: CFTimeInterval = 0
     private var seenVersion = -1
@@ -97,6 +98,10 @@ final class ThemeCanvas: NSObject, MTKViewDelegate {
             if moonlitLake == nil { moonlitLake = MoonlitLakeRenderer(device: device) }
             moonlitLake?.update(l, params: director.parameters, quality: level, gentle: model.gentleVisuals, dt: dt, size: size)
             renderer = moonlitLake
+        } else if let l = frame as? LoungeFrame {
+            if lounge == nil { lounge = SpaceshipLoungeRenderer(device: device) }
+            lounge?.update(l, params: director.parameters, quality: level, gentle: model.gentleVisuals, dt: dt, size: size)
+            renderer = lounge
         } else {
             renderer = nil
         }

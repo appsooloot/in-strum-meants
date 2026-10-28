@@ -42,6 +42,7 @@ final class PreviewRenderer {
         var next = 0, time = 0.0
         let dt = 1.0 / 60
         var garden: ButterflyRenderer?, steinway: SteinwayRenderer?, moonlitLake: MoonlitLakeRenderer?
+        var lounge: SpaceshipLoungeRenderer?
         var images: [CGImage] = []
         for t in times.sorted() {
             var current: ThemeRenderer?
@@ -68,6 +69,10 @@ final class PreviewRenderer {
                     if moonlitLake == nil { moonlitLake = MoonlitLakeRenderer(device: device) }
                     moonlitLake?.update(l, params: director.parameters, quality: quality, gentle: false, dt: dt, size: size)
                     current = moonlitLake
+                } else if let l = frame as? LoungeFrame {
+                    if lounge == nil { lounge = SpaceshipLoungeRenderer(device: device) }
+                    lounge?.update(l, params: director.parameters, quality: quality, gentle: false, dt: dt, size: size)
+                    current = lounge
                 }
                 if time + dt > t { break }
             }

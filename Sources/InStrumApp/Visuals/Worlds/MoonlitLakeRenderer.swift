@@ -13,6 +13,8 @@ final class MoonlitLakeRenderer: ThemeRenderer {
     private let device: MTLDevice
     private let sky: SkyLayer
     let weather: WeatherLayer
+    let warp: WarpLayer
+    private var showWarp = false
     private let lake, glow, keys: MTLRenderPipelineState
     private var lakeU = [SIMD4<Float>](repeating: .zero, count: 4 + 2 * LakeRipples.cap)
     private var fireflies: [SIMD4<Float>] = []
@@ -25,7 +27,7 @@ final class MoonlitLakeRenderer: ThemeRenderer {
     private struct KeyInstance { var rect: SIMD4<Float>; var info: SIMD4<Float> }
 
     init?(device: MTLDevice) {
-        guard let s = SkyLayer(device: device), let w = WeatherLayer(device: device),
+        guard let s = SkyLayer(device: device), let w = WeatherLayer(device: device), let gw = WarpLayer(device: device),
               let lib = try? device.makeLibrary(source: MoonlitLakeShaders.source, options: nil) else { return nil }
         func make(_ v: String, _ f: String, additive: Bool) -> MTLRenderPipelineState? {
             let d = MTLRenderPipelineDescriptor()
@@ -46,7 +48,7 @@ final class MoonlitLakeRenderer: ThemeRenderer {
               let g = make("firefly_vertex", "firefly_fragment", additive: true),
               let k = make("lake_keys_vertex", "lake_keys_fragment", additive: false) else { return nil }
         self.device = device
-        sky = s; weather = w; lake = l; glow = g; keys = k
+        sky = s; weather = w; warp = gw; lake = l; glow = g; keys = k
         sky.verticalFOV = 62
     }
 
@@ -93,6 +95,12 @@ final class MoonlitLakeRenderer: ThemeRenderer {
         weather.gentle = gentle
         weather.update(s, quality: quality, size: size, dt: dt, surface: .water(horizonY: horizonY))
         let cam = sky.camera(latitude: s.latitude, aspect: aspect)
+        // Galaxy Warp streams out of the sky above the lake (the ridges and water draw over it).
+        showWarp = frame.warp != nil
+        if let w = frame.warp {
+            warp.centre = SIMD2(0, horizonY + (1 - horizonY) * 0.45)
+            warp.update(w, trails: 0.6, nebula: 0.7, quality: quality, size: size, dt: dt, time: time)
+        }
 
         // The light on the water: the moon at night, the sun by day.
         let sunAlt = s.sun.altitude, moonAlt = s.moon.altitude
@@ -187,6 +195,7 @@ final class MoonlitLakeRenderer: ThemeRenderer {
         guard let pass = stack.scenePass(clear: MTLClearColor(red: 0, green: 0, blue: 0, alpha: 1)),
               let e = cb.makeRenderCommandEncoder(descriptor: pass) else { return }
         sky.draw(e)
+        if showWarp { warp.draw(e) }
 
         let skyU = sky.uniforms
         e.setRenderPipelineState(lake)

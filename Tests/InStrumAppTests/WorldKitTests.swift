@@ -189,6 +189,29 @@ final class WorldPreviewTests: XCTestCase {
             try PreviewRenderer.writePNG(image, to: url.appendingPathComponent("\(name).png"))
         }
     }
+
+    func testWriteLoungePreviews() throws {
+        guard let dir = ProcessInfo.processInfo.environment["PREVIEW_DIR"] else { throw XCTSkip("PREVIEW_DIR not set") }
+        guard MTLCreateSystemDefaultDevice() != nil else { throw XCTSkip("No Metal device") }
+        let url = URL(fileURLWithPath: dir, isDirectory: true)
+        try FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
+        let preview = try XCTUnwrap(PreviewRenderer(width: 1280, height: 720))
+        let cases: [(String, SkySettings, QualityLevel, Double)] = [
+            ("lounge-t5", sky(hour: 22, phase: 0.55), .high, 5),
+            ("lounge-warp-t7", sky(hour: 22, phase: 0.55), .high, 7),
+            ("lounge-smooth-t5", sky(hour: 22, phase: 0.55), .lite, 5),
+            ("lounge-sunrise-t5", sky(hour: 5.9, phase: 0.3), .high, 5),
+            ("lounge-day-t5", sky(hour: 13, phase: 0.7), .high, 5),
+        ]
+        for (name, s, q, t) in cases {
+            let image = try XCTUnwrap(preview.render(themeID: SpaceshipLoungeModel.id, at: [t], quality: q, sky: s, mood: .dreamy).first)
+            try PreviewRenderer.writePNG(image, to: url.appendingPathComponent("\(name).png"))
+        }
+        let warpLake = ThemeState(values: ["visual": .choice("Galaxy Warp")])
+        let image = try XCTUnwrap(preview.render(themeID: MoonlitLakeModel.id, at: [7], state: warpLake, quality: .high,
+                                                 sky: sky(hour: 22, phase: 0.55), mood: .serene).first)
+        try PreviewRenderer.writePNG(image, to: url.appendingPathComponent("lake-warp-t7.png"))
+    }
 }
 
 /// Living Sky preview frames for the CI previews branch (PREVIEW_DIR).

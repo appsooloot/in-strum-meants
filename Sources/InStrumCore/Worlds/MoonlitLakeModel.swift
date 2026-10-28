@@ -15,7 +15,8 @@ public struct LakeFrame: AmbienceProviding {
     public var ambience: AmbienceScene
     public var mood: Mood
     public var time: Double
-    public var warp: WarpFrame? = nil
+    /// Galaxy Warp over the lake's sky, when it's the chosen visual (notes then streak instead of rippling).
+    public var warp: WarpFrame?
 }
 
 /// Set 1's world: a still lake under the Living Sky, ridges and pines, reeds and mist.
@@ -24,11 +25,12 @@ public struct MoonlitLakeModel: ThemeModel, MoodAware, SkyAware {
     public typealias Frame = LakeFrame
     public static let id = "moonlit-lake"
     public static let displayName = "Moonlit Lake"
-    public static let visuals = ["Lake Ripples"]
+    public static let visuals = ["Lake Ripples", "Galaxy Warp"]
 
     public var mood = Mood.neutral
     private var sky = SkyState()
     private var lake = LakeRipples()
+    private var warp = GalaxyWarp()
     private var pending: [PerformanceEvent] = []
     private var held: [UInt8: Float] = [:]
     private var pedal = false
@@ -52,19 +54,23 @@ public struct MoonlitLakeModel: ThemeModel, MoodAware, SkyAware {
         lake.fireflyAmount = Float(p.number("fireflies"))
         lake.reactionScale = MoodLook.reactionScale(mood)
         lake.lingerScale = MoodLook.lingerScale(mood)
+        let warping = p.choice("visual") == "Galaxy Warp"
         for e in pending {
             switch e {
             case let .noteOn(note, velocity):
                 held[note] = velocity
-                lake.noteOn(note, velocity: UInt8(min(127, max(0, (velocity * 127).rounded()))), pedal: pedal, at: time)
+                let v = UInt8(min(127, max(0, (velocity * 127).rounded())))
+                if warping { warp.noteOn(note, velocity: v, at: time) } else { lake.noteOn(note, velocity: v, pedal: pedal, at: time) }
             case let .noteOff(note):
                 held[note] = nil
                 lake.noteOff(note)
+                warp.noteOff(note)
             case let .pedal(down, _):
                 pedal = down
             case .allNotesOff:
                 held.removeAll()
                 lake.allNotesOff()
+                warp.allNotesOff()
                 keyGlow = .init(repeating: 0, count: 88)
             default:
                 break
@@ -72,6 +78,7 @@ public struct MoonlitLakeModel: ThemeModel, MoodAware, SkyAware {
         }
         pending.removeAll(keepingCapacity: true)
         lake.step(dt: dt, roles: roles)
+        let warpFrame = warp.step(dt: dt, roles: roles, inputs: inputs)
 
         // Keys glow moon-silver while held, then fade (longer when lingering).
         let fall = Float(pow(0.5, dt / (roles[.linger] > 0.5 ? 1.2 : 0.3)))
@@ -82,7 +89,7 @@ public struct MoonlitLakeModel: ThemeModel, MoodAware, SkyAware {
         let keys = Self.layout.map { k in KeyVisual(key: k, pressed: held[k.note] != nil, glow: keyGlow[Int(k.note) - 21]) }
 
         return LakeFrame(sky: sky, ripples: lake.ripples, fireflies: lake.fireflies, glitter: lake.glitter, keys: keys,
-                         ambience: ambience(roles: roles), mood: mood, time: time)
+                         ambience: ambience(roles: roles), mood: mood, time: time, warp: warping ? warpFrame : nil)
     }
 
     /// The lake's soundscape, following the sky and your playing.
