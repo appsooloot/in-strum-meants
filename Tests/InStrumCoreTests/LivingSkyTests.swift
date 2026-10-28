@@ -365,6 +365,29 @@ extension LivingSkyTests {
         XCTAssertTrue(WeatherKind.storm.isRough && !WeatherKind.rain.isRough)
     }
 
+    func testCloudStarAndLightningSettings() {
+        var s = SkySettings(); s.timeMode = .frozen; s.frozenHour = 1; s.cityID = "melbourne"; s.weatherMode = .pick; s.weather = .lightCloud
+        let base = LivingSky(settings: s, homeZone: melbourneZone).step(now: start, dt: 0)
+        s.cloudScale = 0; s.starScale = 0.5
+        let dim = LivingSky(settings: s, homeZone: melbourneZone).step(now: start, dt: 0)
+        XCTAssertEqual(dim.cloudCover, 0)
+        XCTAssertEqual(dim.starVisibility, base.starVisibility * 0.5, accuracy: 1e-4)
+        func flashes(_ freq: Double) -> Int {
+            var t = SkySettings(); t.timeMode = .frozen; t.cityID = "melbourne"; t.weatherMode = .pick; t.weather = .storm; t.lightningFrequency = freq
+            let sky = LivingSky(settings: t, homeZone: melbourneZone)
+            var now = start, n = 0, was: Float = 0
+            for _ in 0..<(300 * 30) {
+                now = now.addingTimeInterval(1.0 / 30)
+                let l = sky.step(now: now, dt: 1.0 / 30).lightning
+                if l > 0.9 && was <= 0.9 { n += 1 }
+                was = l
+            }
+            return n
+        }
+        XCTAssertGreaterThan(flashes(3), 2 * flashes(1) - 4, "triple frequency flashes far more often")
+        XCTAssertGreaterThan(flashes(1), flashes(0.25), "and a quarter frequency flashes far less")
+    }
+
     func testRainMeltsFrost() {
         let s = sky(.snow)
         XCTAssertEqual(s.step(now: start, dt: 0).frost, 0.6, accuracy: 0.01)

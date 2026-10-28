@@ -151,7 +151,7 @@ public final class LivingSky {
         let storm = stormAmount()
         if storm > 0.5 {
             nextFlash -= dt
-            if nextFlash <= 0 { lightning = 1; nextFlash = Double(rng.range(6, 20)) }
+            if nextFlash <= 0 { lightning = 1; nextFlash = Double(rng.range(6, 20)) / min(3, max(0.25, settings.lightningFrequency)) }
         } else {
             nextFlash = Double(rng.range(2, 8))
         }
@@ -172,6 +172,8 @@ public final class LivingSky {
         s.rain = scaled(s.rain, settings.rainScale, 1)
         s.snow = scaled(s.snow, settings.snowScale, 1)
         s.gust = scaled(s.gust, settings.gustScale, 1)
+        s.cloudCover = scaled(s.cloudCover, settings.cloudScale, 1)
+        s.starVisibility = scaled(s.starVisibility, settings.starScale, 1)
         return s
     }
 
