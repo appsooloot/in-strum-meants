@@ -41,6 +41,13 @@ final class InspiredByCardTests: XCTestCase {
         return renderer.cgImage
     }
 
+    /// "Stay" is felt in half time, so its card breathes at 67, not 134.
+    func testStayCardBreathesAtHalfTempo() throws {
+        let art = try XCTUnwrap(CardArt.art(for: CreditLibrary.stay.id))
+        XCTAssertEqual(art.pulse(for: CreditLibrary.stay), 60.0 / 67, accuracy: 1e-9)
+        XCTAssertEqual(CardArt.highByTheBeach.pulse(for: CreditLibrary.highByTheBeach), 60.0 / 132, accuracy: 1e-9)
+    }
+
     func testCardsDrawTheirArtAndBreatheWithTheTempo() throws {
         for c in CreditLibrary.all {
             let a = try XCTUnwrap(Self.render(c, at: 0.2), c.id)

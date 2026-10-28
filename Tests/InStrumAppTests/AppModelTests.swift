@@ -622,6 +622,19 @@ final class AppModelTests: XCTestCase {
         XCTAssertEqual(credit?.key, "C♯ minor"); XCTAssertEqual(credit?.tempoBPM, 132)
     }
 
+    func testCabinFeltPresetsCarryTheirCredit() {
+        let presets = PatchLibrary.patches(for: .cabinFelt)
+        XCTAssertEqual(presets.map(\.id), ["cabin-felt", "fireside", "snow-horn", "late-night"])
+        for p in presets { XCTAssertTrue(p.displayName.hasSuffix("· after \"Stay\""), p.displayName) }
+        XCTAssertEqual(PatchLibrary.defaultPatch(for: .cabinFelt).id, "cabin-felt")
+        XCTAssertEqual(PatchLibrary.defaultPatch(for: .cabinFelt).values["horn"], 0.30)
+        XCTAssertEqual(presets.first { $0.id == "fireside" }?.values["horn"], 0, "Fireside is piano only")
+        let credit = CreditLibrary.credit(id: "stay")
+        XCTAssertEqual(credit?.song, "Stay"); XCTAssertEqual(credit?.artist, "Mac Miller")
+        XCTAssertEqual(credit?.album, "The Divine Feminine"); XCTAssertEqual(credit?.year, 2016)
+        XCTAssertEqual(credit?.trackNumber, 3); XCTAssertEqual(credit?.key, "F♯ major"); XCTAssertEqual(credit?.tempoBPM, 134)
+    }
+
     func testHazeBellsPresetsCarryTheirCredit() {
         let presets = PatchLibrary.patches(for: .hazeBells)
         XCTAssertEqual(presets.map(\.id), ["haze-bells", "church-keys", "night-drive", "lo-fi"])
