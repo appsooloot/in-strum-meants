@@ -38,7 +38,8 @@ final class BioluminescentBayRenderer: ThemeRenderer {
 
     typealias Camera = (right: SIMD3<Float>, up: SIMD3<Float>, forward: SIMD3<Float>, tanH: Float, tanV: Float)
 
-    private let sky: SkyLayer
+    /// The bay's sky (tests swap its star texture).
+    let sky: SkyLayer
     let weather: WeatherLayer
     let warp: WarpLayer
     private var showWarp = false
@@ -142,7 +143,11 @@ final class BioluminescentBayRenderer: ThemeRenderer {
         let viewAzimuth = Self.viewAzimuth(latitude: s.latitude)
         sky.viewAzimuth = viewAzimuth
         sky.horizonY = horizon
-        sky.update(s, quality: quality, size: size, time: Float(frame.time))
+        // The aurora framed low over the bay's mouth, as the fjord frames it (the sky's band can sit 25–60° up, or
+        // overhead near the poles: above this nearly level view).
+        var shown = s
+        shown.auroraAltitude = AuroraFjordRenderer.framedAltitude(s.auroraAltitude)
+        sky.update(shown, quality: quality, size: size, time: Float(frame.time))
         weather.gentle = gentle
         weather.update(s, quality: quality, size: size, dt: dt, surface: .water(horizonY: horizon))
         let cam = sky.camera(latitude: s.latitude, aspect: aspect)

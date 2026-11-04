@@ -42,6 +42,9 @@ public struct SkyState: Equatable {
     public var rainbow: Float = 0
     /// The aurora tonight, 0…1 (0 by day); the band's base above the pole-ward horizon (degrees); the substorm phase 0…1.
     public var aurora: Float = 0, auroraAltitude: Float = 0, auroraStorm: Float = 0
+    /// The world's aurora is "Always": shown for the show, not the real one, so the sky stands it wherever the world
+    /// looks (in Follow the sky it keeps to the pole).
+    public var auroraAlways = false
     /// Fireflies (a humid night's, times darkness), 0…1.
     public var fireflies: Float = 0
     /// Diamond dust's glittering crystals, and the light pillars it throws (only with the sun low, or at night), 0…1.
@@ -203,6 +206,7 @@ public final class LivingSky {
         s.aurora = min(1, a.visible * auroraNight * (1 - 0.9 * w.cloud) * (1 - 0.6 * w.mist) * auroraScale)
         s.auroraAltitude = a.altitude
         s.auroraStorm = a.storm
+        s.auroraAlways = mode == .always
         s.hemisphere = s.latitude >= 0 ? 1 : -1
         // Fireflies need the dark; diamond dust glitters any time, its pillars only with a low sun (or the moon by night).
         s.fireflies = w.fireflies * (1 - SkyPalette.smoothstep(-8, -2, sunAlt))
