@@ -502,12 +502,17 @@ extension AmbienceTests {
         // Groans: the 40–120 Hz band (on a 6 kHz copy) in 250 ms frames, against the 20 s around them.
         let low = Self.decimate8(mid), lowSR = Self.sr / 8
         let f0 = (40.0 * 120).squareRoot(), w0 = 2 * Double.pi * f0 / lowSR
-        let alpha = sin(w0) * sinh(log(2) / 2 * log2(120.0 / 40) * w0 / sin(w0)), a0 = 1 + alpha
+        // Typed steps, so the type checker never has to solve one long expression.
+        let bw: Double = log2(120.0 / 40), halfLn2: Double = log(2) / 2
+        let alpha: Double = sin(w0) * sinh(halfLn2 * bw * w0 / sin(w0)), a0: Double = 1 + alpha
+        let b0: Double = alpha / a0, b2: Double = -alpha / a0
+        let a1: Double = -2 * cos(w0) / a0, a2: Double = (1 - alpha) / a0
         var band = low.map(Double.init)
         for _ in 0..<2 {
             var x1 = 0.0, x2 = 0.0, y1 = 0.0, y2 = 0.0
             for i in band.indices {
-                let xi = band[i], yi = (alpha * xi - alpha * x2 + 2 * cos(w0) * y1 - (1 - alpha) * y2) / a0
+                let xi = band[i]
+                let yi: Double = b0 * xi + b2 * x2 - a1 * y1 - a2 * y2
                 x2 = x1; x1 = xi; y2 = y1; y1 = yi; band[i] = yi
             }
         }

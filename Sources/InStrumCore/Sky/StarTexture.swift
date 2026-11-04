@@ -43,11 +43,14 @@ public enum StarTexture {
         // Sirius peaks at 1.0 (255) in its brightest channel.
         let sirius = StarCatalogue.star(hip: 32349) ?? Star(ra: 101.287, dec: -16.716, mag: -1.44, bv: 0.009, hip: 32349)
         let siriusColour = colour(bv: sirius.bv)
-        let gain = 1 / (Float(pow(10, Double(-0.4 * sirius.mag))) * max(siriusColour.x, siriusColour.y, siriusColour.z))
+        let siriusFlux = Float(pow(10.0, Double(-0.4 * sirius.mag)))
+        let siriusPeak: Float = max(siriusColour.x, siriusColour.y, siriusColour.z)
+        let gain: Float = 1 / (siriusFlux * siriusPeak)
 
         light.withUnsafeMutableBufferPointer { buf in
             for star in StarCatalogue.stars {
-                let c = colour(bv: star.bv) * (gain * Float(pow(10, Double(-0.4 * star.mag))))
+                let flux = Float(pow(10.0, Double(-0.4 * star.mag)))
+                let c = colour(bv: star.bv) * (gain * flux)
                 let r = radius(mag: star.mag)
                 let p = position(ra: star.ra, dec: star.dec)
                 let squeeze = max(0.05, cos(star.dec * .pi / 180))   // x texels shrink by cos(dec) on the sky
