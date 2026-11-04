@@ -3,8 +3,26 @@ import InStrumCore
 
 /// Original living art for each "Inspired by" card, drawn in code from the song's feeling (never artwork,
 /// photos or logos). The song's tempo is hidden in the motion: everything breathes at `pulsePeriod`.
+/// A set born from its place rather than a song (no credit) has a place card instead, drawn from its world and
+/// breathing at one slow fixed pulse (`placePulse`).
 enum CardArt {
     case comeBackToEarth, innerbloom, musicToWatchBoysTo, highByTheBeach, stay, dunno, wings, happinessIsAButterfly
+    /// Place cards (see `place(for:)`).
+    case teaHouseSnow
+
+    /// The place cards breathe at one slow fixed pulse, 48 breaths a minute: with no song there is no tempo to hide.
+    static let placePulse = 60.0 / 48
+
+    /// The Tea House Snow card's thirteen faint strings along the lower edge (the koto's thirteen: the card's easter
+    /// egg): y as fractions of the card, from the far string down.
+    static let teaHouseStrings: [CGFloat] = (0..<13).map { 0.872 + 0.0095 * CGFloat($0) }
+
+    /// The tea's three steam wisps on the Tea House Snow card: where each leaves the bowl (x, a fraction of the width),
+    /// how many curls it carries up its height (f), its sway at the bowl and how it grows as it climbs (a0, a1), its
+    /// drift (fractions of the width), its phase, and how high it climbs (a fraction of the height).
+    private static let steamWisps: [(x: Double, f: Double, a0: Double, a1: Double, drift: Double, phase: Double, top: Double)] = [
+        (0.62, 1.3, 0.012, 0.055, -0.11, 0.0, 0.74), (0.655, 1.9, 0.008, 0.040, -0.05, 2.1, 0.62),
+        (0.69, 1.1, 0.016, 0.065, -0.17, 4.0, 0.56)]
 
     /// The Stay card's six-armed frost stars (x, y as fractions of the card, radius in points at 600 × 360): round the
     /// edges, clear of the liner notes (top right), the title block (bottom left) and the Listen button.
@@ -40,6 +58,26 @@ enum CardArt {
         }
     }
 
+    /// The place card of a set born from its place rather than a song (a set with no credit), by set id; nil for every
+    /// other set. A new place-born set adds its case and its id here; the compiler then asks for its title font,
+    /// tracking, pulse and drawing in the switches below.
+    static func place(for setID: String) -> CardArt? {
+        switch setID {
+        case "tea-house-snow": return .teaHouseSnow   // Set 9 (spec §11)
+        default: return nil
+        }
+    }
+
+    /// A place card names its set and mood instead of a song (no liner notes, no Listen).
+    var isPlace: Bool {
+        switch self {
+        case .comeBackToEarth, .innerbloom, .musicToWatchBoysTo, .highByTheBeach, .stay, .dunno, .wings, .happinessIsAButterfly:
+            return false
+        case .teaHouseSnow:
+            return true
+        }
+    }
+
     /// How the card sets its title: an airy serif under water, a clean wide-tracked sans at dusk, a lush
     /// high-contrast retro serif in the golden haze.
     var titleFont: Font {
@@ -52,6 +90,7 @@ enum CardArt {
         case .dunno: return .system(size: 26, weight: .light, design: .rounded)
         case .wings: return .system(size: 28, weight: .light, design: .rounded)
         case .happinessIsAButterfly: return .system(size: 26, weight: .regular, design: .serif)
+        case .teaHouseSnow: return .system(size: 28, weight: .light, design: .serif)
         }
     }
 
@@ -65,17 +104,19 @@ enum CardArt {
         case .dunno: return 2
         case .wings: return 2
         case .happinessIsAButterfly: return 1
+        case .teaHouseSnow: return 2.5
         }
     }
 
     /// How long one breath of the card lasts: a beat of the song, except the two felt in half time: "Stay"
     /// (134 BPM played as 67), so its snow falls at 60/67 s, and "Wings" (119 BPM, felt as about 60), whose curtains
-    /// ripple once a second (60/60 s, the half-time feel rounded, as its demo plays it).
+    /// ripple once a second (60/60 s, the half-time feel rounded, as its demo plays it). A place card follows no song.
     func pulse(for credit: Credit) -> Double {
         switch self {
         case .stay: return 2 * credit.pulsePeriod
         case .wings: return 60.0 / 60
         case .happinessIsAButterfly: return credit.pulsePeriod   // 68 BPM: the motes blink at 60/68 s
+        case .teaHouseSnow: return Self.placePulse
         default: return credit.pulsePeriod
         }
     }
@@ -91,6 +132,7 @@ enum CardArt {
         case .dunno: Self.dawnBedroom(ctx, size, t, pulse)
         case .wings: Self.auroraWater(ctx, size, t, pulse)
         case .happinessIsAButterfly: Self.moonlitCove(ctx, size, t, pulse)
+        case .teaHouseSnow: Self.teaHouse(ctx, size, t, pulse)
         }
     }
 
@@ -699,6 +741,218 @@ enum CardArt {
             glow.fill(Path(ellipseIn: CGRect(x: c.x - core, y: c.y - core, width: 2 * core, height: 2 * core)),
                       with: .color(Color(red: 0.85, green: 1, blue: 1).opacity(0.9 * blink)))
         }
+    }
+
+    // MARK: - Tea House Snow (a place card): a snow garden at dusk through a snow-viewing screen, the tea's steam
+    // curling up over it, and thirteen faint strings along the lower edge
+
+    private static func teaHouse(_ ctx: GraphicsContext, _ size: CGSize, _ t: Double, _ pulse: Double) {
+        let w = size.width, h = size.height
+        let k: CGFloat = w / 600
+        let paperBottom: CGFloat = h * 0.30, floorTop: CGFloat = h * 0.86, horizon: CGFloat = h * 0.62
+        let glassHeight: CGFloat = floorTop - paperBottom
+        let breath: Double = 0.5 + 0.5 * cos(2 * Double.pi * t / pulse)   // 1 at the top of each breath
+        let snow = Color(red: 0.88, green: 0.90, blue: 0.96)
+        let bar = Color(red: 0.13, green: 0.10, blue: 0.09)
+
+        // The garden at dusk, seen through the screen's glass: a lavender sky to a rosy horizon, a far rise under snow,
+        // and snow in blue shadow, darker towards the sill.
+        var garden = ctx
+        garden.clip(to: Path(CGRect(x: 0, y: paperBottom, width: w, height: glassHeight)))
+        garden.fill(Path(CGRect(x: 0, y: paperBottom, width: w, height: horizon - paperBottom)), with: .linearGradient(
+            Gradient(stops: [.init(color: Color(red: 0.30, green: 0.31, blue: 0.46), location: 0),
+                             .init(color: Color(red: 0.55, green: 0.51, blue: 0.63), location: 0.55),
+                             .init(color: Color(red: 0.80, green: 0.67, blue: 0.70), location: 1)]),
+            startPoint: CGPoint(x: 0, y: paperBottom), endPoint: CGPoint(x: 0, y: horizon)))
+        var rise = Path()
+        rise.move(to: CGPoint(x: 0, y: horizon + 2))
+        for s in 0...48 {
+            let u: Double = Double(s) / 48
+            let up: Double = 0.035 + 0.03 * sin(u * 3.1 + 0.6) + 0.012 * noise2(u * 7 + 2.3, 0.5)
+            rise.addLine(to: CGPoint(x: w * CGFloat(u), y: horizon - h * CGFloat(up)))
+        }
+        rise.addLine(to: CGPoint(x: w, y: horizon + 2))
+        rise.closeSubpath()
+        garden.fill(rise, with: .color(Color(red: 0.60, green: 0.62, blue: 0.73)))
+        garden.fill(Path(CGRect(x: 0, y: horizon, width: w, height: floorTop - horizon)), with: .linearGradient(
+            Gradient(colors: [Color(red: 0.74, green: 0.77, blue: 0.86), Color(red: 0.44, green: 0.48, blue: 0.61)]),
+            startPoint: CGPoint(x: 0, y: horizon), endPoint: CGPoint(x: 0, y: floorTop)))
+
+        // The stone lantern with its cap of snow; its candle glows a little brighter on each breath.
+        let lx: CGFloat = w * 0.36, ground: CGFloat = h * 0.79
+        let stone = Color(red: 0.19, green: 0.19, blue: 0.25)
+        garden.fill(Path(ellipseIn: CGRect(x: lx - 46 * k, y: ground - 5 * k, width: 92 * k, height: 10 * k)),
+                    with: .color(Color(red: 0.30, green: 0.33, blue: 0.45).opacity(0.5)))
+        garden.fill(Path(CGRect(x: lx - 20 * k, y: ground - 14 * k, width: 40 * k, height: 14 * k)), with: .color(stone))   // base
+        garden.fill(Path(CGRect(x: lx - 7 * k, y: ground - 56 * k, width: 14 * k, height: 42 * k)), with: .color(stone))    // shaft
+        garden.fill(Path(CGRect(x: lx - 22 * k, y: ground - 63 * k, width: 44 * k, height: 7 * k)), with: .color(stone))    // platform
+        garden.fill(Path(CGRect(x: lx - 15 * k, y: ground - 91 * k, width: 30 * k, height: 28 * k)), with: .color(stone))   // fire box
+        let flicker: Double = 0.85 + 0.15 * breath + 0.05 * sin(t * 7.3)
+        garden.fill(Path(CGRect(x: lx - 6 * k, y: ground - 84 * k, width: 12 * k, height: 13 * k)), with: .linearGradient(
+            Gradient(colors: [Color(red: 1, green: 0.86, blue: 0.58).opacity(0.95 * flicker),
+                              Color(red: 0.95, green: 0.58, blue: 0.30).opacity(0.95 * flicker)]),
+            startPoint: CGPoint(x: lx, y: ground - 84 * k), endPoint: CGPoint(x: lx, y: ground - 71 * k)))
+        var candle = garden
+        candle.blendMode = .plusLighter
+        let flame = Color(red: 1, green: 0.70, blue: 0.40)
+        candle.fill(Path(ellipseIn: CGRect(x: lx - 40 * k, y: ground - 118 * k, width: 80 * k, height: 80 * k)), with: .radialGradient(
+            Gradient(colors: [flame.opacity(0.30 * flicker), flame.opacity(0)]),
+            center: CGPoint(x: lx, y: ground - 78 * k), startRadius: 0, endRadius: 40 * k))
+        var roof = Path()
+        roof.move(to: CGPoint(x: lx - 36 * k, y: ground - 90 * k)); roof.addLine(to: CGPoint(x: lx + 36 * k, y: ground - 90 * k))
+        roof.addLine(to: CGPoint(x: lx + 14 * k, y: ground - 104 * k)); roof.addLine(to: CGPoint(x: lx - 14 * k, y: ground - 104 * k))
+        roof.closeSubpath()
+        garden.fill(roof, with: .color(stone))
+        garden.fill(Path(ellipseIn: CGRect(x: lx - 34 * k, y: ground - 112 * k, width: 68 * k, height: 20 * k)),
+                    with: .color(Color(red: 0.90, green: 0.92, blue: 0.97)))                                           // snow on the roof
+        garden.fill(Path(ellipseIn: CGRect(x: lx - 5 * k, y: ground - 121 * k, width: 10 * k, height: 10 * k)), with: .color(snow))   // the finial
+
+        // A pine bough bent low with snow, reaching in over the right of the view: dark needle clumps along a drooping
+        // branch, each with its cushion of snow.
+        let b0 = CGPoint(x: w * 1.02, y: h * 0.335), bc = CGPoint(x: w * 0.86, y: h * 0.33), b1 = CGPoint(x: w * 0.70, y: h * 0.45)
+        func bough(_ u: CGFloat) -> CGPoint {
+            let m: CGFloat = 1 - u
+            let a: CGFloat = m * m, b: CGFloat = 2 * m * u, c: CGFloat = u * u
+            return CGPoint(x: a * b0.x + b * bc.x + c * b1.x, y: a * b0.y + b * bc.y + c * b1.y)
+        }
+        var limb = Path()
+        limb.move(to: bough(0))
+        for i in 1...16 { limb.addLine(to: bough(CGFloat(i) / 16)) }
+        garden.stroke(limb, with: .color(Color(red: 0.10, green: 0.08, blue: 0.08)),
+                      style: StrokeStyle(lineWidth: 3 * k, lineCap: .round, lineJoin: .round))
+        for i in 0..<9 {
+            let u: CGFloat = CGFloat(i) / 8
+            let c = bough(u)
+            let cy: CGFloat = c.y + (i % 2 == 1 ? 2.5 : -2.0) * k
+            let rx: CGFloat = (21 - 9 * u) * k * (0.85 + 0.3 * CGFloat(hash(i, 51)))
+            let ry: CGFloat = (8 - 2 * u) * k
+            garden.fill(Path(ellipseIn: CGRect(x: c.x - rx, y: cy - ry, width: 2 * rx, height: 2 * ry)),
+                        with: .color(Color(red: 0.07, green: 0.12, blue: 0.11)))
+            garden.fill(Path(ellipseIn: CGRect(x: c.x - rx * 0.85, y: cy - ry * 1.45, width: 1.7 * rx, height: ry * 1.15)), with: .color(snow))
+        }
+
+        // A plum branch over the left, with a few red blossoms.
+        let plumWood = Color(red: 0.12, green: 0.09, blue: 0.10)
+        var plum = Path()
+        plum.move(to: CGPoint(x: -4, y: h * 0.44))
+        plum.addLine(to: CGPoint(x: w * 0.08, y: h * 0.40)); plum.addLine(to: CGPoint(x: w * 0.15, y: h * 0.37))
+        plum.addLine(to: CGPoint(x: w * 0.21, y: h * 0.33))
+        garden.stroke(plum, with: .color(plumWood), style: StrokeStyle(lineWidth: 2.4 * k, lineCap: .round, lineJoin: .round))
+        var twig = Path()
+        twig.move(to: CGPoint(x: w * 0.11, y: h * 0.385)); twig.addLine(to: CGPoint(x: w * 0.14, y: h * 0.43))
+        garden.stroke(twig, with: .color(plumWood), style: StrokeStyle(lineWidth: 1.5 * k, lineCap: .round))
+        let blossoms: [(CGFloat, CGFloat)] = [(0.05, 0.415), (0.10, 0.385), (0.135, 0.425), (0.165, 0.36), (0.19, 0.345), (0.215, 0.325)]
+        for (fx, fy) in blossoms {
+            let r: CGFloat = 3.2 * k
+            let c = CGPoint(x: w * fx, y: h * fy)
+            garden.fill(Path(ellipseIn: CGRect(x: c.x - r, y: c.y - r, width: 2 * r, height: 2 * r)),
+                        with: .color(Color(red: 0.80, green: 0.24, blue: 0.32)))
+            garden.fill(Path(ellipseIn: CGRect(x: c.x - 0.35 * r, y: c.y - 0.35 * r, width: 0.7 * r, height: 0.7 * r)),
+                        with: .color(Color(red: 0.98, green: 0.85, blue: 0.70)))
+        }
+
+        // Snow falling beyond the glass: each flake crosses the view in eight breaths.
+        for i in 0..<46 {
+            let speed: Double = 0.8 + 0.4 * hash(i, 41)
+            let u: Double = (t / (8 * pulse) * speed + hash(i, 42)).truncatingRemainder(dividingBy: 1)
+            let x: CGFloat = w * CGFloat(hash(i, 43)) + 8 * k * CGFloat(sin(t * 0.7 + Double(i)))
+            let y: CGFloat = paperBottom - 4 + CGFloat(u) * (glassHeight + 8)
+            let r: CGFloat = (0.7 + 1.1 * CGFloat(hash(i, 44))) * k
+            garden.fill(Path(ellipseIn: CGRect(x: x - r, y: y - r, width: 2 * r, height: 2 * r)),
+                        with: .color(.white.opacity(0.45 + 0.4 * hash(i, 45))))
+        }
+
+        // The paper panes above, glowing with the last of the light (a little brighter on each breath), a branch's
+        // shadow on them, and their lattice.
+        let glow: Double = 0.94 + 0.06 * breath
+        ctx.fill(Path(CGRect(x: 0, y: 0, width: w, height: paperBottom)), with: .linearGradient(
+            Gradient(colors: [Color(red: 0.80 * glow, green: 0.74 * glow, blue: 0.66 * glow),
+                              Color(red: 0.90 * glow, green: 0.84 * glow, blue: 0.74 * glow)]),
+            startPoint: .zero, endPoint: CGPoint(x: 0, y: paperBottom)))
+        var shade = ctx
+        shade.addFilter(.blur(radius: 2.5 * k))
+        shade.drawLayer { layer in
+            let ink = Color(red: 0.45, green: 0.40, blue: 0.38)
+            var shadow = Path()
+            shadow.move(to: CGPoint(x: w * 0.30, y: -4)); shadow.addLine(to: CGPoint(x: w * 0.38, y: h * 0.08))
+            shadow.addLine(to: CGPoint(x: w * 0.47, y: h * 0.13)); shadow.addLine(to: CGPoint(x: w * 0.60, y: h * 0.15))
+            layer.stroke(shadow, with: .color(ink.opacity(0.30)), style: StrokeStyle(lineWidth: 3 * k, lineCap: .round, lineJoin: .round))
+            var sprig = Path()
+            sprig.move(to: CGPoint(x: w * 0.43, y: h * 0.115)); sprig.addLine(to: CGPoint(x: w * 0.47, y: h * 0.21))
+            layer.stroke(sprig, with: .color(ink.opacity(0.30)), style: StrokeStyle(lineWidth: 2 * k, lineCap: .round))
+            let flowers: [(CGFloat, CGFloat)] = [(0.36, 0.06), (0.42, 0.11), (0.47, 0.20), (0.53, 0.14), (0.59, 0.155)]
+            for (fx, fy) in flowers {
+                let r: CGFloat = 4 * k
+                layer.fill(Path(ellipseIn: CGRect(x: w * fx - r, y: h * fy - r, width: 2 * r, height: 2 * r)), with: .color(ink.opacity(0.22)))
+            }
+        }
+        for c in 1..<8 {
+            ctx.fill(Path(CGRect(x: w * CGFloat(c) / 8 - 0.6 * k, y: 0, width: 1.2 * k, height: paperBottom)), with: .color(bar))
+        }
+        for fy: CGFloat in [0.10, 0.20] {
+            ctx.fill(Path(CGRect(x: 0, y: h * fy - 0.6 * k, width: w, height: 1.2 * k)), with: .color(bar))
+        }
+        // The screen's frame over the glass: two thin bars, the meeting stiles, the edges and the rail under the paper.
+        for fx: CGFloat in [0.25, 0.75] {
+            ctx.fill(Path(CGRect(x: w * fx - 1.1 * k, y: paperBottom, width: 2.2 * k, height: glassHeight)), with: .color(bar))
+        }
+        ctx.fill(Path(CGRect(x: w * 0.5 - 3.5 * k, y: 0, width: 7 * k, height: floorTop)), with: .color(bar))
+        ctx.fill(Path(CGRect(x: 0, y: 0, width: 4 * k, height: floorTop)), with: .color(bar))
+        ctx.fill(Path(CGRect(x: w - 4 * k, y: 0, width: 4 * k, height: floorTop)), with: .color(bar))
+        ctx.fill(Path(CGRect(x: 0, y: paperBottom - 2.5 * k, width: w, height: 5 * k)), with: .color(bar))
+
+        // The room's floor below the sill, the brazier's warmth at the right (breathing), and the koto's thirteen strings,
+        // faint along the lower edge, a shimmer crossing them on each breath, their bridges standing in a slanting line.
+        ctx.fill(Path(CGRect(x: 0, y: floorTop, width: w, height: h - floorTop)), with: .linearGradient(
+            Gradient(colors: [Color(red: 0.17, green: 0.12, blue: 0.11), Color(red: 0.07, green: 0.05, blue: 0.05)]),
+            startPoint: CGPoint(x: 0, y: floorTop), endPoint: CGPoint(x: 0, y: h)))
+        ctx.fill(Path(CGRect(x: 0, y: floorTop - 3.5 * k, width: w, height: 7 * k)), with: .color(Color(red: 0.10, green: 0.07, blue: 0.07)))
+        var warmth = ctx
+        warmth.blendMode = .plusLighter
+        let ember: Double = 0.85 + 0.15 * breath
+        let brazier = Color(red: 0.85, green: 0.42, blue: 0.18)
+        warmth.fill(Path(ellipseIn: CGRect(x: w * 0.80, y: h * 0.80, width: w * 0.40, height: h * 0.40)), with: .radialGradient(
+            Gradient(colors: [brazier.opacity(0.28 * ember), brazier.opacity(0)]),
+            center: CGPoint(x: w, y: h), startRadius: 0, endRadius: w * 0.22))
+        let silk = Color(red: 0.93, green: 0.88, blue: 0.78)
+        for (i, fy) in Self.teaHouseStrings.enumerated() {
+            let y: CGFloat = h * fy
+            let wave: Double = 0.5 + 0.5 * cos(2 * Double.pi * (t / pulse - Double(i) / 13))
+            ctx.fill(Path(CGRect(x: 0, y: y - 0.35 * k, width: w, height: 0.7 * k)), with: .color(silk.opacity(0.16 + 0.14 * wave)))
+            let bx: CGFloat = w * (0.80 + 0.012 * CGFloat(i))
+            var bridge = Path()
+            bridge.move(to: CGPoint(x: bx - 2.2 * k, y: y + 0.4 * k)); bridge.addLine(to: CGPoint(x: bx, y: y - 2.2 * k))
+            bridge.addLine(to: CGPoint(x: bx + 2.2 * k, y: y + 0.4 * k)); bridge.closeSubpath()
+            ctx.fill(bridge, with: .color(silk.opacity(0.35)))
+        }
+
+        // The tea's steam: three wisps rising from the bowl just below the card, widening and curling as they climb
+        // over the garden, each its own way; the curls rise a wavelength every two breaths.
+        func wisp(_ layer: GraphicsContext, _ index: Int, width: (Double) -> Double, opacity: Double) {
+            let p = Self.steamWisps[index]
+            var previous: CGPoint?
+            for s in 0...28 {
+                let u: Double = Double(s) / 28
+                let sway: Double = (p.a0 + p.a1 * u) * sin(2 * Double.pi * (p.f * u - t / (2 * pulse)) + p.phase)
+                let drift: Double = p.drift * u * u + 0.025 * (noise2(u * 3 + Double(index) * 5.7, t * 0.35) - 0.5)
+                let point = CGPoint(x: w * CGFloat(p.x + sway + drift), y: h - h * CGFloat(u * p.top))
+                if let from = previous {
+                    let a: Double = opacity * min(1, u / 0.15) * pow(max(0, 1 - u), 1.3) * (0.75 + 0.25 * breath)
+                    var segment = Path()
+                    segment.move(to: from); segment.addLine(to: point)
+                    layer.stroke(segment, with: .color(.white.opacity(a)), style: StrokeStyle(lineWidth: k * CGFloat(width(u)), lineCap: .round))
+                }
+                previous = point
+            }
+        }
+        var steam = ctx
+        steam.blendMode = .plusLighter
+        steam.addFilter(.blur(radius: 5 * k))
+        steam.drawLayer { layer in for i in 0..<3 { wisp(layer, i, width: { 5 + 18 * $0 }, opacity: 0.30) } }
+        var core = ctx
+        core.blendMode = .plusLighter
+        core.addFilter(.blur(radius: 1.2 * k))
+        core.drawLayer { layer in for i in 0..<3 { wisp(layer, i, width: { 1.2 + 1.5 * $0 }, opacity: 0.28) } }
     }
 
     // MARK: - Noise

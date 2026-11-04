@@ -129,6 +129,16 @@ jobs:
 
           **Install:** download the **.dmg** below and open it, drag *In Strum Meants* onto *Applications* (choose **Replace** if asked), then right-click the app → **Open** → **Open** (first time only). The .zip is a fallback.
 
+          **Preview build: Tea House Koto.** A new instrument to try before its world arrives: press **Choose Instrument** and pick **Tea House Koto** (presets: Tea House Koto, Winter Strings, Near the Bridge, Night Tea). Thirteen plucked strings in a small wooden room: bright near the bridge, gentler further off, with the open strings ringing softly along with what you play. It is born from its place, Tea House Snow, not from a song, so it has no "Inspired by" credit: its set will show a place card instead.
+
+          **What to try:**
+          - **Hirajōshi on E:** E, F, A, B, C and their octaves. Phrases that fall to a low E, with space between the notes, sound most like the instrument.
+          - **Press with the pitch wheel (oshi):** pluck a note, then push the wheel up: the string glides up as far as a whole tone, and back down as you let go, without being plucked again.
+          - **Yuri on pressure:** lean into a long note (aftertouch, if your keyboard sends it) for a slow, uneven vibrato that starts a moment after the pluck; **Yuri** sets how wide it goes.
+          - **Pick** moves the plectrum from near the bridge (bright) to further off (gentle); **Silk** goes from a crisp modern string to soft silk; **Bloom** sets how much the open strings ring along.
+
+          **Hear it first:** the *tea-house-koto-demo.m4a* below is a short original clip rendered on the build machine.
+
           **Sets 7 & 8 — Night Skies: Aurora Fjord and Bioluminescent Bay.** Two new sets at the end of the gallery, each a world, a visual, an instrument and a soundscape that belong together.
 
           - **Aurora Fjord** (after Mac Miller's "Wings"; mood: awe-struck, cold, electric). A jetty at the head of a fjord, looking down it toward the pole: steep walls, still black water mirroring the aurora, a fishing village's lights and drifting ice. Instrument: **Polar Choir** (a breathy, glassy choir that swells while you hold; presets Polar Choir, Far Voices, Bowed Glass, Hush). Visual: **Curtain Lights**: every note sends a ripple through the aurora curtains where its key sits, held notes glow, and chords tint the curtains.

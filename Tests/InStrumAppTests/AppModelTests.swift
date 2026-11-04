@@ -881,7 +881,37 @@ final class AppModelTests: XCTestCase {
         XCTAssertEqual(c.year, 2018); XCTAssertEqual(i.year, 2016)
         XCTAssertGreaterThan(c.tempoBPM, 0); XCTAssertGreaterThan(i.tempoBPM, 0)
         XCTAssertEqual(CreditLibrary.credit(id: "innerbloom"), i)
-        XCTAssertTrue(PatchLibrary.all.allSatisfy { $0.creditID.flatMap { CreditLibrary.credit(id: $0) } != nil })
+        // Every credit a preset names is in the library, and an instrument's presets share one credit (none at all for an
+        // instrument born from a place).
+        for p in PatchLibrary.all {
+            if let id = p.creditID { XCTAssertNotNil(CreditLibrary.credit(id: id), p.id) }
+            XCTAssertEqual(p.creditID, PatchLibrary.defaultPatch(for: p.engine).creditID, p.id)
+        }
+    }
+
+    /// Tea House Koto is born from its place (Tea House Snow), not a song: its presets carry no credit, so their names
+    /// are plain (spec §4.2's values).
+    func testTeaHouseKotoPresetsHaveNoCredit() {
+        let presets = PatchLibrary.patches(for: .teaHouseKoto)
+        XCTAssertEqual(presets.map(\.id), ["tea-house-koto", "winter-strings", "near-the-bridge", "night-tea"])
+        XCTAssertEqual(presets.map(\.displayName), ["Tea House Koto", "Winter Strings", "Near the Bridge", "Night Tea"])
+        for p in presets {
+            XCTAssertNil(p.creditID, p.id)
+            XCTAssertNil(p.credit, p.id)
+            XCTAssertEqual(p.displayName, p.name, p.id)
+        }
+        XCTAssertEqual(PatchLibrary.defaultPatch(for: .teaHouseKoto).id, "tea-house-koto")
+        XCTAssertEqual(Set(presets.flatMap { $0.values.keys }), ["pick", "silk", "body", "bloom", "yuri", "space", "width"])
+        let dials = ["pick", "silk", "body", "bloom", "yuri", "space", "width"]
+        let expected: [String: [Double]] = ["tea-house-koto": [0.55, 0.45, 0.50, 0.40, 0.30, 0.35, 0.50],
+                                            "winter-strings": [0.35, 0.70, 0.60, 0.55, 0.20, 0.45, 0.55],
+                                            "near-the-bridge": [0.15, 0.25, 0.40, 0.25, 0.35, 0.25, 0.45],
+                                            "night-tea": [0.45, 0.60, 0.55, 0.60, 0.40, 0.50, 0.50]]
+        for p in presets {
+            let values = dials.map { p.values[$0] ?? -1 }
+            XCTAssertEqual(values, expected[p.id], p.id)
+        }
+        XCTAssertEqual(BuiltInEngine.teaHouseKoto.displayName, "Tea House Koto")
     }
 
     func testHoneyTapePresetsCarryTheirCredit() {

@@ -13,7 +13,8 @@ final class SetsTests: XCTestCase {
             guard case let .choice(options) = visual.kind else { return XCTFail("\(s.id): visual is not a choice") }
             XCTAssertTrue(options.contains(s.visual), s.id)
             XCTAssertNotNil(PatchLibrary.all.first { $0.id == s.patchID }, s.id)
-            XCTAssertNotNil(CreditLibrary.credit(id: s.creditID), s.id)
+            // A credit, when the set has one, is in the library (a set born from its place has none).
+            if let credit = s.creditID { XCTAssertNotNil(CreditLibrary.credit(id: credit), s.id) }
             XCTAssertEqual(SetLibrary.set(id: s.id), s)
             XCTAssertFalse(s.name.isEmpty); XCTAssertFalse(s.moodName.isEmpty)
         }
@@ -95,6 +96,31 @@ final class SetsTests: XCTestCase {
         XCTAssertNil(SetLibrary.set(id: "nope"))
         // Each set's built-in preset carries the same credit as the set.
         for s in SetLibrary.all { XCTAssertEqual(PatchLibrary.all.first { $0.id == s.patchID }?.creditID, s.creditID) }
+    }
+
+    /// Sets saved by older builds always carried a credit; they still decode now it is optional. A set born from its
+    /// place (no credit) is written without the key and reads back as nil, as does an explicit null.
+    func testOldSetsWithACreditStillDecode() throws {
+        let old = #"{"id":"moonlit-lake","name":"Moonlit Lake","moodName":"Serene","#
+            + #""mood":{"energy":0.2,"warmth":0.45,"brightness":0.3,"space":0.85,"motion":0.25},"#
+            + #""worldID":"moonlit-lake","visual":"Lake Ripples","patchID":"felt-glass","#
+            + #""ambience":{"enabled":true,"volume":0.25,"closeness":0.5},"creditID":"come-back-to-earth"}"#
+        let lake = try JSONDecoder().decode(InStrumSet.self, from: Data(old.utf8))
+        XCTAssertEqual(lake, SetLibrary.moonlitLake)
+        XCTAssertEqual(lake.creditID, CreditLibrary.comeBackToEarth.id)
+        for s in SetLibrary.all {
+            XCTAssertEqual(try JSONDecoder().decode(InStrumSet.self, from: JSONEncoder().encode(s)), s, s.id)
+        }
+        let place = InStrumSet(id: "tea-house-snow", name: "Tea House Snow", moodName: "Delicate, hushed",
+                               mood: Mood(energy: 0.2, warmth: 0.55, brightness: 0.5, space: 0.3, motion: 0.2),
+                               worldID: "tea-house-snow", visual: "Steam Lines", patchID: "tea-house-koto",
+                               ambience: AmbienceSettings(), creditID: nil)
+        let written = try JSONEncoder().encode(place)
+        XCTAssertFalse(String(decoding: written, as: UTF8.self).contains("creditID"))
+        XCTAssertEqual(try JSONDecoder().decode(InStrumSet.self, from: written), place)
+        let withNull = old.replacingOccurrences(of: #""creditID":"come-back-to-earth""#, with: #""creditID":null"#)
+        XCTAssertNotEqual(withNull, old)
+        XCTAssertNil(try JSONDecoder().decode(InStrumSet.self, from: Data(withNull.utf8)).creditID)
     }
 
     func testNewMoods() {

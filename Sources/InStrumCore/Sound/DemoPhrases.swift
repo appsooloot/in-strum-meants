@@ -194,6 +194,36 @@ public enum DemoPhrases {
         return m.sorted
     }()
 
+    /// Hirajōshi on E (E, F, A, B, C and their octaves) for about 20 s, slow and with space, each phrase falling to an E:
+    /// three presses on the wheel, each a moment after the pluck and then let go (A up a whole tone to B, B up a semitone
+    /// to C, E up a semitone to F), pressure on two long notes for yuri, and a last open fifth, E and B, left to ring.
+    /// The wheel and pressure reach every sounding string, so each press and each swell falls on a string sounding
+    /// alone; and no rest is long enough (1.5 s) to re-root the open strings off the opening E.
+    public static let teaHouseKoto: Phrase = {
+        var m = Builder()
+        // A low E and its octave together: the phrase's root, so the open strings ring in E.
+        m.note(0.20, 52, 84, 1.60); m.note(0.23, 64, 70, 1.57)
+        m.note(2.00, 71, 70, 0.75)                                                        // B
+        m.note(2.85, 69, 74, 1.75)                                                        // A, pressed up to B and back
+        m.press(3.30, from: 0, to: 2, over: 0.18); m.press(3.90, from: 2, to: 0, over: 0.25)
+        m.note(4.75, 65, 66, 0.45)                                                        // F
+        m.note(5.30, 64, 76, 2.25)                                                        // E, with yuri
+        m.pressure(5.42, from: 0, to: 1, over: 0.30); m.pressure(6.90, from: 1, to: 0, over: 0.30)
+        // A run up the scale that turns at B and falls again.
+        for (i, n) in [57, 59, 60, 64, 65, 69].enumerated() { m.note(8.0 + 0.4 * Double(i), UInt8(n), UInt8(64 + 2 * i), i == 5 ? 0.4 : 0.36) }
+        m.note(10.55, 71, 80, 1.45)                                                       // B, pressed up to C and back
+        m.press(11.05, from: 0, to: 1, over: 0.16); m.press(11.55, from: 1, to: 0, over: 0.22)
+        m.note(12.10, 69, 70, 0.38); m.note(12.55, 65, 66, 0.35)                          // A, F
+        m.note(13.05, 64, 70, 1.20)                                                       // E, pressed up to F and back
+        m.press(13.45, from: 0, to: 1, over: 0.15); m.press(13.85, from: 1, to: 0, over: 0.20)
+        // Down to the low E.
+        m.note(14.40, 60, 66, 0.40)                                                       // C
+        m.note(14.90, 59, 72, 1.95)                                                       // B, with yuri
+        m.pressure(15.02, from: 0, to: 1, over: 0.30); m.pressure(16.40, from: 1, to: 0, over: 0.30)
+        m.note(17.30, 52, 88, 3.20); m.note(17.33, 59, 78, 3.17)                          // the open fifth, rung together
+        return m.sorted
+    }()
+
     private struct Builder {
         var events: Phrase = []
         mutating func note(_ t: Double, _ n: UInt8, _ v: UInt8, _ length: Double) {
@@ -203,6 +233,31 @@ public enum DemoPhrases {
         mutating func pedal(_ t: Double, down: Bool) {
             events.append((t, .controlChange(channel: 0, controller: 64, value: down ? 127 : 0)))
         }
+        /// The pitch wheel moved as a hand moves it: eased from `from` to `to` semitones (of its ±2) in 10 ms steps over
+        /// `length` seconds, landing exactly on `to` (at rest, 8192, for 0).
+        mutating func press(_ t: Double, from: Double, to: Double, over length: Double) {
+            let steps = max(1, Int((length / 0.01).rounded()))
+            for k in 1...steps {
+                let s: Double = from + (to - from) * Self.ease(Double(k) / Double(steps))
+                events.append((t + length * Double(k) / Double(steps), .pitchBend(channel: 0, value: Self.wheel(s))))
+            }
+        }
+        /// Channel pressure eased from `from` to `to` (0…1) in 20 ms steps over `length` seconds.
+        mutating func pressure(_ t: Double, from: Double, to: Double, over length: Double) {
+            let steps = max(1, Int((length / 0.02).rounded()))
+            for k in 1...steps {
+                let p: Double = min(1, max(0, from + (to - from) * Self.ease(Double(k) / Double(steps))))
+                events.append((t + length * Double(k) / Double(steps), .channelPressure(channel: 0, value: UInt8((p * 127).rounded()))))
+            }
+        }
+        /// The wheel's 14 bits for `semitones` of its ±2: 8192 at rest, 16383 full up, 0 full down (as the Sound Core reads it).
+        static func wheel(_ semitones: Double) -> UInt16 {
+            let s: Double = min(2, max(-2, semitones))
+            let span: Double = s >= 0 ? 8191 : 8192
+            return UInt16((8192 + s / 2 * span).rounded())
+        }
+        /// Smoothstep: a hand's ease in and out.
+        static func ease(_ x: Double) -> Double { x * x * (3 - 2 * x) }
         var sorted: Phrase { events.enumerated().sorted { ($0.element.time, $0.offset) < ($1.element.time, $1.offset) }.map(\.element) }
     }
 }

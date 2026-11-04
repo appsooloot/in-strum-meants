@@ -42,7 +42,14 @@ struct SetCard: View {
     let apply: () -> Void
     let restore: () -> Void
 
-    private var credit: Credit? { CreditLibrary.credit(id: set.creditID) }
+    private var credit: Credit? { set.creditID.flatMap { CreditLibrary.credit(id: $0) } }
+    /// The set's card: its song's, or for a set born from its place (no credit) its place card; nil when it has neither.
+    private var card: InspiredByCard? {
+        if let credit { return InspiredByCard(credit: credit) }
+        if set.creditID == nil, CardArt.place(for: set.id) != nil { return InspiredByCard(place: set) }
+        return nil
+    }
+    private var cardHelp: String { credit.map { "Inspired by “\($0.song)”" } ?? "\(set.name): born from a place" }
     @State private var showCard = false
 
     var body: some View {
@@ -59,16 +66,17 @@ struct SetCard: View {
                 } else if active {
                     Image(systemName: "checkmark.circle.fill").foregroundStyle(.white.opacity(0.85))
                 }
-                if let credit {
+                if let card {
                     Button { showCard = true } label: { Image(systemName: "info.circle") }
                         .buttonStyle(.borderless)
-                        .help("Inspired by “\(credit.song)”")
+                        .help(cardHelp)
                         .popover(isPresented: $showCard, arrowEdge: .trailing) {
-                            InspiredByCard(credit: credit).frame(width: 420).padding(10)
+                            card.frame(width: 420).padding(10)
                         }
                 }
             }
             Text(set.moodName).font(.caption).foregroundStyle(.white.opacity(0.75))
+            // Only a song is credited: a set born from its place shows its name and mood alone.
             if let credit {
                 Text("Inspired by “\(credit.song)” · \(credit.artist)")
                     .font(.caption2).foregroundStyle(.white.opacity(0.65)).lineLimit(1)
