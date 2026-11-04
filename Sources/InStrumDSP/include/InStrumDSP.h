@@ -19,7 +19,7 @@ void isd_reverb_configure(ISDReverb *reverb, float size, float damping, float pr
 void isd_reverb_process(ISDReverb *reverb, const float *inL, const float *inR, float *outL, float *outR, int frames);
 
 // ---------- Built-in instruments ----------
-typedef enum { ISD_ENGINE_FELT_GLASS = 0, ISD_ENGINE_ORBIT_PAD = 1, ISD_ENGINE_HONEY_TAPE = 2, ISD_ENGINE_HAZE_BELLS = 3, ISD_ENGINE_CABIN_FELT = 4, ISD_ENGINE_MORNING_BOX = 5, ISD_ENGINE_POLAR_CHOIR = 6, ISD_ENGINE_PLANKTON_KEYS = 7, ISD_ENGINE_TEA_HOUSE_KOTO = 8, ISD_ENGINE_ZEN_SHAKUHACHI = 9 } ISDEngine;
+typedef enum { ISD_ENGINE_FELT_GLASS = 0, ISD_ENGINE_ORBIT_PAD = 1, ISD_ENGINE_HONEY_TAPE = 2, ISD_ENGINE_HAZE_BELLS = 3, ISD_ENGINE_CABIN_FELT = 4, ISD_ENGINE_MORNING_BOX = 5, ISD_ENGINE_POLAR_CHOIR = 6, ISD_ENGINE_PLANKTON_KEYS = 7, ISD_ENGINE_TEA_HOUSE_KOTO = 8, ISD_ENGINE_ZEN_SHAKUHACHI = 9, ISD_ENGINE_BLUE_DEPTH = 10, ISD_ENGINE_REEF_MARIMBA = 11 } ISDEngine;
 
 /// Parameter addresses (stable: saved in presets and instrument state).
 enum {
@@ -34,6 +34,8 @@ enum {
     ISD_P_TINE = 80, ISD_P_BARK = 81, ISD_P_SPARKLE = 82, ISD_P_TREMOLO = 83, ISD_P_PHASE = 84,
     ISD_P_PICK = 90, ISD_P_SILK = 91, ISD_P_BODY = 92, ISD_P_YURI = 93,
     ISD_P_AIR = 94, ISD_P_BEND = 95, ISD_P_BAMBOO = 96,
+    ISD_P_BLINK = 110, ISD_P_MURK = 111, ISD_P_GHOSTS = 112, ISD_P_BASS = 113, ISD_P_TEMPO = 114,
+    ISD_P_MALLET = 120, ISD_P_STRIKE = 121, ISD_P_TUBE = 122, ISD_P_ROLL = 123, ISD_P_STEEL = 124,
     ISD_P_MOOD_ENERGY = 100, ISD_P_MOOD_WARMTH = 101, ISD_P_MOOD_BRIGHTNESS = 102, ISD_P_MOOD_SPACE = 103, ISD_P_MOOD_MOTION = 104,
     /// Test hook (unit 3, never shown): Orbit Pad plays one plain saw, no detune, drift, motion or chorus.
     ISD_P_DEBUG_LAYER_A_ONLY = 200,
@@ -50,7 +52,13 @@ enum {
     /// Test hooks (unit 3, never shown): Tea House Koto without its sympathetic open strings; without its body.
     ISD_P_DEBUG_NO_SYMPATHY = 209, ISD_P_DEBUG_NO_BODY = 210,
     /// Test hooks (unit 3, never shown): Zen Shakuhachi's tone alone (no breath, muraiki, yuri or echo); no octave fold.
-    ISD_P_DEBUG_TONE_ONLY = 211, ISD_P_DEBUG_NO_FOLD = 212
+    ISD_P_DEBUG_TONE_ONLY = 211, ISD_P_DEBUG_NO_FOLD = 212,
+    /// Test hooks (unit 3, never shown): Blue Depth with its arp off (Blink ignored); Blue Depth dry (no echo, ghosts,
+    /// reverb, slop or current).
+    ISD_P_DEBUG_NO_ARP = 213, ISD_P_DEBUG_DRY = 214,
+    /// Test hooks (unit 3, never shown): Reef Marimba without its rolls; its bars alone (no tube, steel, untuned modes
+    /// or reverb).
+    ISD_P_DEBUG_NO_ROLL = 215, ISD_P_DEBUG_BAR_ONLY = 216
 };
 
 /// unit: 0 generic 0…1, 1 cents, 2 semitones, 3 internal (test hooks: hosts never show or save these).
