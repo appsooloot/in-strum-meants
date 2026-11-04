@@ -90,5 +90,7 @@ final class PreviewRenderTests: XCTestCase {
         // The place cards (sets born from their place, no song).
         let teaHouse = try XCTUnwrap(InspiredByCardTests.render(place: InspiredByCardTests.teaHouse, at: 2.4))
         try PreviewRenderer.writePNG(teaHouse, to: url.appendingPathComponent("card-place-tea-house-snow.png"))
+        let reef = try XCTUnwrap(InspiredByCardTests.render(place: InspiredByCardTests.reef, at: 2.4))
+        try PreviewRenderer.writePNG(reef, to: url.appendingPathComponent("card-place-great-barrier-reef.png"))
     }
 }

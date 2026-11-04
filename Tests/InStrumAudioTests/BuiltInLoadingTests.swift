@@ -108,4 +108,24 @@ final class BuiltInLoadingTests: XCTestCase {
             XCTAssertEqual(Double(p.value), value, accuracy: 1e-6, p.identifier)
         }
     }
+
+    func testM_ReefMarimbaShowsDialsButNotTestHooks() throws {
+        let au = try BuiltInInstrumentAU(componentDescription: BuiltInCatalog.description(for: .reefMarimba), options: [])
+        XCTAssertEqual(au.engine, .reefMarimba)
+        let ids = Set(au.parameterTree?.allParameters.map(\.identifier) ?? [])
+        XCTAssertEqual(ids, ["fineTune", "transpose", "mallet", "strike", "tube", "roll", "steel", "space", "width",
+                             "moodEnergy", "moodWarmth", "moodBrightness", "moodSpace", "moodMotion"])
+        XCTAssertFalse(ids.contains { $0.hasPrefix("debug") })
+        XCTAssertNil(au.parameterTree?.parameter(withAddress: AUParameterAddress(ISD_P_DEBUG_NO_ROLL)))
+        XCTAssertNil(au.parameterTree?.parameter(withAddress: AUParameterAddress(ISD_P_DEBUG_BAR_ONLY)))
+        // A fresh marimba is its default preset, Reef Marimba (spec §4.4: the dials' defaults are that preset's values),
+        // and every dial the preset sets is one the marimba shows.
+        let preset = PatchLibrary.defaultPatch(for: .reefMarimba)
+        XCTAssertEqual(preset.id, "reef-marimba")
+        XCTAssertTrue(Set(preset.values.keys).isSubset(of: ids), "\(preset.values.keys.sorted())")
+        for p in au.parameterTree?.allParameters ?? [] {
+            guard let value = preset.values[p.identifier] else { continue }
+            XCTAssertEqual(Double(p.value), value, accuracy: 1e-6, p.identifier)
+        }
+    }
 }

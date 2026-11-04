@@ -914,6 +914,21 @@ final class AppModelTests: XCTestCase {
         XCTAssertEqual(BuiltInEngine.teaHouseKoto.displayName, "Tea House Koto")
     }
 
+    /// Reef Marimba is born from its place (Great Barrier Reef), not a song: its presets carry no credit, so their names
+    /// are plain.
+    func testReefMarimbaPresetsHaveNoCredit() {
+        let presets = PatchLibrary.patches(for: .reefMarimba)
+        XCTAssertEqual(presets.map(\.id), ["reef-marimba", "soft-yarn", "lagoon-steel", "night-reef"])
+        XCTAssertEqual(presets.map(\.displayName), ["Reef Marimba", "Soft Yarn", "Lagoon Steel", "Night Reef"])
+        for p in presets {
+            XCTAssertNil(p.creditID, p.id)
+            XCTAssertNil(p.credit, p.id)
+            XCTAssertEqual(p.displayName, p.name, p.id)
+        }
+        XCTAssertEqual(PatchLibrary.defaultPatch(for: .reefMarimba).id, "reef-marimba")
+        XCTAssertEqual(BuiltInEngine.reefMarimba.displayName, "Reef Marimba")
+    }
+
     func testHoneyTapePresetsCarryTheirCredit() {
         let presets = PatchLibrary.patches(for: .honeyTape)
         XCTAssertEqual(presets.map(\.id), ["honey-tape", "sea-flute", "velvet-strings", "old-reel"])

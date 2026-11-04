@@ -57,6 +57,7 @@ final class DemoRenderTests: XCTestCase {
             ("polar-choir", ISD_ENGINE_POLAR_CHOIR, DemoPhrases.polarChoir),
             ("plankton-keys", ISD_ENGINE_PLANKTON_KEYS, DemoPhrases.planktonKeys),
             ("tea-house-koto", ISD_ENGINE_TEA_HOUSE_KOTO, DemoPhrases.teaHouseKoto),
+            ("reef-marimba", ISD_ENGINE_REEF_MARIMBA, DemoPhrases.reefMarimba),
         ]
         var written = 0
         for (name, engine, phrase) in demos {
@@ -72,6 +73,70 @@ final class DemoRenderTests: XCTestCase {
             written += 1
         }
         XCTAssertGreaterThanOrEqual(written, 1)
+    }
+
+    /// Reef Marimba's demo (spec §11) renders finite and well under full scale (under the limiter's 0.9 too, so nothing is
+    /// squashed), and rolls only where it means to. Rendered again with the rolls off (the test hook), it is the same
+    /// sample for sample until its one long note has been held 0.3 s; the roll then adds strokes, which swell as the
+    /// pressure rises; and once the long note is let go and its strokes have rung out, the two are the same again, so no
+    /// other note rolled. (The g++ mirror: peak 0.285; the strokes 12.5 dB louder over the roll's last half second than
+    /// its first; from 3 s after the release the two differ by at most −139 dB.)
+    func testReefMarimbaDemoRenders() throws {
+        let phrase = DemoPhrases.reefMarimba
+        func render(rolls: Bool) -> (l: [Float], r: [Float]) {
+            guard let synth = isd_synth_create(ISD_ENGINE_REEF_MARIMBA, Self.rate, 512) else { return ([], []) }
+            defer { isd_synth_destroy(synth) }
+            if !rolls { isd_synth_set_param(synth, Int32(ISD_P_DEBUG_NO_ROLL), 1) }
+            let total = Int(((phrase.last?.time ?? 0) + 6) * Self.rate), block = 256
+            var l = [Float](repeating: 0, count: total), r = [Float](repeating: 0, count: total)
+            var e = 0, i = 0
+            while i < total {
+                let n = min(block, total - i)
+                while e < phrase.count, Int(phrase[e].time * Self.rate) < i + n {
+                    let offset = Int32(max(0, Int(phrase[e].time * Self.rate) - i))
+                    phrase[e].message.bytes.withUnsafeBufferPointer { isd_synth_midi(synth, $0.baseAddress, Int32($0.count), offset) }
+                    e += 1
+                }
+                l.withUnsafeMutableBufferPointer { lp in
+                    r.withUnsafeMutableBufferPointer { rp in isd_synth_render(synth, lp.baseAddress! + i, rp.baseAddress! + i, Int32(n)) }
+                }
+                i += n
+            }
+            return (l, r)
+        }
+        let rolled = render(rolls: true), still = render(rolls: false)
+        XCTAssertFalse(rolled.l.isEmpty, "Reef Marimba is not in the Sound Core")
+        guard !rolled.l.isEmpty, rolled.l.count == still.l.count else { return }
+        XCTAssertTrue(rolled.l.allSatisfy(\.isFinite) && rolled.r.allSatisfy(\.isFinite))
+        let peak = max(rolled.l.map(abs).max() ?? 0, rolled.r.map(abs).max() ?? 0)
+        XCTAssertLessThan(peak, 0.6, "well under full scale")
+        // The long note: the one held longest.
+        var down: [UInt8: Double] = [:], long: (on: Double, off: Double) = (0, 0)
+        for (t, m) in phrase {
+            if case let .noteOn(_, n, _) = m { down[n] = t }
+            if case let .noteOff(_, n, _) = m, let on = down[n], t - on > long.off - long.on { long = (on, t) }
+        }
+        // Until its first stroke, sample for sample the same.
+        let due = Int(long.on * Self.rate) + Int((0.3 * Self.rate).rounded())
+        var before: Float = 0
+        for k in 0..<min(due, rolled.l.count) {
+            before = max(before, abs(rolled.l[k] - still.l[k]), abs(rolled.r[k] - still.r[k]))
+        }
+        XCTAssertLessThan(before, 1e-6, "nothing rolls before the long note")
+        /// The strokes the rolls add between `a` and `b` seconds (dB RMS, both channels).
+        func strokes(_ a: Double, _ b: Double) -> Double {
+            let i0 = min(rolled.l.count, Int(a * Self.rate)), i1 = min(rolled.l.count, Int(b * Self.rate))
+            var sum = 0.0
+            for k in i0..<max(i0, i1) {
+                let dl = Double(rolled.l[k]) - Double(still.l[k]), dr = Double(rolled.r[k]) - Double(still.r[k])
+                sum += dl * dl + dr * dr
+            }
+            return 10 * log10(max(sum / Double(max(1, 2 * (i1 - i0))), 1e-30))
+        }
+        let early = strokes(long.on + 0.35, long.on + 0.85), late = strokes(long.off - 0.5, long.off)
+        XCTAssertGreaterThan(early, -60, "the long note rolls")
+        XCTAssertGreaterThan(late - early, 6, "and the pressure swells the roll")
+        XCTAssertLessThan(strokes(long.off + 3, Double(rolled.l.count) / Self.rate), -100, "no other note rolls")
     }
 
     /// Renders the ambience alone (levels glide in over 2.5 s, as in the app).
