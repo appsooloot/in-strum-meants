@@ -71,6 +71,13 @@ final class CPUBudgetTests: XCTestCase {
         XCTAssertLessThan(best / 10, 0.06, "Morning Box used \(String(format: "%.1f", best * 10))% of real time")
     }
 
+    /// A 12-note chord held for 10 s at the default dials (breath, glass, chorus and shimmer all running).
+    func testPolarChoirBudget() {
+        let chord = [36, 43, 48, 52, 55, 60, 64, 67, 71, 72, 76, 79].map { R.noteOn(0, UInt8($0), 90) }
+        let seconds = bestOfThree { _ = R.render(ISD_ENGINE_POLAR_CHOIR, seconds: 10, events: chord) }
+        XCTAssertLessThan(seconds / 10, 0.06, "Polar Choir used \(String(format: "%.1f", seconds * 10))% of real time")
+    }
+
     /// The cabin's and the bedroom's soundscapes, each heard through the window.
     func testWindowAmbienceBudget() {
         typealias A = AmbienceTests

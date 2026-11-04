@@ -7,6 +7,7 @@
 #include "HazeBells.hpp"
 #include "CabinFelt.hpp"
 #include "MorningBox.hpp"
+#include "PolarChoir.hpp"
 #include <algorithm>
 #include <atomic>
 #include <cmath>
@@ -118,6 +119,24 @@ const ISDParamInfo kMorningBoxParams[] = {
     {ISD_P_DEBUG_WALL_ONLY, "debugWallOnly", "Wall only (test)", 0.f, 1.f, 0.f, 3},
 };
 
+const ISDParamInfo kPolarChoirParams[] = {
+    {ISD_P_FINE_TUNE, "fineTune", "Fine tune", -50.f, 50.f, 0.f, 1},
+    {ISD_P_TRANSPOSE, "transpose", "Transpose", -12.f, 12.f, 0.f, 2},
+    {ISD_P_VOWEL, "vowel", "Vowel", 0.f, 1.f, 0.55f, 0},
+    {ISD_P_BREATH, "breath", "Breath", 0.f, 1.f, 0.35f, 0},
+    {ISD_P_GLASS, "glass", "Glass", 0.f, 1.f, 0.30f, 0},
+    {ISD_P_SWELL, "swell", "Swell", 0.f, 1.f, 0.55f, 0},
+    {ISD_P_SHIMMER, "shimmer", "Shimmer", 0.f, 1.f, 0.25f, 0},
+    {ISD_P_SPACE, "space", "Space", 0.f, 1.f, 0.60f, 0},
+    {ISD_P_WIDTH, "width", "Width", 0.f, 1.f, 0.60f, 0},
+    {ISD_P_MOOD_ENERGY, "moodEnergy", "Mood energy", 0.f, 1.f, 0.5f, 0},
+    {ISD_P_MOOD_WARMTH, "moodWarmth", "Mood warmth", 0.f, 1.f, 0.5f, 0},
+    {ISD_P_MOOD_BRIGHTNESS, "moodBrightness", "Mood brightness", 0.f, 1.f, 0.5f, 0},
+    {ISD_P_MOOD_SPACE, "moodSpace", "Mood space", 0.f, 1.f, 0.5f, 0},
+    {ISD_P_MOOD_MOTION, "moodMotion", "Mood motion", 0.f, 1.f, 0.5f, 0},
+    {ISD_P_DEBUG_VOICES_ONLY, "debugVoicesOnly", "Voices only (test)", 0.f, 1.f, 0.f, 3},
+};
+
 struct ParamTable { const ISDParamInfo *items; int count; };
 
 ParamTable table(ISDEngine engine) {
@@ -128,6 +147,7 @@ ParamTable table(ISDEngine engine) {
     case ISD_ENGINE_HAZE_BELLS: return {kHazeBellsParams, (int)(sizeof kHazeBellsParams / sizeof kHazeBellsParams[0])};
     case ISD_ENGINE_CABIN_FELT: return {kCabinFeltParams, (int)(sizeof kCabinFeltParams / sizeof kCabinFeltParams[0])};
     case ISD_ENGINE_MORNING_BOX: return {kMorningBoxParams, (int)(sizeof kMorningBoxParams / sizeof kMorningBoxParams[0])};
+    case ISD_ENGINE_POLAR_CHOIR: return {kPolarChoirParams, (int)(sizeof kPolarChoirParams / sizeof kPolarChoirParams[0])};
     default: return {nullptr, 0};
     }
 }
@@ -210,6 +230,7 @@ ISDSynth *isd_synth_create(ISDEngine engine, double sampleRate, int maxFrames) {
     case ISD_ENGINE_HAZE_BELLS: s->engine = std::make_unique<isd::HazeBells>(sampleRate); break;
     case ISD_ENGINE_CABIN_FELT: s->engine = std::make_unique<isd::CabinFelt>(sampleRate); break;
     case ISD_ENGINE_MORNING_BOX: s->engine = std::make_unique<isd::MorningBox>(sampleRate); break;
+    case ISD_ENGINE_POLAR_CHOIR: s->engine = std::make_unique<isd::PolarChoir>(sampleRate); break;
     default: delete s; return nullptr;
     }
     return s;
