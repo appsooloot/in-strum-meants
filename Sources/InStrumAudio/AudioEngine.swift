@@ -68,6 +68,7 @@ public final class AudioEngine {
             engine.attach(instrumentBus)
             engine.connect(instrumentBus, to: engine.mainMixerNode, format: renderFormat())
         }
+        applySleepGain()
         if !manualRendering { installLevelTap() }   // taps don't run in offline manual rendering
         engine.prepare()
         try engine.start()
@@ -193,6 +194,7 @@ public final class AudioEngine {
         let playing = shared.withLockUnchecked { s -> Bool in s.ambience = au; return !s.held.isEmpty }
         au.setPlaying(playing)
         updateAmbienceBus()
+        applySleepGain()
         if !engine.isRunning { try? engine.start() }
     }
 
@@ -225,6 +227,30 @@ public final class AudioEngine {
     private func updateAmbienceBus() {
         ambienceBus.outputVolume = ambienceEnabled ? max(0, min(1, ambienceVolume)) : 0
     }
+
+    // MARK: - The sleep fade's gain
+
+    /// A run-time gain on everything you hear, 0…1 (the sleep fade, Small Wins spec §3). It is the input volume of the
+    /// instrument's and the ambience's buses on the main mixer, after the level tap, so the saved volumes
+    /// (`masterVolume`, `ambienceVolume`) never see it.
+    public var sleepGain: Float {
+        get { currentSleepGain }
+        set {
+            currentSleepGain = max(0, min(1, newValue))
+            applySleepGain()
+        }
+    }
+    private var currentSleepGain: Float = 1
+
+    /// Both buses take the gain whenever they are (re)connected.
+    private func applySleepGain() {
+        instrumentBus.volume = currentSleepGain
+        ambienceBus.volume = currentSleepGain
+    }
+
+    /// The gain as the two buses carry it, and the ambience bus's own volume (tests).
+    var busSleepGains: (instrument: Float, ambience: Float) { (instrumentBus.volume, ambienceBus.volume) }
+    var ambienceBusVolume: Float { ambienceBus.outputVolume }
 
     /// Offline rendering, for tests only.
     public func renderOffline(frames: AVAudioFrameCount) throws -> AVAudioPCMBuffer {
@@ -289,6 +315,7 @@ public final class AudioEngine {
             engine.disconnectNodeOutput(unit)
             engine.connect(unit, to: ambienceBus, format: renderFormat())
         }
+        applySleepGain()
         setOutputBufferSize()
         installLevelTap()
         engine.prepare()

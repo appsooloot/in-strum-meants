@@ -26,7 +26,7 @@ public final class AppModel: ObservableObject {
     /// The active visual theme.
     @Published public private(set) var themeID: String
     /// Bumped whenever any visual setting changes (the canvas re-reads them).
-    @Published public private(set) var visualsVersion = 0
+    @Published public internal(set) var visualsVersion = 0
     @Published public private(set) var quality: QualitySetting
     @Published public private(set) var gentleVisuals: Bool
     /// Name of the active reaction style ("Custom" after editing the mapping).
@@ -44,15 +44,17 @@ public final class AppModel: ObservableObject {
 
     // nonisolated: touched from the CoreMIDI and render threads.
     nonisolated let engine: InstrumentEngine
-    private struct Live {
+    struct Live {
         var parser = MIDIParser()
         var state = PerformanceState()
         var events: [PerformanceEvent] = []
         var touch: TouchCurve = .normal
         /// 1…16 to listen to one MIDI channel only; nil for all.
         var channel: Int?
+        /// The last key pressed, pedal moved or click (system uptime); -∞ before any.
+        var lastActivity = -Double.infinity
     }
-    nonisolated private let live = OSAllocatedUnfairLock(uncheckedState: Live())
+    nonisolated let live = OSAllocatedUnfairLock(uncheckedState: Live())
 
     /// The loaded instrument's own dials (knobs/sliders in its window).
     @Published public private(set) var dials: [DialInfo] = []
@@ -60,7 +62,7 @@ public final class AppModel: ObservableObject {
     @Published public private(set) var builtInPatch: Patch?
     /// Dials moved since the instrument loaded (offered first in the mapping editor).
     @Published public private(set) var movedDials: [UInt64] = []
-    private var dialReader: DialReader?
+    var dialReader: DialReader?
     private struct DialLive { var pending: [UInt64: Double] = [:]; var moved: [UInt64] = [] }
     nonisolated private let dialLive = OSAllocatedUnfairLock(uncheckedState: DialLive())
     /// What the instrument's pulse follows: the loaded built-in engine (nil for a plugin, or none) and its dials by
@@ -78,7 +80,7 @@ public final class AppModel: ObservableObject {
 
     private let store: SettingsStore
     private let launchGuard: LaunchGuard
-    private var settings: AppSettings
+    var settings: AppSettings
     private var launched = false
     private var autosaveTimer: Timer?
     private var watchdogTimer: Timer?
@@ -108,6 +110,7 @@ public final class AppModel: ObservableObject {
         ambienceLive.withLockUnchecked { $0.closeness = closeness }
         activeSetID = loaded.activeSetID.flatMap { SetLibrary.set(id: $0) }?.id
         mood = activeSetID.flatMap { SetLibrary.set(id: $0) }?.mood ?? .neutral
+        sceneControls = SceneControls(holdPedal: loaded.holdPedal, breath: loaded.breath)
     }
 
     // MARK: - Launch and instruments
@@ -190,6 +193,7 @@ public final class AppModel: ObservableObject {
         engine.send(bytes)
         live.withLockUnchecked { l in
             for message in l.parser.parse(bytes) {
+                if Self.isActivity(message) { l.lastActivity = time }
                 l.events += l.state.apply(message, at: time)
             }
         }
@@ -733,6 +737,120 @@ public final class AppModel: ObservableObject {
                 self?.autosave()
                 self?.launchGuard.markStable()
             }
+        }
+    }
+
+    // MARK: - Small Wins: the director's controls and report
+
+    /// What the director's clock is asked for each frame (the canvas hands it over before the frame's events).
+    public internal(set) var sceneControls = SceneControls()
+    /// What the director said about the last frame (the canvas reports every frame): held or not, its sky and the key.
+    public private(set) var sceneReport = SceneReport()
+    /// Hold the moment: latched (a double-click on the hourglass, or ⌘⇧H) or pressed (the hourglass held down).
+    @Published public internal(set) var holdLatched = false
+    @Published public internal(set) var holdPressed = false
+    /// True while time is held, however it was asked for (the hourglass lights).
+    @Published public private(set) var holdShown = false
+    /// The sleep timer's time left, in seconds (nil while it's off).
+    @Published public internal(set) var sleepRemaining: TimeInterval?
+    /// True while the visuals follow the Mac's Reduce Motion.
+    @Published public internal(set) var reduceMotionActive = false
+
+    /// The Gentle visuals the canvas draws with: yours, or the Mac's Reduce Motion while the app follows it. Your own
+    /// setting never changes.
+    public var effectiveGentleVisuals: Bool { gentleVisuals || reduceMotionActive }
+
+    /// Called by the canvas after each frame. `holdShown` is published only when it changes.
+    public func noteSceneReport(_ report: SceneReport) {
+        sceneReport = report
+        if holdShown != report.holding { holdShown = report.holding }
+    }
+
+    public var holdPedal: HoldPedal { settings.holdPedal }
+    public var keyboardRange: KeyboardRange { settings.keyboardRange }
+    public var breathSettings: AmbienceBreathSettings { settings.breath }
+    public var followReduceMotion: Bool { settings.followReduceMotion }
+
+    public func setHoldPedal(_ pedal: HoldPedal) {
+        objectWillChange.send()   // `settings` isn't published: tell the controls
+        settings.holdPedal = pedal
+        sceneControls.holdPedal = pedal
+        autosave()
+    }
+
+    public func setKeyboardRange(_ range: KeyboardRange) {
+        objectWillChange.send()
+        settings.keyboardRange = range
+        autosave()
+    }
+
+    /// The switch saves at once; the depth slider drags this, so a change of depth alone waits for the drag to settle.
+    public func setBreath(_ breath: AmbienceBreathSettings) {
+        objectWillChange.send()
+        let switched = breath.enabled != settings.breath.enabled
+        settings.breath = breath
+        sceneControls.breath = breath
+        if switched { autosave() } else { scheduleSave() }
+    }
+
+    public func setFollowReduceMotion(_ on: Bool) {
+        objectWillChange.send()
+        settings.followReduceMotion = on
+        autosave()
+    }
+
+    // MARK: - Small Wins: the toast
+
+    /// A small note over the canvas, such as "Kept · 4:12", with an SF Symbol.
+    public struct Toast: Equatable {
+        public let text: String
+        public let symbol: String
+        public let id: Int
+    }
+
+    /// How long a toast stays up.
+    nonisolated static let toastSeconds = 2.5
+    @Published public private(set) var toast: Toast?
+    /// A toast's time on screen (tests shorten it).
+    var toastDuration = AppModel.toastSeconds
+    private var toastCount = 0
+    private var toastTimer: Task<Void, Never>?
+
+    /// Shows a toast in place of any other; it clears itself after `toastDuration` unless a newer one replaces it.
+    public func showToast(_ text: String, symbol: String) {
+        toastCount += 1
+        let shown = Toast(text: text, symbol: symbol, id: toastCount)
+        toast = shown
+        toastTimer?.cancel()
+        let nanoseconds = UInt64(max(0, toastDuration) * 1_000_000_000)
+        toastTimer = Task { [weak self] in
+            try? await Task.sleep(nanoseconds: nanoseconds)
+            self?.toastExpired(shown.id)
+        }
+    }
+
+    /// A toast's time is up: it goes, unless a newer toast has taken its place.
+    func toastExpired(_ id: Int) {
+        if toast?.id == id { toast = nil }
+    }
+
+    // MARK: - Small Wins: activity
+
+    /// When a key was last pressed, a pedal moved or the app clicked (system uptime; -∞ before any): what wakes the
+    /// sleep fade (spec §3).
+    nonisolated var lastActivityTime: Double { live.withLockUnchecked { $0.lastActivity } }
+
+    /// A click or a key on the Mac's keyboard (any thread).
+    nonisolated func noteUserActivity(at t: Double = ProcessInfo.processInfo.systemUptime) {
+        live.withLockUnchecked { $0.lastActivity = t }
+    }
+
+    /// A note-on, or the sustain, sostenuto or soft pedal moving (either way).
+    nonisolated static func isActivity(_ message: MIDIMessage) -> Bool {
+        switch message {
+        case .noteOn: return true
+        case let .controlChange(_, controller, _): return controller == 64 || controller == 66 || controller == 67
+        default: return false
         }
     }
 }
