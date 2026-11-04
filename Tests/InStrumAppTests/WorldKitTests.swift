@@ -416,7 +416,8 @@ final class WorldKitTests: XCTestCase {
         var lake = SkySettings(); lake.timeMode = .frozen; lake.frozenHour = 22; lake.cityID = "melbourne"
         lake.weatherMode = .pick; lake.weather = .clear
         let preview = try XCTUnwrap(PreviewRenderer(width: 640, height: 360))
-        for id in [MoonlitLakeModel.id, GoldenHourBeachModel.id, CoastRoadModel.id, SnowboundCabinModel.id, BedroomDawnModel.id] {
+        for id in [MoonlitLakeModel.id, GoldenHourBeachModel.id, CoastRoadModel.id, SnowboundCabinModel.id, BedroomDawnModel.id,
+                   AuroraFjordModel.id] {
             let image = try XCTUnwrap(preview.render(themeID: id, at: [0.5], sky: lake).first, id)
             XCTAssertGreaterThan(PreviewRenderer.stats(image).variance, 0, "\(id) without the stars")
         }
@@ -432,7 +433,8 @@ final class WorldKitTests: XCTestCase {
         let after = try render(darkNight())
         XCTAssertGreaterThan(PreviewRenderer.stats(after).variance, 0, "real stars after")
         XCTAssertGreaterThan(FramePatch.difference(before, after, x: -1...1, y: -1...1), 0, "the real stars change the sky")
-        for id in [MoonlitLakeModel.id, GoldenHourBeachModel.id, CoastRoadModel.id, SnowboundCabinModel.id, BedroomDawnModel.id] {
+        for id in [MoonlitLakeModel.id, GoldenHourBeachModel.id, CoastRoadModel.id, SnowboundCabinModel.id, BedroomDawnModel.id,
+                   AuroraFjordModel.id] {
             let image = try XCTUnwrap(preview.render(themeID: id, at: [0.5], sky: lake).first, id)
             XCTAssertGreaterThan(PreviewRenderer.stats(image).variance, 0, "\(id) with the stars")
         }
@@ -1019,7 +1021,7 @@ final class CoastRoadRendererTests: XCTestCase {
         }
         // The worlds built on the sky alone (their reflections call skyRadiance, with the aurora, stars and pillars).
         for (name, full) in [("lake", MoonlitLakeShaders.source), ("cabin", SnowboundCabinShaders.source),
-                             ("bedroom", BedroomDawnShaders.source)] {
+                             ("bedroom", BedroomDawnShaders.source), ("fjord", AuroraFjordShaders.source)] {
             let source = String(full.dropFirst(SkyShaders.common.count))
             let hits = pattern.numberOfMatches(in: source, range: NSRange(source.startIndex..., in: source))
             XCTAssertEqual(hits, 0, name)
@@ -1707,6 +1709,270 @@ extension WorldPreviewTests {
         for (name, s, state, q, t) in cases {
             let image = try XCTUnwrap(preview.render(themeID: BedroomDawnModel.id, at: [t], state: state, quality: q, sky: s,
                                                      mood: .softWaking).first)
+            try PreviewRenderer.writePNG(image, to: url.appendingPathComponent("\(name).png"))
+        }
+    }
+}
+
+/// Aurora Fjord (Set 7's world) with Curtain Lights.
+@MainActor
+final class AuroraFjordRendererTests: XCTestCase {
+    func testFjordShadersCompile() throws {
+        guard let device = MTLCreateSystemDefaultDevice() else { throw XCTSkip("No Metal device") }
+        let lib = try device.makeLibrary(source: AuroraFjordShaders.source, options: nil)
+        for name in ["fjord_vertex", "fjord_scene_fragment", "fjord_village_vertex", "fjord_village_fragment", "fjord_floe_vertex",
+                     "fjord_floe_fragment", "fjord_rail_vertex", "fjord_rail_fragment", "fjord_keys_vertex", "fjord_keys_fragment"] {
+            XCTAssertNotNil(lib.makeFunction(name: name), name)
+        }
+        let own = String(AuroraFjordShaders.source.dropFirst(SkyShaders.common.count))
+        XCTAssertFalse(own.contains("pow("), "squares and powers are written out")
+    }
+
+    /// Melbourne, frozen: a dark moon (a thin crescent set with the sun) unless asked.
+    nonisolated static func sky(hour: Double, weather: WeatherKind = .clear, phase: Double = 0.1) -> SkySettings {
+        var s = SkySettings(); s.timeMode = .frozen; s.frozenHour = hour; s.frozenPhase = phase; s.cityID = "melbourne"
+        s.weatherMode = .pick; s.weather = weather
+        return s
+    }
+
+    struct FjordShot { var image: CGImage; var renderer: AuroraFjordRenderer; var frame: FjordFrame }
+
+    /// Steps the fjord at 60 fps in its own mood (notes go down at `noteTime` and stay held) and captures frames at the
+    /// given times (seconds, ascending). The world's defaults hold Deep night with the aurora Always.
+    private func fjordShots(notes: [UInt8] = [], velocity: Float = 1, noteTime: Double = 0.5, at times: [Double],
+                            state: ThemeState = ThemeState(), sky: SkySettings = AuroraFjordRendererTests.sky(hour: 22),
+                            quality: QualityLevel = .high, gentle: Bool = false, width: Int = 640, height: Int = 360,
+                            skyEdit: ((inout SkyState) -> Void)? = nil) throws -> [FjordShot] {
+        guard let device = MTLCreateSystemDefaultDevice() else { throw XCTSkip("No Metal device") }
+        let preview = try XCTUnwrap(PreviewRenderer(width: width, height: height))
+        let r = try XCTUnwrap(AuroraFjordRenderer(device: device))
+        let d = SceneDirector(themeID: AuroraFjordModel.id, state: state, reaction: ReactionPresets.expressivePianist)
+        let start = Date(timeIntervalSince1970: 1_793_000_000)
+        var elapsed = 0.0
+        d.clock = { start.addingTimeInterval(elapsed) }
+        d.sky.reset(settings: sky)
+        d.mood = .electricAwe
+        let size = CGSize(width: width, height: height)
+        let noteStep = max(1, Int((noteTime * 60).rounded()))
+        var shots: [FjordShot] = []
+        var pending = times
+        var i = 0
+        while let next = pending.first, i < 60 * 120 {
+            i += 1
+            let t = Double(i) / 60
+            elapsed = t
+            if i == noteStep, !notes.isEmpty { d.handle(notes.map { .noteOn(note: $0, velocity: velocity) }, at: t) }
+            var f = try XCTUnwrap(d.step(dt: 1.0 / 60, t: t, quality: quality) as? FjordFrame)
+            skyEdit?(&f.sky)
+            r.update(f, params: d.parameters, quality: quality, gentle: gentle, dt: 1.0 / 60, size: size)
+            if t >= next - 1e-9 {
+                shots.append(FjordShot(image: try XCTUnwrap(preview.capture(r)), renderer: r, frame: f))
+                pending.removeFirst()
+            }
+        }
+        XCTAssertEqual(shots.count, times.count)
+        return shots
+    }
+
+    private func luma(_ c: SIMD3<Double>) -> Double { 0.2126 * c.x + 0.7152 * c.y + 0.0722 * c.z }
+    private func luma(_ image: CGImage, _ box: (x: ClosedRange<Double>, y: ClosedRange<Double>)) -> Double {
+        luma(FramePatch.meanRGB(image, x: box.x, y: box.y))
+    }
+
+    /// The NDC y of an altitude (degrees) straight ahead, through the fjord's camera at this aspect.
+    private func ndcY(altitude: Double, renderer r: AuroraFjordRenderer, aspect: Float = 640.0 / 360) -> Double {
+        let tanV = tan(AuroraFjordRenderer.verticalFOV(aspect: aspect) * .pi / 360)
+        let pitch = atan(-Double(r.horizonY) * tanV)
+        return tan(altitude * .pi / 180 - pitch) / tanV
+    }
+
+    func testFjordPreviewIsStructured() throws {
+        guard MTLCreateSystemDefaultDevice() != nil else { throw XCTSkip("No Metal device") }
+        let preview = try XCTUnwrap(PreviewRenderer(width: 640, height: 360))
+        let follow = ThemeState(values: ["light.hold": .choice(SkyHold.follow.rawValue)])
+        for q in [QualityLevel.lite, .high] {
+            for (name, state, hour) in [("night", ThemeState(), 22.0), ("dawn", follow, 7.6), ("noon", follow, 13.0)] {
+                let image = try XCTUnwrap(preview.render(themeID: AuroraFjordModel.id, at: [1], state: state, quality: q,
+                                                         sky: Self.sky(hour: hour), mood: .electricAwe).first)
+                let s = PreviewRenderer.stats(image)
+                XCTAssertGreaterThan(s.meanLuminance, 0.02, "\(q) \(name)")
+                XCTAssertGreaterThan(s.variance, 0.002, "\(q) \(name)")
+            }
+        }
+    }
+
+    /// A held MIDI 60 from 1 s: a second later the curtain's foot where the ripple's right-hand front has travelled
+    /// along the band is ≥ 1.25× as bright as before the note (the ripple dips the curtain's foot and brightens it); a
+    /// patch far along the band stays within 10% (the held note's glow eases in). Stars and the moon are off, so the
+    /// patches measure the curtain alone.
+    func testNotesRippleTheCurtain() throws {
+        let dark: (inout SkyState) -> Void = { s in
+            s.starVisibility = 0; s.moon = SkyDirection(azimuth: 0, altitude: -30); s.moonLit = 0
+        }
+        let shots = try fjordShots(notes: [60], noteTime: 1, at: [59.0 / 60, 2], skyEdit: dark)
+        let before = shots[0], after = shots[1]
+        XCTAssertGreaterThan(after.frame.sky.aurora, 0.5, "Always, at deep night")
+        XCTAssertEqual(after.renderer.rippleCount, 1)
+        let ripple = try XCTUnwrap(after.frame.ripples.first)
+        XCTAssertEqual(Double(ripple.age), 1, accuracy: 0.02)
+        let sent = after.renderer.shaderRipples[0]
+        XCTAssertEqual(sent, AuroraFjordRenderer.shaderRipple(ripple, sparkle: 1))
+        let front = AuroraFjordRenderer.fronts(sent).right
+        func box(_ p0: Float, _ p1: Float, _ a0: Float, _ a1: Float) throws -> (x: ClosedRange<Double>, y: ClosedRange<Double>) {
+            var lo = SIMD2<Float>(repeating: 9), hi = SIMD2<Float>(repeating: -9)
+            for p in [p0, (p0 + p1) / 2, p1] {
+                for a in [a0, (a0 + a1) / 2, a1] {
+                    let q = try XCTUnwrap(after.renderer.bandPoint(position: p, above: a))
+                    lo = simd_min(lo, q); hi = simd_max(hi, q)
+                }
+            }
+            return (Double(lo.x)...Double(hi.x), Double(lo.y)...Double(hi.y))
+        }
+        // The curtain's foot (4.5° under its base to 1° over it), 1.5° either side of the front.
+        let near = try box(front - 1.5 / 180, front + 1.5 / 180, -4.5, 1)
+        // 24–30° along the band to the left, 10–16° up the curtain: clear of both fronts and over the left wall.
+        let far = try box(0.5 - 30.0 / 180, 0.5 - 24.0 / 180, 10, 16)
+        let nearBefore = luma(before.image, near), nearAfter = luma(after.image, near)
+        XCTAssertGreaterThanOrEqual(nearAfter, 1.25 * nearBefore, "at the ripple: \(nearBefore) → \(nearAfter)")
+        let farBefore = luma(before.image, far), farAfter = luma(after.image, far)
+        XCTAssertEqual(farAfter, farBefore, accuracy: 0.1 * farBefore, "far along the band: \(farBefore) → \(farAfter)")
+    }
+
+    func testFjordHonoursGentleVisuals() throws {
+        guard let device = MTLCreateSystemDefaultDevice() else { throw XCTSkip("No Metal device") }
+        let d = SceneDirector(themeID: AuroraFjordModel.id, state: ThemeState(), reaction: ReactionPresets.expressivePianist)
+        let start = Date(timeIntervalSince1970: 1_793_000_000)
+        var elapsed = 0.0
+        d.clock = { start.addingTimeInterval(elapsed) }
+        d.sky.reset(settings: Self.sky(hour: 22))
+        d.mood = .electricAwe
+        let plain = try XCTUnwrap(AuroraFjordRenderer(device: device)), gentle = try XCTUnwrap(AuroraFjordRenderer(device: device))
+        let size = CGSize(width: 640, height: 360)
+        var glow: (plain: Float, gentle: Float) = (0, 0), ripple: (plain: Float, gentle: Float) = (0, 0)
+        for i in 1...150 {
+            let t = Double(i) / 60
+            elapsed = t
+            if i == 10 { d.handle([60, 64, 67].map { .noteOn(note: $0, velocity: 0.9) }, at: t) }
+            let f = try XCTUnwrap(d.step(dt: 1.0 / 60, t: t, quality: .high) as? FjordFrame)
+            plain.update(f, params: d.parameters, quality: .high, gentle: false, dt: 1.0 / 60, size: size)
+            gentle.update(f, params: d.parameters, quality: .high, gentle: true, dt: 1.0 / 60, size: size)
+            glow = (max(glow.plain, plain.glowOut), max(glow.gentle, gentle.glowOut))
+            ripple = (max(ripple.plain, plain.shaderRipples.map(\.z).max() ?? 0), max(ripple.gentle, gentle.shaderRipples.map(\.z).max() ?? 0))
+        }
+        XCTAssertGreaterThan(glow.plain, 0.2, "a held chord swells the curtain")
+        XCTAssertLessThanOrEqual(glow.gentle, glow.plain * 0.55, "gentle visuals halve the swell")
+        XCTAssertGreaterThan(ripple.plain, 0.5)
+        XCTAssertLessThanOrEqual(ripple.gentle, ripple.plain * 0.55, "and the ripples")
+    }
+
+    /// Diamond dust at night: the column over a village light (2.5–6° above it) is ≥ 1.2× as bright as on a clear night.
+    /// The crystals are left out (they're the weather layer's), so the column measures the pillar alone.
+    func testVillageLightsPillarInDiamondDust() throws {
+        let clear = try XCTUnwrap(fjordShots(at: [1.5]).last)
+        let dust = try XCTUnwrap(fjordShots(at: [1.5], sky: Self.sky(hour: 22, weather: .diamondDust)) { $0.diamondDust = 0 }.last)
+        XCTAssertEqual(clear.frame.sky.pillar, 0)
+        XCTAssertGreaterThan(dust.frame.sky.pillar, 0.9)
+        XCTAssertTrue(clear.frame.villageLit && dust.frame.villageLit)
+        XCTAssertGreaterThanOrEqual(clear.renderer.villageLightCount, 6)
+        XCTAssertLessThanOrEqual(clear.renderer.villageLightCount, AuroraFjordRenderer.maxVillageLights)
+        XCTAssertEqual(dust.renderer.villagePoints, clear.renderer.villagePoints, "the village stays put")
+        // The leftmost light: the column above it lies on the wall's face, below the skyline.
+        let light = try XCTUnwrap(clear.renderer.villagePoints.min { $0.x < $1.x })
+        let tanV = Float(tan(AuroraFjordRenderer.verticalFOV(aspect: 640.0 / 360) * .pi / 360))
+        func above(_ degrees: Float) -> Double { Double(tan(atan(light.y * tanV) + degrees * .pi / 180) / tanV) }
+        let column = (x: Double(light.x - 0.006)...Double(light.x + 0.006), y: above(2.5)...above(6))
+        let a = luma(clear.image, column), b = luma(dust.image, column)
+        XCTAssertGreaterThanOrEqual(b, 1.2 * a, "clear \(a), diamond dust \(b)")
+    }
+
+    /// The water below the band mirrors the aurora: ≥ 1.3× as bright with the aurora Always (at deep night) as Never.
+    func testFjordReflectsTheAurora() throws {
+        let always = try XCTUnwrap(fjordShots(at: [1.5], state: ThemeState(values: ["aurora.mode": .choice(AuroraMode.always.rawValue)])).last)
+        let never = try XCTUnwrap(fjordShots(at: [1.5], state: ThemeState(values: ["aurora.mode": .choice(AuroraMode.never.rawValue)])).last)
+        XCTAssertGreaterThan(always.frame.sky.aurora, 0.5)
+        XCTAssertEqual(never.frame.sky.aurora, 0)
+        // A flat mirror shows the sky as far below the horizon as it stands above it: the curtain's lowest 1–7°.
+        let base = Double(AuroraFjordRenderer.framedAltitude(always.frame.sky.auroraAltitude))
+        let y = ndcY(altitude: -(base + 7), renderer: always.renderer)...ndcY(altitude: -(base + 1), renderer: always.renderer)
+        XCTAssertGreaterThan(y.lowerBound, -0.76, "above the keys")
+        let water = (x: -0.12...0.12, y: y)
+        let a = luma(always.image, water), b = luma(never.image, water)
+        XCTAssertGreaterThanOrEqual(a, 1.3 * b, "aurora \(a), none \(b)")
+    }
+
+    func testFjordFramesAnyAspect() throws {
+        for (w, h) in [(864, 360), (360, 360)] {
+            let shot = try XCTUnwrap(fjordShots(notes: [60, 64, 67], at: [1.5], width: w, height: h).last)
+            let r = shot.renderer
+            XCTAssertGreaterThan(r.horizonY, -1, "\(w)×\(h)"); XCTAssertLessThan(r.horizonY, 1, "\(w)×\(h)")
+            XCTAssertEqual(r.keyRects.count, 88)
+            for k in r.keyRects {
+                XCTAssertGreaterThanOrEqual(k.x, -1); XCTAssertLessThanOrEqual(k.z, 1)
+                XCTAssertGreaterThanOrEqual(k.y, -1); XCTAssertLessThanOrEqual(k.w, 1)
+                XCTAssertLessThan(k.w, r.horizonY, "the keys sit below the horizon")
+            }
+            XCTAssertGreaterThanOrEqual(r.villageLightCount, 6, "\(w)×\(h)")
+            for p in r.villagePoints { XCTAssertTrue((-1...1).contains(p.x) && (-1...1).contains(p.y), "\(w)×\(h) village \(p)") }
+            XCTAssertEqual(r.jettyPosts.count, 2, "\(w)×\(h)")
+            let keyTop = r.keyRects.map(\.w).max() ?? -1
+            for p in r.jettyPosts {
+                XCTAssertTrue((-1...1).contains(p.x) && p.y > keyTop && p.y < r.horizonY, "\(w)×\(h) jetty \(p)")
+            }
+            let s = PreviewRenderer.stats(shot.image)
+            XCTAssertGreaterThan(s.meanLuminance, 0.02, "\(w)×\(h)")
+            XCTAssertGreaterThan(s.variance, 0.001, "\(w)×\(h)")
+        }
+    }
+
+    /// 2,000 notes in a second: never more than 8 ripples on the curtain, and 60 frames update and render in under 4 s.
+    func testFjordBurstStaysInBudget() throws {
+        guard let device = MTLCreateSystemDefaultDevice() else { throw XCTSkip("No Metal device") }
+        let preview = try XCTUnwrap(PreviewRenderer(width: 640, height: 360))
+        let r = try XCTUnwrap(AuroraFjordRenderer(device: device))
+        let d = SceneDirector(themeID: AuroraFjordModel.id, state: ThemeState(), reaction: ReactionPresets.expressivePianist)
+        d.sky.reset(settings: Self.sky(hour: 22))
+        for q in [QualityLevel.lite, .high] {
+            let start = Date()
+            for i in 0..<60 {
+                let t = Double(i) / 60
+                d.handle((0..<34).map { k in .noteOn(note: UInt8(21 + (i * 34 + k) % 88), velocity: 0.8) }, at: t)
+                let f = try XCTUnwrap(d.step(dt: 1.0 / 60, t: t, quality: q) as? FjordFrame)
+                r.update(f, params: d.parameters, quality: q, gentle: false, dt: 1.0 / 60, size: CGSize(width: 640, height: 360))
+                XCTAssertLessThanOrEqual(f.ripples.count, CurtainLights.cap)
+                XCTAssertLessThanOrEqual(r.rippleCount, SkyLayer.rippleCount)
+                XCTAssertNotNil(preview.capture(r))
+            }
+            XCTAssertLessThan(Date().timeIntervalSince(start), 4, "\(q)")
+        }
+        XCTAssertGreaterThan(r.rippleCount, 0)
+        XCTAssertEqual(r.floeCount, AuroraFjordModel.floeCount(0.6))
+    }
+}
+
+extension WorldPreviewTests {
+    func testWriteFjordPreviews() throws {
+        guard let dir = ProcessInfo.processInfo.environment["PREVIEW_DIR"] else { throw XCTSkip("PREVIEW_DIR not set") }
+        guard MTLCreateSystemDefaultDevice() != nil else { throw XCTSkip("No Metal device") }
+        let url = URL(fileURLWithPath: dir, isDirectory: true)
+        try FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
+        let preview = try XCTUnwrap(PreviewRenderer(width: 1280, height: 720))
+        let night = ThemeState()
+        let follow = ThemeState(values: ["light.hold": .choice(SkyHold.follow.rawValue)])
+        let warp = ThemeState(values: ["visual": .choice("Galaxy Warp")])
+        let sky = AuroraFjordRendererTests.sky
+        let cases: [(String, SkySettings, ThemeState, QualityLevel, Double)] = [
+            ("fjord-night-aurora", sky(22, .clear, 0.1), night, .high, 5),
+            ("fjord-dawn", sky(7.6, .clear, 0.1), follow, .high, 5),
+            ("fjord-noon", sky(13, .clear, 0.1), follow, .high, 5),
+            ("fjord-diamond-dust", sky(22, .diamondDust, 0.1), night, .high, 5),
+            ("fjord-blizzard", sky(13, .blizzard, 0.1), follow, .high, 5),
+            ("fjord-smooth", sky(22, .clear, 0.1), night, .lite, 5),
+            ("fjord-ripples-t2", sky(22, .clear, 0.1), night, .high, 2),
+            ("fjord-warp-t7", sky(22, .clear, 0.1), warp, .high, 7),
+        ]
+        for (name, s, state, q, t) in cases {
+            let image = try XCTUnwrap(preview.render(themeID: AuroraFjordModel.id, at: [t], state: state, quality: q, sky: s,
+                                                     mood: .electricAwe).first)
             try PreviewRenderer.writePNG(image, to: url.appendingPathComponent("\(name).png"))
         }
     }

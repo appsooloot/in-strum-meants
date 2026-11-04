@@ -49,6 +49,7 @@ final class PreviewRenderer {
         var lounge: SpaceshipLoungeRenderer?, beach: GoldenHourBeachRenderer?, road: CoastRoadRenderer?
         var cabin: SnowboundCabinRenderer?
         var bedroom: BedroomDawnRenderer?
+        var fjord: AuroraFjordRenderer?
         var images: [CGImage] = []
         for t in times.sorted() {
             var current: ThemeRenderer?
@@ -101,6 +102,10 @@ final class PreviewRenderer {
                     }
                     bedroom?.update(b, params: director.parameters, quality: quality, gentle: gentle, dt: dt, size: size)
                     current = bedroom
+                } else if let f = frame as? FjordFrame {
+                    if fjord == nil { fjord = AuroraFjordRenderer(device: device) }
+                    fjord?.update(f, params: director.parameters, quality: quality, gentle: gentle, dt: dt, size: size)
+                    current = fjord
                 }
                 if time + dt > t { break }
             }

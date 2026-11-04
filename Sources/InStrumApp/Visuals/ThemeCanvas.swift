@@ -18,6 +18,7 @@ final class ThemeCanvas: NSObject, MTKViewDelegate {
     private var road: CoastRoadRenderer?
     private var cabin: SnowboundCabinRenderer?
     private var bedroom: BedroomDawnRenderer?
+    private var fjord: AuroraFjordRenderer?
     private var autoQuality: AutoQuality
     private var lastTime: CFTimeInterval = 0
     private var seenVersion = -1
@@ -126,6 +127,10 @@ final class ThemeCanvas: NSObject, MTKViewDelegate {
             if bedroom == nil { bedroom = BedroomDawnRenderer(device: device) }
             bedroom?.update(b, params: director.parameters, quality: level, gentle: model.gentleVisuals, dt: dt, size: size)
             renderer = bedroom
+        } else if let f = frame as? FjordFrame {
+            if fjord == nil { fjord = AuroraFjordRenderer(device: device) }
+            fjord?.update(f, params: director.parameters, quality: level, gentle: model.gentleVisuals, dt: dt, size: size)
+            renderer = fjord
         } else {
             renderer = nil
         }
