@@ -90,4 +90,22 @@ final class BuiltInLoadingTests: XCTestCase {
         XCTAssertNil(au.parameterTree?.parameter(withAddress: AUParameterAddress(ISD_P_DEBUG_NO_SPARKLE)))
         XCTAssertNil(au.parameterTree?.parameter(withAddress: AUParameterAddress(ISD_P_DEBUG_NO_TREMOLO)))
     }
+
+    func testK_TeaHouseKotoShowsDialsButNotTestHooks() throws {
+        let au = try BuiltInInstrumentAU(componentDescription: BuiltInCatalog.description(for: .teaHouseKoto), options: [])
+        XCTAssertEqual(au.engine, .teaHouseKoto)
+        let ids = Set(au.parameterTree?.allParameters.map(\.identifier) ?? [])
+        XCTAssertEqual(ids, ["fineTune", "transpose", "pick", "silk", "body", "bloom", "yuri", "space", "width",
+                             "moodEnergy", "moodWarmth", "moodBrightness", "moodSpace", "moodMotion"])
+        XCTAssertFalse(ids.contains { $0.hasPrefix("debug") })
+        XCTAssertNil(au.parameterTree?.parameter(withAddress: AUParameterAddress(ISD_P_DEBUG_NO_SYMPATHY)))
+        XCTAssertNil(au.parameterTree?.parameter(withAddress: AUParameterAddress(ISD_P_DEBUG_NO_BODY)))
+        // A fresh koto is its default preset, Tea House Koto (spec §4.2: the dials' defaults are that preset's values).
+        let preset = PatchLibrary.defaultPatch(for: .teaHouseKoto)
+        XCTAssertEqual(preset.id, "tea-house-koto")
+        for p in au.parameterTree?.allParameters ?? [] {
+            guard let value = preset.values[p.identifier] else { continue }
+            XCTAssertEqual(Double(p.value), value, accuracy: 1e-6, p.identifier)
+        }
+    }
 }

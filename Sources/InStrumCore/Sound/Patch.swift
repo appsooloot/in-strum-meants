@@ -1,6 +1,6 @@
 /// The app's own instruments (made entirely in the app, no recordings).
 public enum BuiltInEngine: String, Codable, CaseIterable {
-    case feltGlass, orbitPad, honeyTape, hazeBells, cabinFelt, morningBox, polarChoir, planktonKeys
+    case feltGlass, orbitPad, honeyTape, hazeBells, cabinFelt, morningBox, polarChoir, planktonKeys, teaHouseKoto
 
     public var displayName: String {
         switch self {
@@ -12,6 +12,7 @@ public enum BuiltInEngine: String, Codable, CaseIterable {
         case .morningBox: return "Morning Box"
         case .polarChoir: return "Polar Choir"
         case .planktonKeys: return "Plankton Keys"
+        case .teaHouseKoto: return "Tea House Koto"
         }
     }
 }
@@ -65,6 +66,11 @@ public enum PatchLibrary {
         Patch(id: "glow-wake", name: "Glow Wake", engine: .planktonKeys, values: keys(tine: 0.65, bark: 0.30, sparkle: 0.85, tremolo: 0.50, phase: 0.35, space: 0.65, width: 0.70), creditID: "happiness-is-a-butterfly"),
         Patch(id: "tide-tines", name: "Tide Tines", engine: .planktonKeys, values: keys(tine: 0.85, bark: 0.60, sparkle: 0.25, tremolo: 0.20, phase: 0.10, space: 0.40, width: 0.50), creditID: "happiness-is-a-butterfly"),
         Patch(id: "midnight-bay", name: "Midnight Bay", engine: .planktonKeys, values: keys(tine: 0.35, bark: 0.20, sparkle: 0.40, tremolo: 0.45, phase: 0.30, space: 0.70, width: 0.60), creditID: "happiness-is-a-butterfly"),
+        // Tea House Koto is born from its place (Tea House Snow), not from a song: no credit, so the names stay plain.
+        Patch(id: "tea-house-koto", name: "Tea House Koto", engine: .teaHouseKoto, values: koto(pick: 0.55, silk: 0.45, body: 0.50, bloom: 0.40, yuri: 0.30, space: 0.35, width: 0.50)),
+        Patch(id: "winter-strings", name: "Winter Strings", engine: .teaHouseKoto, values: koto(pick: 0.35, silk: 0.70, body: 0.60, bloom: 0.55, yuri: 0.20, space: 0.45, width: 0.55)),
+        Patch(id: "near-the-bridge", name: "Near the Bridge", engine: .teaHouseKoto, values: koto(pick: 0.15, silk: 0.25, body: 0.40, bloom: 0.25, yuri: 0.35, space: 0.25, width: 0.45)),
+        Patch(id: "night-tea", name: "Night Tea", engine: .teaHouseKoto, values: koto(pick: 0.45, silk: 0.60, body: 0.55, bloom: 0.60, yuri: 0.40, space: 0.50, width: 0.50)),
     ]
 
     public static func defaultPatch(for engine: BuiltInEngine) -> Patch {
@@ -99,6 +105,10 @@ public enum PatchLibrary {
 
     private static func keys(tine: Double, bark: Double, sparkle: Double, tremolo: Double, phase: Double, space: Double, width: Double) -> [String: Double] {
         ["tine": tine, "bark": bark, "sparkle": sparkle, "tremolo": tremolo, "phase": phase, "space": space, "width": width]
+    }
+
+    private static func koto(pick: Double, silk: Double, body: Double, bloom: Double, yuri: Double, space: Double, width: Double) -> [String: Double] {
+        ["pick": pick, "silk": silk, "body": body, "bloom": bloom, "yuri": yuri, "space": space, "width": width]
     }
 
     private static func pad(bloom: Double, drift: Double, motion: Double, shimmer: Double, brightness: Double, space: Double) -> [String: Double] {

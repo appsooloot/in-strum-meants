@@ -1,5 +1,5 @@
 /// A Set: one world, its visual, a built-in instrument preset and an ambience, tied together by a mood
-/// and inspired by one song (credited in words and a link only).
+/// and inspired by one song (credited in words and a link only), or born from its place with no song at all.
 public struct InStrumSet: Codable, Equatable, Identifiable {
     public let id, name, moodName: String
     public let mood: Mood
@@ -9,8 +9,9 @@ public struct InStrumSet: Codable, Equatable, Identifiable {
     /// A `PatchLibrary` preset (its engine is the built-in instrument to load).
     public let patchID: String
     public let ambience: AmbienceSettings
-    /// A `CreditLibrary` id.
-    public let creditID: String
+    /// A `CreditLibrary` id: the song that inspired the set. Nil for a set born from its place rather than a song
+    /// (it shows a place card instead). Sets saved by older builds always carried one, and still decode.
+    public let creditID: String?
 }
 
 /// The Sets, in gallery order.
