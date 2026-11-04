@@ -159,6 +159,41 @@ public enum DemoPhrases {
         return m.sorted
     }()
 
+    /// D-major colours at 68 for about 22 s: one pedalled bar each of D, F♯m7, Bm, G and Asus4, the bass on the bar and
+    /// the chord rolled over it, struck again softly on beat three, with a few short right-hand runs (so the sparks and the
+    /// wakes show), then a soft D chord left to ring.
+    public static let planktonKeys: Phrase = {
+        var m = Builder()
+        let beat = 60.0 / 68, bar = 4 * beat
+        let bars: [(bass: UInt8, chord: [UInt8])] = [(38, [50, 57, 62, 66]),   // D
+                                                     (42, [54, 57, 61, 64]),   // F♯m7
+                                                     (47, [54, 59, 62, 66]),   // Bm
+                                                     (43, [50, 59, 62, 67]),   // G
+                                                     (45, [52, 57, 62, 64])]   // Asus4
+        // The right hand over each bar: (seconds into the bar, note, velocity).
+        let tops: [[(Double, UInt8, UInt8)]] = [
+            [(beat, 74, 58)],
+            [(2.21, 73, 60), (2.38, 76, 62), (2.55, 78, 64), (2.72, 81, 66)],
+            [(beat, 78, 58), (2 * beat, 74, 54)],
+            [(2.30, 86, 66), (2.45, 83, 64), (2.60, 79, 62), (2.75, 78, 60), (2.90, 74, 58)],
+            [(beat, 76, 56), (2.43, 74, 58), (2.58, 76, 60), (2.73, 78, 62), (2.88, 81, 64), (3.03, 85, 66)],
+        ]
+        for (b, section) in bars.enumerated() {
+            let t = 0.2 + Double(b) * bar
+            m.pedal(t - 0.03, down: false); m.pedal(t + 0.06, down: true)
+            m.note(t, section.bass, 70, 2 * beat)
+            for (k, n) in section.chord.enumerated() { m.note(t + 0.03 * Double(k + 1), n, UInt8(54 + 2 * k), 1.4 * beat) }
+            for (k, n) in section.chord.enumerated() { m.note(t + 2 * beat + 0.02 * Double(k), n, 46, 0.9 * beat) }
+            for (dt, n, v) in tops[b] { m.note(t + dt, n, v, 0.3) }
+        }
+        let end = 0.2 + 5 * bar
+        m.pedal(end - 0.03, down: false); m.pedal(end + 0.06, down: true)
+        for (k, n) in [38, 50, 57, 62, 66, 69].enumerated() { m.note(end + 0.04 * Double(k), UInt8(n), UInt8(50 + 2 * k), 4.0) }
+        m.note(end + 1.0, 81, 52, 0.6)
+        m.pedal(end + 4.4, down: false)
+        return m.sorted
+    }()
+
     private struct Builder {
         var events: Phrase = []
         mutating func note(_ t: Double, _ n: UInt8, _ v: UInt8, _ length: Double) {

@@ -75,6 +75,28 @@ final class InspiredByCardTests: XCTestCase {
         }
     }
 
+    /// "Happiness Is a Butterfly"'s thirteen motes (the track number) blink on its beat, 68 BPM.
+    func testButterflyCardBlinksAtTempo() throws {
+        let art = try XCTUnwrap(CardArt.art(for: CreditLibrary.happinessIsAButterfly.id))
+        XCTAssertNotEqual(art, CardArt.art(for: CreditLibrary.wings.id))
+        XCTAssertNotEqual(art, CardArt.art(for: CreditLibrary.highByTheBeach.id))
+        XCTAssertEqual(art.pulse(for: CreditLibrary.happinessIsAButterfly), 60.0 / 68, accuracy: 1e-9)
+        XCTAssertEqual(CardArt.butterflyMotes.count, CreditLibrary.happinessIsAButterfly.trackNumber, "one mote per track number")
+    }
+
+    /// The Butterfly card's motes keep off its words: the liner notes (top right), the title block (bottom left) and the
+    /// Listen button, as the Stay card's frost does.
+    func testButterflyMotesKeepOffTheWords() {
+        let w: CGFloat = 600, h: CGFloat = 360
+        let words = [CGRect(x: 0.6 * w, y: 0, width: 0.4 * w, height: 0.1 * h),          // D major · TRACK 13 · 68 BPM
+                     CGRect(x: 0, y: 0.68 * h, width: 0.72 * w, height: 0.32 * h),        // Inspired by, title, credit, line
+                     CGRect(x: 0.82 * w, y: 0.86 * h, width: 0.18 * w, height: 0.14 * h)] // Listen
+        for (fx, fy, r) in CardArt.butterflyMotes {
+            let mote = CGRect(x: fx * w - r, y: fy * h - r, width: 2 * r, height: 2 * r)
+            for rect in words { XCTAssertFalse(mote.intersects(rect), "mote at (\(fx), \(fy)) covers \(rect)") }
+        }
+    }
+
     /// The Stay card's frost stars keep off its words: the liner notes (top right), the title block (bottom left) and
     /// the Listen button (final review: a star sat on "TRACK 3").
     func testStayFrostKeepsOffTheWords() {

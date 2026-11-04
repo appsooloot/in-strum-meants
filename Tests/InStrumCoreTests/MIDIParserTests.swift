@@ -72,7 +72,7 @@ final class MIDIMessageBytesTests: XCTestCase {
 
     func testDemoPhrasesAreOriginalAndPlayable() {
         for phrase in [DemoPhrases.feltGlass, DemoPhrases.orbitPad, DemoPhrases.honeyTape, DemoPhrases.hazeBells,
-                       DemoPhrases.cabinFelt, DemoPhrases.morningBox, DemoPhrases.polarChoir] {
+                       DemoPhrases.cabinFelt, DemoPhrases.morningBox, DemoPhrases.polarChoir, DemoPhrases.planktonKeys] {
             XCTAssertGreaterThan(phrase.last?.time ?? 0, 18)
             XCTAssertEqual(phrase.map(\.time), phrase.map(\.time).sorted())
             var held = Set<UInt8>()
