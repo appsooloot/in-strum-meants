@@ -49,6 +49,10 @@ public struct SkySettings: Codable, Equatable {
     /// Follow-the-sky worlds (0…2; 1 as designed).
     public var constellationLines: Double = 0.35
     public var auroraScale: Double = 1
+    /// Advanced: how strongly thin cloud near the sun iridesces (0…1.5; 1 as designed), and how fast rime frost
+    /// builds and melts (0.25…4; 1 as designed).
+    public var iridescence: Double = 1
+    public var rimeSpeed: Double = 1
 
     public init() {}
 
@@ -61,12 +65,15 @@ public struct SkySettings: Codable, Equatable {
         case .gentle:
             calmRandom = true; windScale = 0.6; gustScale = 0.5; rainScale = 0.7; lightningFrequency = 0.5; pickBlendSeconds = 20
             constellationLines = 0.2; auroraScale = 0.7
+            iridescence = 0.6; rimeSpeed = 0.7
         case .dramatic:
             windScale = 1.4; gustScale = 1.5; lightningFrequency = 2; cloudScale = 1.3; rainScale = 1.3; frostScale = 1.2; pickBlendSeconds = 6
             constellationLines = 0.5; auroraScale = 1.6
+            iridescence = 1.4; rimeSpeed = 1.5
         case .dreamy:
             mistScale = 1.5; haloScale = 1.5; starScale = 1.4; moonSize = 1.6; windScale = 0.6; rainbowStrength = 1; pickBlendSeconds = 20
             constellationLines = 0.35; auroraScale = 1.0
+            iridescence = 1.0; rimeSpeed = 1.0
         }
     }
 
@@ -80,9 +87,10 @@ public struct SkySettings: Codable, Equatable {
         lightningFrequency = d.lightningFrequency; cloudScale = d.cloudScale; starScale = d.starScale
         moonSize = d.moonSize; sunSize = d.sunSize; earthshine = d.earthshine
         constellationLines = d.constellationLines; auroraScale = d.auroraScale
+        iridescence = d.iridescence; rimeSpeed = d.rimeSpeed
     }
 
-    enum CodingKeys: String, CodingKey { case timeMode, dayMinutes, frozenHour, frozenPhase, cityID, weatherMode, weather, pickBlendSeconds, randomBlendSeconds, spellMinutes, rainbowStrength, dryingMinutes, windScale, mistScale, haloScale, frostScale, rainScale, snowScale, gustScale, calmRandom, randomExcluded, lightningFrequency, cloudScale, starScale, moonSize, sunSize, earthshine, constellationLines, auroraScale }
+    enum CodingKeys: String, CodingKey { case timeMode, dayMinutes, frozenHour, frozenPhase, cityID, weatherMode, weather, pickBlendSeconds, randomBlendSeconds, spellMinutes, rainbowStrength, dryingMinutes, windScale, mistScale, haloScale, frostScale, rainScale, snowScale, gustScale, calmRandom, randomExcluded, lightningFrequency, cloudScale, starScale, moonSize, sunSize, earthshine, constellationLines, auroraScale, iridescence, rimeSpeed }
 
     /// Each field falls back on its own, and numbers are clamped, so one bad value never loses the rest.
     public init(from decoder: Decoder) throws {
@@ -117,6 +125,8 @@ public struct SkySettings: Codable, Equatable {
         spellMinutes = min(60, max(2, (try? c.decodeIfPresent(Double.self, forKey: .spellMinutes)) ?? d.spellMinutes))
         constellationLines = min(1, max(0, (try? c.decodeIfPresent(Double.self, forKey: .constellationLines)) ?? d.constellationLines))
         auroraScale = min(2, max(0, (try? c.decodeIfPresent(Double.self, forKey: .auroraScale)) ?? d.auroraScale))
+        iridescence = min(1.5, max(0, (try? c.decodeIfPresent(Double.self, forKey: .iridescence)) ?? d.iridescence))
+        rimeSpeed = min(4, max(0.25, (try? c.decodeIfPresent(Double.self, forKey: .rimeSpeed)) ?? d.rimeSpeed))
     }
 }
 
@@ -128,7 +138,7 @@ struct SkyClock {
         var virtualMoon: Bool          // quick and frozen modes place the moon by phase on the ecliptic
         var hourOfDay: Double
         /// The local calendar day the sky is showing (days since 1970): today's date in real time and frozen
-        /// modes, a new day for every cycle in quick mode. It picks each dawn's character.
+        /// modes, a new day for every cycle in quick mode. It picks each dawn's character and gives the day of the year.
         var day: Int
     }
 

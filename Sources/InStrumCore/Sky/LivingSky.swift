@@ -50,6 +50,15 @@ public struct SkyState: Equatable {
     public var constellationLines: Float = 0
     /// +1 in the northern hemisphere, −1 in the southern (which way the pole, and the aurora, lie).
     public var hemisphere: Float = 1
+    /// The day of the year on the sky city's own calendar, 1…366: today's in real time and frozen modes, a new day
+    /// with every cycle in quick mode (it drives the seasons).
+    public var dayOfYear = 1
+    /// Iridescent cloud, 0…1: pastel bands on thin cloud (cover 0.15–0.6) with the sun 5°–50° up; each light-cloud
+    /// spell has its own (like its ice), scaled by the Advanced setting.
+    public var iridescence: Float = 0
+    /// How rimed the world is, 0…1: rime frost feathers every edge over 10–20 minutes of freezing fog, melts within
+    /// minutes in sun once the fog has gone, and lingers for most of an hour in the dark.
+    public var rime: Float = 0
 
     public init() {}
 }
@@ -74,6 +83,7 @@ public final class LivingSky {
     private var gustAge = 10.0, nextGust = 4.0
     private var dawnPastel: Float = 0
     private var auroraMachine: AuroraMachine
+    private var rime: Float = 0
 
     public init(settings: SkySettings, seed: UInt64 = 1, homeZone: TimeZone = .current) {
         self.settings = settings
@@ -100,6 +110,7 @@ public final class LivingSky {
         gustAge = 10
         nextGust = Double(gustRng.range(3, 8))
         auroraMachine = AuroraMachine(seed: seed &+ 0xA0_7A)
+        rime = 0
     }
 
     /// `hold` keeps the sun at a chosen altitude for worlds that hold the light; everything else keeps running.
@@ -122,6 +133,7 @@ public final class LivingSky {
         s.siderealDegrees = Sidereal.localSiderealDegrees(at: t, longitude: clock.location.longitude)
         s.latitude = clock.location.latitude
         s.hourOfDay = reading.hourOfDay
+        s.dayOfYear = Self.dayOfYear(localDay: reading.day)
         s.subsolar = Solar.subsolarPoint(at: t)
 
         weather.step(dt: dt, settings: settings)
@@ -155,6 +167,11 @@ public final class LivingSky {
         else { wetness *= Float(exp(-dt / (min(60, max(2, settings.dryingMinutes)) * 60))) }
         wetness = max(wetness, 0.85 * weather.weight(of: .afterRain))
         s.wetness = wetness
+
+        // Rime: freezing fog feathers the world white over 10–20 minutes; once the fog has gone the sun melts it within
+        // minutes, the dark only slowly.
+        rime = Self.rimeStep(rime, fog: w.rime, sunAltitude: s.sun.altitude, speed: settings.rimeSpeed, dt: dt)
+        s.rime = rime
 
         // Pastel dawns: about one morning in three, chosen by the local date and the city.
         if hold.forcesPastel {
@@ -194,6 +211,7 @@ public final class LivingSky {
         s.moonSize = Float(min(3, max(0.5, settings.moonSize))); s.sunSize = Float(min(3, max(0.5, settings.sunSize)))
         s.earthshine = Float(min(0.3, max(0, settings.earthshine)))
         s.starVisibility = scaled(s.starVisibility, settings.starScale, 1)
+        s.iridescence = Self.iridescence(weather, cloudCover: s.cloudCover, sunAltitude: s.sun.altitude, setting: settings.iridescence)
 
         // The aurora: the machine's activity at this latitude, only in the dark, behind cloud and mist.
         let sunAlt = Float(s.sun.altitude)
@@ -217,6 +235,32 @@ public final class LivingSky {
     static func halo(_ m: WeatherMachine) -> Float {
         let light = m.weight(of: .lightCloud)
         return max(0, m.values.halo + light * (m.ice - WeatherKind.lightCloud.values.halo))
+    }
+
+    /// Iridescent cloud (spec §6.3): each light-cloud spell's own iridescence (0.3–1 one spell in two in "Random,
+    /// beautiful", 0.6 when picked) at light cloud's weight, only where the cloud is thin (cover 0.15–0.6) and the
+    /// sun 5°–50° up, easing in over the last stretch of each edge, × the Advanced setting (0…1.5), at most 1.
+    static func iridescence(_ m: WeatherMachine, cloudCover c: Float, sunAltitude alt: Double, setting: Double) -> Float {
+        let a = Float(alt)
+        let thin = SkyPalette.smoothstep(0.15, 0.2, c) * (1 - SkyPalette.smoothstep(0.55, 0.6, c))
+        let sunWindow = SkyPalette.smoothstep(5, 8, a) * (1 - SkyPalette.smoothstep(45, 50, a))
+        let k = Float(min(1.5, max(0, setting)))
+        return min(1, max(0, m.weight(of: .lightCloud) * m.iridescence * thin * sunWindow * k))
+    }
+
+    /// One step of rime (spec §6.2): it builds toward 1 at the weather's rime weight (τ 12 min) and, as the fog
+    /// leaves, melts toward 0 (τ 6 min with the sun above 2°, τ 40 min below); the Advanced "Rime speed" (0.25…4)
+    /// divides both. Solved exactly over the step, so it stays in 0…1 whatever the step.
+    static func rimeStep(_ r: Float, fog rawFog: Float, sunAltitude: Double, speed rawSpeed: Double, dt: Double) -> Float {
+        let fog = rawFog.isFinite ? min(1, max(0, rawFog)) : 0
+        let speed = Float(min(4, max(0.25, rawSpeed)))
+        let build = speed * fog / 720
+        let melt = speed * (1 - fog) / (sunAltitude > 2 ? 360 : 2400)
+        let k = build + melt
+        let now = r.isFinite ? min(1, max(0, r)) : 0
+        guard k > 0, dt > 0 else { return now }
+        let target = build / k
+        return min(1, max(0, target + (now - target) * Float(exp(-dt * Double(k)))))
     }
 
     /// A rainbow needs sun and rain-light together: sun-showers full, "after the rain" three-quarters, and only
@@ -244,6 +288,20 @@ public final class LivingSky {
     /// Days since 1970-01-01 on the local calendar of `zone`.
     static func localDay(_ instant: Date, zone: TimeZone) -> Int {
         Int(floor((instant.timeIntervalSince1970 + Double(zone.secondsFromGMT(for: instant))) / 86_400))
+    }
+
+    /// The day of the year (1 on 1 January … 365, or 366 in a leap year) of a local day counted from 1970-01-01, on
+    /// the proleptic Gregorian calendar (Howard Hinnant's days-to-civil, which needs no Calendar per frame).
+    static func dayOfYear(localDay: Int) -> Int {
+        let z = localDay + 719_468                        // days since 0000-03-01
+        let era = (z >= 0 ? z : z - 146_096) / 146_097
+        let doe = z - era * 146_097                       // day of the 400-year era, 0…146096
+        let yoe = (doe - doe / 1460 + doe / 36_524 - doe / 146_096) / 365
+        let year = yoe + era * 400                        // the year this March-to-February year starts in
+        let fromMarch = doe - (365 * yoe + yoe / 4 - yoe / 100)
+        if fromMarch >= 306 { return fromMarch - 305 }    // January and February belong to the next year
+        let leap = (year % 4 == 0 && year % 100 != 0) || year % 400 == 0
+        return fromMarch + 60 + (leap ? 1 : 0)
     }
 
     private func stormAmount() -> Float {

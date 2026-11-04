@@ -1,6 +1,6 @@
 import Foundation
 
-public enum WeatherKind: String, Codable, CaseIterable { case clear, lightCloud, overcast, mist, drizzle, rain, storm, snow, blizzard, afterRain, sunShower, fogBank, sleet, monsoon, hail, smokeHaze, iceFog, thunderheads, dustStorm, flurries, freezingDrizzle, squall, dryLightning, humid, diamondDust }
+public enum WeatherKind: String, Codable, CaseIterable { case clear, lightCloud, overcast, mist, drizzle, rain, storm, snow, blizzard, afterRain, sunShower, fogBank, sleet, monsoon, hail, smokeHaze, iceFog, thunderheads, dustStorm, flurries, freezingDrizzle, squall, dryLightning, humid, diamondDust, rime }
 
 /// Pick one yourself, or let the sky wander through beautiful weathers. (`.real` comes later.)
 public enum WeatherMode: String, Codable, CaseIterable { case pick, randomBeautiful }
@@ -12,12 +12,14 @@ public struct WeatherValues: Equatable {
     public var halo: Float = 0, frost: Float = 0, gust: Float = 0
     /// Fireflies on humid nights (scaled by darkness in the sky); diamond dust and the light pillars it throws.
     public var fireflies: Float = 0, pillar: Float = 0
+    /// Freezing fog that rimes the world (how fast `SkyState.rime` builds).
+    public var rime: Float = 0
 
     static func mix(_ a: WeatherValues, _ b: WeatherValues, _ t: Float) -> WeatherValues {
         func m(_ x: Float, _ y: Float) -> Float { x + (y - x) * t }
         return WeatherValues(cloud: m(a.cloud, b.cloud), rain: m(a.rain, b.rain), snow: m(a.snow, b.snow), mist: m(a.mist, b.mist),
                              wind: m(a.wind, b.wind), halo: m(a.halo, b.halo), frost: m(a.frost, b.frost), gust: m(a.gust, b.gust),
-                             fireflies: m(a.fireflies, b.fireflies), pillar: m(a.pillar, b.pillar))
+                             fireflies: m(a.fireflies, b.fireflies), pillar: m(a.pillar, b.pillar), rime: m(a.rime, b.rime))
     }
 }
 
@@ -49,11 +51,12 @@ public extension WeatherKind {
         case .sunShower: return WeatherValues(cloud: 0.5, rain: 0.3, snow: 0, mist: 0.25, wind: 0.2, gust: 0.1)
         case .humid: return WeatherValues(cloud: 0.15, rain: 0, snow: 0, mist: 0.35, wind: 0.05, fireflies: 1)
         case .diamondDust: return WeatherValues(cloud: 0.05, rain: 0, snow: 0, mist: 0.2, wind: 0.02, halo: 1, frost: 0.9, pillar: 1)
+        case .rime: return WeatherValues(cloud: 0.3, rain: 0, snow: 0, mist: 0.85, wind: 0.08, halo: 0.2, frost: 1, rime: 1)
         }
     }
 
     /// Clear, light-cloud, overcast and misty frost forms only at night (scaled by darkness); snow's any time
-    /// (and diamond dust's: still, bitter air). A humid night has none at all.
+    /// (and diamond dust's: still, bitter air; and rime frost's, whenever it is cold and foggy). A humid night has none at all.
     var frostFormsOnlyAtNight: Bool {
         switch self {
         case .clear, .lightCloud, .overcast, .mist, .fogBank, .humid: return true
@@ -95,6 +98,7 @@ public extension WeatherKind {
         case .overcast: return 0
         case .humid: return 1.2
         case .diamondDust: return 0.5
+        case .rime: return 0.5
         }
     }
 }
@@ -112,16 +116,22 @@ struct WeatherMachine {
     private var spellLeft: Double
     private var rng: SeededRandom
     private var mode: WeatherMode
-    /// Separate streams, so ice and "after the rain" never shift the weather sequence itself.
+    /// Separate streams, so ice, iridescence and "after the rain" never shift the weather sequence itself.
     private var iceRng: SeededRandom
     private var afterRng: SeededRandom
+    private var iridRng: SeededRandom
     /// How icy this light-cloud spell is (its halo): 0.5–1 in "Random, beautiful" (rolled per spell), 0.7 when picked.
     private(set) var ice: Float = WeatherKind.lightCloud.values.halo
+    /// How iridescent this light-cloud spell's thin edges are near the sun (spec §6.3): in "Random, beautiful" about
+    /// one spell in two shows it (0.3–1, rolled per spell like the ice), the rest none; 0.6 when picked.
+    private(set) var iridescence: Float = WeatherMachine.pickedIridescence
+    static let pickedIridescence: Float = 0.6
 
     init(settings: SkySettings, seed: UInt64) {
         rng = SeededRandom(seed: seed &* 0x2545_F491_4F6C_DD1D &+ 0xA5)
         iceRng = SeededRandom(seed: seed &* 0x9E37_79B9 &+ 0x1CE)
         afterRng = SeededRandom(seed: seed &* 0xBF58_476D &+ 0xAF7E)
+        iridRng = SeededRandom(seed: seed &* 0x94D0_49BB &+ 0x1215)
         mode = settings.weatherMode
         let first: WeatherKind
         if settings.weatherMode == .pick { first = settings.weather }
@@ -130,7 +140,10 @@ struct WeatherMachine {
         var r = rng
         spellLeft = Self.spell(&r, minutes: min(60, max(2, settings.spellMinutes)))
         rng = r
-        if mode == .randomBeautiful && first == .lightCloud { ice = iceRng.range(0.5, 1) }
+        if mode == .randomBeautiful && first == .lightCloud {
+            ice = iceRng.range(0.5, 1)
+            iridescence = Self.rollIridescence(&iridRng)
+        }
     }
 
     /// How much of `kind` is in the sky right now (1 when settled on it; shared while blending).
@@ -150,7 +163,7 @@ struct WeatherMachine {
         let rs = min(300, max(10, settings.randomBlendSeconds)), sm = min(60, max(2, settings.spellMinutes))
         if settings.weatherMode != mode {
             mode = settings.weatherMode
-            if mode == .pick { ice = WeatherKind.lightCloud.values.halo }
+            if mode == .pick { ice = WeatherKind.lightCloud.values.halo; iridescence = Self.pickedIridescence }
             spellLeft = Self.spell(&rng, minutes: sm)
             if mode == .randomBeautiful { begin(Self.pick(excluding: transitioning ? next : current, calm: settings.calmRandom, excluded: settings.randomExcluded, &rng), seconds: rs) }
         }
@@ -174,7 +187,10 @@ struct WeatherMachine {
 
     private mutating func begin(_ kind: WeatherKind, seconds: Double) {
         length = seconds
-        if kind == .lightCloud { ice = mode == .randomBeautiful ? iceRng.range(0.5, 1) : WeatherKind.lightCloud.values.halo }
+        if kind == .lightCloud {
+            ice = mode == .randomBeautiful ? iceRng.range(0.5, 1) : WeatherKind.lightCloud.values.halo
+            iridescence = mode == .randomBeautiful ? Self.rollIridescence(&iridRng) : Self.pickedIridescence
+        }
         from = values
         next = kind
         blend = 0
@@ -183,6 +199,13 @@ struct WeatherMachine {
     }
 
     private static func spell(_ rng: inout SeededRandom, minutes: Double) -> Double { (300 + 900 * Double(rng.unit())) * minutes / 12.5 }
+
+    /// One light-cloud spell in two iridesces, 0.3–1 (both draws are always taken, so the stream keeps its step).
+    private static func rollIridescence(_ rng: inout SeededRandom) -> Float {
+        let shows = rng.unit() < 0.5
+        let amount = rng.range(0.3, 1)
+        return shows ? amount : 0
+    }
 
     private static func pick(excluding: WeatherKind?, also: WeatherKind? = nil, calm: Bool = false, excluded: [WeatherKind] = [], _ rng: inout SeededRandom) -> WeatherKind {
         let choices = WeatherKind.allCases.filter { $0 != excluding && $0 != also && $0.beautyWeight > 0 && !(calm && $0.isRough) && !excluded.contains($0) }
