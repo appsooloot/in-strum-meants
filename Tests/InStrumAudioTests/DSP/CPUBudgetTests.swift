@@ -95,6 +95,15 @@ final class CPUBudgetTests: XCTestCase {
         XCTAssertLessThan(seconds / 10, 0.06, "Plankton Keys used \(String(format: "%.1f", seconds * 10))% of real time")
     }
 
+    /// Eight held notes blinking on the arp (Blink .6, 118 BPM) for 10 s with Echo and Ghosts at 0.8: each step
+    /// re-plucks a voice while all eight ghosts sing on under them.
+    func testBlueDepthBudget() {
+        let held = [48, 55, 60, 63, 67, 70, 72, 75].map { R.noteOn(0, UInt8($0), 90) }
+        let p: [Int: Float] = [Int(ISD_P_ECHO): 0.8, Int(ISD_P_GHOSTS): 0.8]
+        let seconds = bestOfThree { _ = R.render(ISD_ENGINE_BLUE_DEPTH, seconds: 10, params: p, events: held) }
+        XCTAssertLessThan(seconds / 10, 0.06, "Blue Depth used \(String(format: "%.1f", seconds * 10))% of real time")
+    }
+
     /// The cabin's and the bedroom's soundscapes, each heard through the window.
     func testWindowAmbienceBudget() {
         typealias A = AmbienceTests

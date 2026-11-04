@@ -9,6 +9,7 @@
 #include "MorningBox.hpp"
 #include "PolarChoir.hpp"
 #include "PlanktonKeys.hpp"
+#include "BlueDepth.hpp"
 #include <algorithm>
 #include <atomic>
 #include <cmath>
@@ -157,6 +158,27 @@ const ISDParamInfo kPlanktonKeysParams[] = {
     {ISD_P_DEBUG_NO_TREMOLO, "debugNoTremolo", "No tremolo (test)", 0.f, 1.f, 0.f, 3},
 };
 
+/// Tempo is in BPM (unit 0 with its own range): it sets both the arp's sixteenths and the dotted-eighth echo.
+const ISDParamInfo kBlueDepthParams[] = {
+    {ISD_P_FINE_TUNE, "fineTune", "Fine tune", -50.f, 50.f, 0.f, 1},
+    {ISD_P_TRANSPOSE, "transpose", "Transpose", -12.f, 12.f, 0.f, 2},
+    {ISD_P_BLINK, "blink", "Blink", 0.f, 1.f, 0.60f, 0},
+    {ISD_P_MURK, "murk", "Murk", 0.f, 1.f, 0.55f, 0},
+    {ISD_P_GHOSTS, "ghosts", "Ghosts", 0.f, 1.f, 0.40f, 0},
+    {ISD_P_ECHO, "echo", "Echo", 0.f, 1.f, 0.50f, 0},
+    {ISD_P_BASS, "bass", "Bass", 0.f, 1.f, 0.55f, 0},
+    {ISD_P_TEMPO, "tempo", "Tempo", 70.f, 160.f, 118.f, 0},
+    {ISD_P_SPACE, "space", "Space", 0.f, 1.f, 0.55f, 0},
+    {ISD_P_WIDTH, "width", "Width", 0.f, 1.f, 0.60f, 0},
+    {ISD_P_MOOD_ENERGY, "moodEnergy", "Mood energy", 0.f, 1.f, 0.5f, 0},
+    {ISD_P_MOOD_WARMTH, "moodWarmth", "Mood warmth", 0.f, 1.f, 0.5f, 0},
+    {ISD_P_MOOD_BRIGHTNESS, "moodBrightness", "Mood brightness", 0.f, 1.f, 0.5f, 0},
+    {ISD_P_MOOD_SPACE, "moodSpace", "Mood space", 0.f, 1.f, 0.5f, 0},
+    {ISD_P_MOOD_MOTION, "moodMotion", "Mood motion", 0.f, 1.f, 0.5f, 0},
+    {ISD_P_DEBUG_NO_ARP, "debugNoArp", "No arp (test)", 0.f, 1.f, 0.f, 3},
+    {ISD_P_DEBUG_DRY, "debugDry", "Dry (test)", 0.f, 1.f, 0.f, 3},
+};
+
 struct ParamTable { const ISDParamInfo *items; int count; };
 
 ParamTable table(ISDEngine engine) {
@@ -169,6 +191,7 @@ ParamTable table(ISDEngine engine) {
     case ISD_ENGINE_MORNING_BOX: return {kMorningBoxParams, (int)(sizeof kMorningBoxParams / sizeof kMorningBoxParams[0])};
     case ISD_ENGINE_POLAR_CHOIR: return {kPolarChoirParams, (int)(sizeof kPolarChoirParams / sizeof kPolarChoirParams[0])};
     case ISD_ENGINE_PLANKTON_KEYS: return {kPlanktonKeysParams, (int)(sizeof kPlanktonKeysParams / sizeof kPlanktonKeysParams[0])};
+    case ISD_ENGINE_BLUE_DEPTH: return {kBlueDepthParams, (int)(sizeof kBlueDepthParams / sizeof kBlueDepthParams[0])};
     default: return {nullptr, 0};
     }
 }
@@ -266,6 +289,7 @@ ISDSynth *isd_synth_create(ISDEngine engine, double sampleRate, int maxFrames) {
     case ISD_ENGINE_MORNING_BOX: s->engine = std::make_unique<isd::MorningBox>(sampleRate); break;
     case ISD_ENGINE_POLAR_CHOIR: s->engine = std::make_unique<isd::PolarChoir>(sampleRate); break;
     case ISD_ENGINE_PLANKTON_KEYS: s->engine = std::make_unique<isd::PlanktonKeys>(sampleRate); break;
+    case ISD_ENGINE_BLUE_DEPTH: s->engine = std::make_unique<isd::BlueDepth>(sampleRate); break;
     default: delete s; return nullptr;
     }
     return s;

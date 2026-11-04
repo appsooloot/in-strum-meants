@@ -137,11 +137,16 @@ final class HazeBellsTests: XCTestCase {
     /// Switching between the built-ins shouldn't jump the volume: a mezzo-forte chord on each sits within 3 dB of Felt Glass's.
     func testBuiltInsShareOneLoudness() {
         let chord = [59, 62, 66, 71].map { R.noteOn(0, UInt8($0), 90) }
-        func level(_ engine: ISDEngine) -> Double { DSPTestKit.dBFS(R.slice(R.render(engine, seconds: 1.5, events: chord).l, 0.05, 1.5)) }
+        func level(_ engine: ISDEngine) -> Double {
+            // Blue Depth is heard as struck (Blink 0), so the gaps between its arp's steps don't count against it.
+            let p: [Int: Float] = engine.rawValue == ISD_ENGINE_BLUE_DEPTH.rawValue ? [Int(ISD_P_BLINK): 0] : [:]
+            return DSPTestKit.dBFS(R.slice(R.render(engine, seconds: 1.5, params: p, events: chord).l, 0.05, 1.5))
+        }
         let felt = level(ISD_ENGINE_FELT_GLASS)
         for (name, engine) in [("Orbit Pad", ISD_ENGINE_ORBIT_PAD), ("Honey Tape", ISD_ENGINE_HONEY_TAPE), ("Haze Bells", ISD_ENGINE_HAZE_BELLS),
                                ("Cabin Felt", ISD_ENGINE_CABIN_FELT), ("Morning Box", ISD_ENGINE_MORNING_BOX),
-                               ("Plankton Keys", ISD_ENGINE_PLANKTON_KEYS)] {
+                               ("Plankton Keys", ISD_ENGINE_PLANKTON_KEYS),
+                               ("Blue Depth", ISD_ENGINE_BLUE_DEPTH)] {
             XCTAssertEqual(level(engine), felt, accuracy: 3, name)
         }
         // Polar Choir is still mid-swell for its first 1.5 s (attack 0.3–3 s by design), so it is heard once it has
