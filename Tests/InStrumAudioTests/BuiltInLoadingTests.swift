@@ -108,4 +108,23 @@ final class BuiltInLoadingTests: XCTestCase {
             XCTAssertEqual(Double(p.value), value, accuracy: 1e-6, p.identifier)
         }
     }
+
+    func testL_ZenShakuhachiShowsDialsButNotTestHooks() throws {
+        let au = try BuiltInInstrumentAU(componentDescription: BuiltInCatalog.description(for: .zenShakuhachi), options: [])
+        XCTAssertEqual(au.engine, .zenShakuhachi)
+        let ids = Set(au.parameterTree?.allParameters.map(\.identifier) ?? [])
+        XCTAssertEqual(ids, ["fineTune", "transpose", "breath", "air", "bend", "bamboo", "yuri", "echo", "space", "width",
+                             "moodEnergy", "moodWarmth", "moodBrightness", "moodSpace", "moodMotion"])
+        XCTAssertFalse(ids.contains { $0.hasPrefix("debug") })
+        XCTAssertNil(au.parameterTree?.parameter(withAddress: AUParameterAddress(ISD_P_DEBUG_TONE_ONLY)))
+        XCTAssertNil(au.parameterTree?.parameter(withAddress: AUParameterAddress(ISD_P_DEBUG_NO_FOLD)))
+        // A fresh shakuhachi is its default preset, Zen Shakuhachi (spec §4.4: the dials' defaults are that preset's values).
+        let preset = PatchLibrary.defaultPatch(for: .zenShakuhachi)
+        XCTAssertEqual(preset.id, "zen-shakuhachi")
+        XCTAssertEqual(Set(preset.values.keys), ["breath", "air", "bend", "bamboo", "yuri", "echo", "space", "width"])
+        for p in au.parameterTree?.allParameters ?? [] {
+            guard let value = preset.values[p.identifier] else { continue }
+            XCTAssertEqual(Double(p.value), value, accuracy: 1e-6, p.identifier)
+        }
+    }
 }
