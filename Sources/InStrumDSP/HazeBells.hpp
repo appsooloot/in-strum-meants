@@ -87,7 +87,8 @@ private:
     SpaceReverb reverb;
     PeakLimiter limiter;
     bool idle = true, reverbLive = false;
-    int idleSamples = 0, blockCount = 0;
+    int idleSamples = 0;
+    unsigned blockCount = 0;   // wraps after 2^32 blocks, a multiple of 4: every-fourth-block work keeps its cadence
 };
 
 } // namespace isd

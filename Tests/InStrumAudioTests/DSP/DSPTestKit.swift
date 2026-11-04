@@ -86,6 +86,13 @@ enum DSPTestKit {
         return rms > 0 ? 20 * log10(rms) : -200
     }
 
+    /// The largest |sample|.
+    static func peak(_ x: [Float]) -> Float {
+        var m: Float = 0
+        vDSP_maxmgv(x, 1, &m, vDSP_Length(x.count))
+        return m
+    }
+
     static func maxJump(_ x: [Float]) -> Float {
         var m: Float = 0
         for i in 1..<max(1, x.count) { m = max(m, abs(x[i] - x[i - 1])) }
@@ -140,6 +147,53 @@ enum DSPTestKit {
     }
 
     static func cents(_ f: Double, _ ref: Double) -> Double { 1200 * log2(f / ref) }
+
+    /// An RBJ high-pass biquad in Double (transposed direct form II).
+    struct HighPass {
+        var b0 = 1.0, b1 = 0.0, b2 = 0.0, a1 = 0.0, a2 = 0.0, z1 = 0.0, z2 = 0.0
+
+        init(_ hz: Double, q: Double, sampleRate: Double) {
+            let w: Double = 2 * Double.pi * hz / sampleRate
+            let al: Double = sin(w) / (2 * q), c: Double = cos(w), a0: Double = 1 + al
+            b0 = (1 + c) / 2 / a0; b1 = -(1 + c) / a0; b2 = b0; a1 = -2 * c / a0; a2 = (1 - al) / a0
+        }
+
+        mutating func run(_ x: Double) -> Double {
+            let y = b0 * x + z1
+            z1 = b1 * x - a1 * y + z2
+            z2 = b2 * x - a2 * y
+            return y
+        }
+    }
+
+    /// The loudest millisecond above 10 kHz (dBFS) between two times, on the louder side: 1 ms windows every 0.5 ms
+    /// through an 8th-order Butterworth high-pass (four biquads) settled over the 5 ms before. A click spreads into
+    /// this band, where the instruments have little of their own, and a pan step that cancels in a mono mix still
+    /// shows on one side.
+    static func loudestHigh(_ l: [Float], _ r: [Float], from t0: Double, to t1: Double, sampleRate sr: Double = sampleRate) -> Double {
+        max(loudestHigh(side: l, from: t0, to: t1, sampleRate: sr), loudestHigh(side: r, from: t0, to: t1, sampleRate: sr))
+    }
+
+    private static func loudestHigh(side x: [Float], from t0: Double, to t1: Double, sampleRate sr: Double) -> Double {
+        var filters = [0.5098, 0.6013, 0.9000, 2.5629].map { HighPass(10_000, q: $0, sampleRate: sr) }
+        let start = Int(t0 * sr), end = min(x.count, Int(t1 * sr)), warm = max(0, start - Int(0.005 * sr))
+        guard end > start else { return -200 }
+        var y = [Double](repeating: 0, count: end - warm)
+        for i in warm..<end {
+            var v = Double(x[i])
+            for k in 0..<filters.count { v = filters[k].run(v) }
+            y[i - warm] = v
+        }
+        let w = Int(0.001 * sr), hop = w / 2
+        var loudest = -200.0, i = start - warm
+        while i + w <= y.count {
+            var s = 0.0
+            for k in i..<(i + w) { s += y[k] * y[k] }
+            loudest = max(loudest, 10 * log10(s / Double(w) + 1e-30))
+            i += hop
+        }
+        return loudest
+    }
 
     /// Seconds → sample index at the kit's sample rate.
     static func at(_ seconds: Double, _ sr: Double = sampleRate) -> Int { Int(seconds * sr) }

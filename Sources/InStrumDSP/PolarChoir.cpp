@@ -16,6 +16,12 @@ constexpr float kQLow = 6.f, kQHigh = 10.f;
 constexpr float kKeyTrack = 0.2f;        // formants follow the note: × (f0 / 220 Hz)^kKeyTrack
 constexpr float kDetuneCents = 6.f;      // the two saws sit ± this far apart
 constexpr float kPressSeconds = 4.f, kEaseSeconds = 2.f;
+// Even loudness across the keyboard: each voice's saws are scaled so the formant bank passes the same power from
+// every note (see formantPower), against kNormRef, the median over C3–C6 at the default Vowel (0.55).
+constexpr float kNormRef = 0.114f;
+constexpr float kNormMin = 0.35f, kNormMax = 2.8f;   // never more than about ±9 dB
+constexpr int kNormHarmonics = 48;
+constexpr float kNormSeconds = 0.02f;   // it glides like a dial, so a vowel move never steps the level
 
 /// Formant centres (Hz) of /u/ /o/ /a/ /e/ /i/: the Vowel dial walks along them.
 const float kVowels[5][3] = {{325, 700, 2530}, {450, 800, 2830}, {700, 1220, 2600}, {530, 1850, 2500}, {270, 2290, 3010}};
@@ -50,6 +56,28 @@ inline float saw(float p, float dt) {
 }
 
 inline float smoothstep(float x) { x = clamp01(x); return x * x * (3.f - 2.f * x); }
+
+/// The power the formant bank passes from a saw at f0 (harmonics at 1/h): its three band-passes as analogue
+/// responses at the base Q, summed with their phases, harmonic by harmonic up to 0.45·sr (at most kNormHarmonics).
+/// Fixed-gain band-passes over a saw's spectrum pass far more when a harmonic lands on a formant's peak than when
+/// two straddle it: unscaled, C3–C6 spread over 13 dB (17 at Hush), worst in the upper register.
+inline float formantPower(float f0, const float fc[3], const float fg[3], float fsr) {
+    float up[3], down[3];
+    for (int k = 0; k < 3; ++k) { up[k] = f0 / fc[k]; down[k] = fc[k] / f0; }
+    float e = 0;
+    for (int h = 1; h <= kNormHarmonics && (float)h * f0 < 0.45f * fsr; ++h) {
+        const float hf = (float)h, ih = 1.f / hf;
+        float re = 0, im = 0;
+        for (int k = 0; k < 3; ++k) {
+            // 1 / (1 + jx) with x = Q (f/Fk − Fk/f), scaled by the formant's level.
+            const float x = kQLow * (hf * up[k] - down[k] * ih), d = fg[k] / (1.f + x * x);
+            re += d;
+            im -= x * d;
+        }
+        e += (re * re + im * im) * ih * ih;
+    }
+    return e;
+}
 
 /// The formant set at a point (0…1) along u → o → a → e → i, interpolated in log frequency.
 inline void vowelAt(float pos, float hz[3], float gain[3]) {
@@ -115,6 +143,7 @@ PolarChoir::Voice &PolarChoir::allocate() {
     }
     if (sounding >= kPolyphony && victim) beginFade(*victim);
     for (auto &v : voices) if (!v.active) return v;
+    // Last resort (more than kPolyphony notes inside one 20 ms fade): the voice furthest through its fade is cut.
     Voice *best = nullptr;
     for (auto &v : voices) if (v.fading && (!best || v.fadeGain < best->fadeGain)) best = &v;
     if (!best) best = &voices[0];
@@ -211,7 +240,20 @@ void PolarChoir::renderVoice(Voice &v, float *outL, float *outR, int n) {
     const float track = std::pow(base / 220.f, kKeyTrack), q = kQLow + (kQHigh - kQLow) * press;
     // A narrower band passes less: make most of that back up so the press reads as focus, not a fade.
     const float qComp = q / kQLow;
-    for (int k = 0; k < 3; ++k) v.formant[k].setBandpass(std::min(fc[k] * track, 0.42f * fsr), q, sr);
+    float fk[3];
+    for (int k = 0; k < 3; ++k) {
+        fk[k] = std::min(fc[k] * track, 0.42f * fsr);
+        v.formant[k].setBandpass(fk[k], q, sr);
+    }
+    // Even loudness: re-measured every fourth block (a quarter of the voices each block), glided and ramped per
+    // sample below, so neither the drift nor a turn of the Vowel dial steps the level. A new voice starts on its own.
+    if (v.normTarget < 0.f || ((blockCount + (unsigned)(&v - voices)) & 3u) == 0u) {
+        const float e = formantPower(base, fk, fg, fsr);
+        v.normTarget = std::clamp(std::sqrt(kNormRef / std::max(e, 1e-9f)), kNormMin, kNormMax);
+        if (v.norm < 0.f) v.norm = v.normTarget;
+    }
+    const float norm0 = v.norm;
+    v.norm += (v.normTarget - v.norm) * std::min(1.f, (float)n / (kNormSeconds * fsr));
     // Saws: two detuned (one in the voices-only test hook).
     float inc[2];
     inc[0] = std::min(0.24f, base * std::exp2(-kDetuneCents / 1200.f) / fsr);
@@ -251,7 +293,10 @@ void PolarChoir::renderVoice(Voice &v, float *outL, float *outR, int n) {
     const float lift = 1.f - (0.35f + 0.3f * swellNow) * (1.f - press);
     const float p = std::clamp(width.value * v.pan, -1.f, 1.f), th = (p + 1.f) * kPi / 4.f;
     const float gl = std::cos(th) * v.gain, gr = std::sin(th) * v.gain;
+    // The saws only (before the formants; not the breath or the glass), ramped from last block's level to this one's.
     const float sawMix = full ? 0.5f : 1.f;
+    float sawGain = sawMix * norm0;
+    const float dSaw = sawMix * (v.norm - norm0) / (float)n;
 
     double ph0 = v.phase[0], ph1 = v.phase[1];
     float env = v.env, fade = v.fadeGain, airZ = v.airZ;
@@ -262,7 +307,8 @@ void PolarChoir::renderVoice(Voice &v, float *outL, float *outR, int n) {
             x += saw((float)ph1, inc[1]);
             ph1 += inc[1]; if (ph1 >= 1.0) ph1 -= 1.0;
         }
-        x *= sawMix;
+        sawGain += dSaw;
+        x *= sawGain;
         float air = 0;
         if (breathAmt > 0.f) {
             const float noise = rng.bipolar();

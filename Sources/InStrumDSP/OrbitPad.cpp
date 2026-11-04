@@ -108,6 +108,7 @@ OrbitPad::Voice &OrbitPad::allocate() {
     }
     if (sounding >= kPolyphony && victim) beginFade(*victim);
     for (auto &v : voices) if (!v.active) return v;
+    // Last resort (more than kPolyphony notes inside one 20 ms fade): the voice furthest through its fade is cut.
     Voice *best = nullptr;
     for (auto &v : voices) if (v.fading && (!best || v.fadeGain < best->fadeGain)) best = &v;
     if (!best) best = &voices[0];

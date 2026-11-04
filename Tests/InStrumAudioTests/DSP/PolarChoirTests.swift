@@ -115,6 +115,27 @@ final class PolarChoirTests: XCTestCase {
         XCTAssertGreaterThan(on, off + 12, "glass 0: \(off) dB, glass 1: \(on) dB")
     }
 
+    /// The upper register is as loud as the rest: velocity 90 every minor third from C3 to C6, each note's power over
+    /// 3.0–4.5 s (the swell arrived; both sides averaged), at the default dials and at Hush (Patch.swift). Fixed formant
+    /// band-passes over a saw spread these 11.7 and 16.7 dB, a harmonic landing on a formant's peak or two straddling
+    /// it, before each voice's saws were scaled by the vowel's response (the g++ mirror now: 4.6 and 4.4).
+    func testEvenAcrossTheKeyboard() {
+        let hush: [Int: Float] = [Int(ISD_P_VOWEL): 0.30, Int(ISD_P_BREATH): 0.50, Int(ISD_P_GLASS): 0.20, Int(ISD_P_SWELL): 0.35,
+                                  Int(ISD_P_SHIMMER): 0.10, Int(ISD_P_SPACE): 0.45, Int(ISD_P_WIDTH): 0.40]
+        let presets: [(name: String, params: [Int: Float])] = [("default", [:]), ("Hush", hush)]
+        for preset in presets {
+            var levels: [Double] = []
+            for m in stride(from: 48, through: 84, by: 3) {
+                let out = R.render(choir, seconds: 4.5, params: preset.params, events: [R.noteOn(0, UInt8(m), 90)])
+                let l: Double = DSPTestKit.dBFS(R.slice(out.l, 3.0, 4.5)), r: Double = DSPTestKit.dBFS(R.slice(out.r, 3.0, 4.5))
+                let power: Double = (pow(10, l / 10) + pow(10, r / 10)) / 2
+                levels.append(10 * log10(power))
+            }
+            let spread = (levels.max() ?? 0) - (levels.min() ?? 0)
+            XCTAssertLessThanOrEqual(spread, 8, "\(preset.name), C3 up in minor thirds: \(levels.map { String(format: "%.1f", $0) }) dBFS")
+        }
+    }
+
     // MARK: - Endings
 
     func testReleaseDecays() {
@@ -136,25 +157,32 @@ final class PolarChoirTests: XCTestCase {
 
     // MARK: - Hygiene
 
+    /// Two-hand chords a second apart under the pedal, Breath 0 (its hiss would hide a click above 10 kHz): from the
+    /// third on, each steals eight voices at once from a full pool. With four spare voices the steals past the fourth
+    /// were cut dead, up to 18 dB over the same chords played without stealing; every steal now fades (the g++ mirror:
+    /// −1.6 dB at worst; with the 20 ms fade removed, +11).
     func testStealingIsClickFree() {
-        let events = (0..<24).map { R.noteOn(Double($0) * 0.125, UInt8(40 + $0 * 2), 100) }
-        let out = R.render(choir, seconds: 4, params: dry, events: events)
-        XCTAssertTrue(out.l.allSatisfy(\.isFinite) && out.r.allSatisfy(\.isFinite))
-        XCTAssertLessThan(DSPTestKit.maxJump(out.l), 0.2)
-        XCTAssertLessThan(DSPTestKit.maxJump(out.r), 0.2)
-        XCTAssertLessThanOrEqual(out.l.map { abs($0) }.max() ?? 2, 1.0)
+        var p = dry; p[Int(ISD_P_BREATH)] = 0
+        let steal = R.stealClicks(choir, params: p, velocities: [UInt8](repeating: 90, count: 6), gap: 1, from: 2)
+        XCTAssertTrue(steal.out.l.allSatisfy(\.isFinite) && steal.out.r.allSatisfy(\.isFinite))
+        XCTAssertLessThanOrEqual(max(steal.out.l.map { abs($0) }.max() ?? 2, steal.out.r.map { abs($0) }.max() ?? 2), 1.0)
+        XCTAssertLessThan(steal.clicks.max() ?? 99, 3, "dB over the chords without stealing: \(steal.clicks)")
     }
 
+    /// Each dial jumps from 0 to 1 on a held pair of notes (Breath and Swell otherwise 0: no hiss, the notes up by
+    /// 0.3 s): no millisecond above 10 kHz louder than the same notes with the dial held at either end, so the 20 ms
+    /// smoothing is heard as a turn, not a click (the g++ mirror: +2.5 dB at worst, Vowel; without the smoothing,
+    /// Width +29, Glass +20, Swell +16, Vowel +12).
     func testDialSweepIsSmooth() {
-        let dials = [ISD_P_VOWEL, ISD_P_BREATH, ISD_P_GLASS, ISD_P_SWELL, ISD_P_WIDTH].map { Int($0) }
-        var start = dry
-        for d in dials { start[d] = 0 }
-        let changes = (dials + [Int(ISD_P_SPACE), Int(ISD_P_SHIMMER)]).map { SynthRender.ParamChange(time: 3.0, address: $0, value: 1) }
-        let out = R.render(choir, seconds: 3.25, params: start, events: [R.noteOn(0, 57, 100), R.noteOn(0, 64, 100)], changes: changes)
-        // Breath and glass legitimately add detail, so the change is compared with the sound it settles into.
-        let before = DSPTestKit.maxJump(R.slice(out.l, 2.8, 2.95)), after = DSPTestKit.maxJump(R.slice(out.l, 2.95, 3.1))
-        let settled = DSPTestKit.maxJump(R.slice(out.l, 3.1, 3.25))
-        XCTAssertLessThan(after, 2 * max(before, settled) + 1e-4, "before \(before), after \(after), settled \(settled)")
+        var p = dry; p[Int(ISD_P_BREATH)] = 0; p[Int(ISD_P_SWELL)] = 0
+        let notes = [R.noteOn(0, 57, 100), R.noteOn(0, 64, 100)]
+        let dials: [(name: String, address: Int)] = [("vowel", Int(ISD_P_VOWEL)), ("breath", Int(ISD_P_BREATH)), ("glass", Int(ISD_P_GLASS)),
+                                                     ("swell", Int(ISD_P_SWELL)), ("width", Int(ISD_P_WIDTH)), ("space", Int(ISD_P_SPACE)),
+                                                     ("shimmer", Int(ISD_P_SHIMMER))]
+        for dial in dials {
+            let click = R.jumpClick(choir, params: p, dial: dial.address, at: 1.5, events: notes)
+            XCTAssertLessThan(click, 6, "\(dial.name): \(click) dB over the dial held still")
+        }
     }
 
     func testParameterTable() {
