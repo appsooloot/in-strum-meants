@@ -4,14 +4,40 @@ import InStrumCore
 /// Original living art for each "Inspired by" card, drawn in code from the song's feeling (never artwork,
 /// photos or logos). The song's tempo is hidden in the motion: everything breathes at `pulsePeriod`.
 /// A set born from its place rather than a song (no credit) has a place card instead, drawn from its world and
-/// breathing at one slow fixed pulse (`placePulse`).
+/// breathing at a slow fixed pulse of its own (`placeBreath`).
 enum CardArt {
     case comeBackToEarth, innerbloom, musicToWatchBoysTo, highByTheBeach, stay, dunno, wings, happinessIsAButterfly
     /// Place cards (see `place(for:)`).
     case teaHouseSnow, zenRockGarden
+    case greatBarrierReef
 
     /// The place cards breathe at one slow fixed pulse, 48 breaths a minute: with no song there is no tempo to hide.
     static let placePulse = 60.0 / 48
+    /// The reef's place card breathes a little quicker, 52 breaths a minute: the reef is colourful and alive (spec §11).
+    static let reefPulse = 60.0 / 52
+
+    /// The reef card's three coral heads, from the bass end to the treble as Coral Pulse lays out its groups (a brain
+    /// coral, a plate coral and a staghorn): x and the base's y as fractions of the card, a size in points at 600 × 360,
+    /// how many polyps each carries, and how many of them are lit: 1, 4 and 10, the bar's 1 : 4 : 10 tuning (the card's
+    /// easter egg).
+    static let reefCoralHeads: [(x: CGFloat, y: CGFloat, size: CGFloat, polyps: Int, lit: Int)] = [
+        (0.565, 0.935, 64, 9, 1), (0.745, 0.885, 58, 12, 4), (0.905, 0.86, 50, 10, 10)]
+
+    /// How long each coral head's lit polyps flare after a breath, in breaths: as long as the bar's partials ring, the
+    /// double octave 4 and the third 10 times shorter than the note.
+    private static let reefRing: [Double] = [0.8, 0.2, 0.08]
+
+    /// Each coral head's fluorescence (reef corals fluoresce): green, orange and pink.
+    private static let reefGlow: [(red: Double, green: Double, blue: Double)] = [(0.40, 1.0, 0.50), (1.0, 0.58, 0.18), (1.0, 0.36, 0.70)]
+
+    /// The school's curve over the coral heads: a cubic Bézier's four points, as fractions of the card.
+    private static let reefSchool: [CGPoint] = [CGPoint(x: 0.30, y: 0.70), CGPoint(x: 0.46, y: 0.46), CGPoint(x: 0.84, y: 0.44),
+                                                CGPoint(x: 1.03, y: 0.66)]
+
+    /// Soft corals swaying behind the heads: x and the base's y as fractions of the card, a height in points at 600 × 360,
+    /// a phase for the sway and a seed for each frond's reach.
+    private static let reefFans: [(x: CGFloat, y: CGFloat, height: CGFloat, phase: Double, seed: Int)] = [
+        (0.47, 0.90, 40, 0, 23), (0.655, 0.86, 34, 1.7, 32), (0.985, 0.82, 42, 3.1, 49)]
 
     /// The Tea House Snow card's thirteen faint strings along the lower edge (the koto's thirteen: the card's easter
     /// egg): y as fractions of the card, from the far string down.
@@ -83,6 +109,7 @@ enum CardArt {
         switch setID {
         case "tea-house-snow": return .teaHouseSnow   // Set 9 (spec §11)
         case "zen-rock-garden": return .zenRockGarden   // Set 10 (spec §11)
+        case "great-barrier-reef": return .greatBarrierReef   // Set 12 (Sets 11 & 12 spec §11)
         default: return nil
         }
     }
@@ -94,8 +121,13 @@ enum CardArt {
             return false
         case .teaHouseSnow, .zenRockGarden:
             return true
+        case .greatBarrierReef:
+            return true
         }
     }
+
+    /// One breath of a place card (seconds): the reef's quicker `reefPulse`, every other place's `placePulse`.
+    var placeBreath: Double { self == .greatBarrierReef ? Self.reefPulse : Self.placePulse }
 
     /// How the card sets its title: an airy serif under water, a clean wide-tracked sans at dusk, a lush
     /// high-contrast retro serif in the golden haze.
@@ -111,6 +143,7 @@ enum CardArt {
         case .happinessIsAButterfly: return .system(size: 26, weight: .regular, design: .serif)
         case .teaHouseSnow: return .system(size: 28, weight: .light, design: .serif)
         case .zenRockGarden: return .system(size: 27, weight: .light, design: .default)
+        case .greatBarrierReef: return .system(size: 27, weight: .medium, design: .rounded)
         }
     }
 
@@ -126,6 +159,7 @@ enum CardArt {
         case .happinessIsAButterfly: return 1
         case .teaHouseSnow: return 2.5
         case .zenRockGarden: return 4
+        case .greatBarrierReef: return 1.5
         }
     }
 
@@ -138,6 +172,7 @@ enum CardArt {
         case .wings: return 60.0 / 60
         case .happinessIsAButterfly: return credit.pulsePeriod   // 68 BPM: the motes blink at 60/68 s
         case .teaHouseSnow, .zenRockGarden: return Self.placePulse
+        case .greatBarrierReef: return Self.reefPulse
         default: return credit.pulsePeriod
         }
     }
@@ -155,6 +190,7 @@ enum CardArt {
         case .happinessIsAButterfly: Self.moonlitCove(ctx, size, t, pulse)
         case .teaHouseSnow: Self.teaHouse(ctx, size, t, pulse)
         case .zenRockGarden: Self.rockGarden(ctx, size, t, pulse)
+        case .greatBarrierReef: Self.reef(ctx, size, t, pulse)
         }
     }
 
@@ -1244,6 +1280,328 @@ enum CardArt {
 
     /// The fractional part, in 0..<1 for a negative x too (a phase that started before time zero).
     private static func frac(_ x: Double) -> Double { x - x.rounded(.down) }
+
+    // MARK: - Great Barrier Reef (a place card): a coral cay's lagoon seen from the waterline, three coral heads with 1, 4
+    // and 10 polyps lit (the bar's 1 : 4 : 10), and a school curving over them
+
+    /// Where coral head `index`'s polyps sit, the lit ones first: in two rings over the brain coral's dome with the lit one
+    /// at its crown, along the plate coral's rim with the lit ones spread evenly among the rest, at the staghorn's tips.
+    private static func reefPolyps(_ index: Int, _ size: CGSize) -> [CGPoint] {
+        let head = reefCoralHeads[index]
+        let k: CGFloat = size.width / 600
+        let cx: CGFloat = size.width * head.x, base: CGFloat = size.height * head.y, s: CGFloat = head.size * k
+        let n = head.polyps
+        var points: [CGPoint] = []
+        switch index {
+        case 0:
+            let ry: CGFloat = 0.66 * s
+            points.append(CGPoint(x: cx - 0.12 * s, y: base - 0.80 * ry))
+            for j in 1..<max(1, n) {
+                let a: CGFloat = .pi * (0.14 + 0.72 * CGFloat(j - 1) / CGFloat(max(1, n - 2)))
+                let r: CGFloat = j % 2 == 1 ? 0.82 : 0.52
+                points.append(CGPoint(x: cx - s * r * cos(a), y: base - ry * r * sin(a)))
+            }
+        case 1:
+            let cy: CGFloat = base - 0.56 * s, ry: CGFloat = 0.15 * s
+            let step = max(1, n / max(1, head.lit))
+            let lit = (0..<head.lit).map { 1 + $0 * step }
+            for slot in lit + (0..<n).filter({ !lit.contains($0) }) {
+                let a: CGFloat = .pi * (0.06 + 0.88 * CGFloat(slot) / CGFloat(max(1, n - 1)))
+                points.append(CGPoint(x: cx - 0.92 * s * cos(a), y: cy - 0.92 * ry * sin(a)))
+            }
+        default:
+            for j in 0..<n {
+                let a: CGFloat = .pi * (0.13 + 0.74 * CGFloat(j) / CGFloat(max(1, n - 1)))
+                let reach: CGFloat = s * (0.78 + 0.22 * CGFloat(hash(j, 61)))
+                points.append(CGPoint(x: cx - 1.05 * reach * cos(a), y: base - reach * sin(a)))
+            }
+        }
+        return points
+    }
+
+    private static func reef(_ ctx: GraphicsContext, _ size: CGSize, _ t: Double, _ pulse: Double) {
+        let w = size.width, h = size.height
+        let k: CGFloat = w / 600
+        let waterline: CGFloat = h * 0.42, sea: CGFloat = waterline - 9 * k
+        let phase: Double = (t / pulse).truncatingRemainder(dividingBy: 1)   // 0 at the top of each breath
+        let white = Color.white
+
+        // The sky over the Coral Sea, deep blue overhead to a warm, pale horizon, with two small clouds and three terns
+        // wheeling over the cay.
+        ctx.fill(Path(CGRect(x: 0, y: 0, width: w, height: waterline)), with: .linearGradient(
+            Gradient(stops: [.init(color: Color(red: 0.20, green: 0.46, blue: 0.82), location: 0),
+                             .init(color: Color(red: 0.50, green: 0.74, blue: 0.93), location: 0.6),
+                             .init(color: Color(red: 0.93, green: 0.90, blue: 0.82), location: 1)]),
+            startPoint: .zero, endPoint: CGPoint(x: 0, y: waterline)))
+        let puffs: [(x: CGFloat, y: CGFloat, scale: CGFloat, seed: Int)] = [(0.50, 0.22, 1.0, 50), (0.80, 0.30, 0.7, 80)]
+        var clouds = ctx
+        clouds.addFilter(.blur(radius: 3 * k))
+        clouds.drawLayer { layer in
+            for p in puffs {
+                let cx: CGFloat = w * p.x + 6 * k * CGFloat(sin(t * 0.05 + Double(p.x) * 9)), cy: CGFloat = h * p.y
+                for j in 0..<5 {
+                    let r: CGFloat = (10 + 7 * CGFloat(Self.hash(j, p.seed))) * p.scale * k
+                    let x: CGFloat = cx + CGFloat(j - 2) * 11 * p.scale * k - r
+                    let y: CGFloat = cy - r * (0.7 + 0.3 * CGFloat(j % 2))
+                    layer.fill(Path(ellipseIn: CGRect(x: x, y: y, width: 2 * r, height: 1.4 * r)), with: .color(white.opacity(0.75)))
+                }
+            }
+        }
+        for i in 0..<3 {
+            let bx: CGFloat = w * (0.12 + 0.08 * CGFloat(i)) + 10 * k * CGFloat(sin(t * 0.35 + Double(i) * 2.1))
+            let by: CGFloat = h * (0.12 + 0.05 * CGFloat(i % 2)) + 5 * k * CGFloat(sin(t * 0.5 + Double(i) * 1.3))
+            let lift: CGFloat = (1 + 2 * CGFloat(0.5 + 0.5 * sin(t * 3.1 + Double(i)))) * k
+            var tern = Path()
+            tern.move(to: CGPoint(x: bx - 6 * k, y: by - lift))
+            tern.addLine(to: CGPoint(x: bx, y: by + 1.2 * k))
+            tern.addLine(to: CGPoint(x: bx + 6 * k, y: by - lift))
+            ctx.stroke(tern, with: .color(white.opacity(0.9)), style: StrokeStyle(lineWidth: 1.2 * k, lineCap: .round, lineJoin: .round))
+        }
+
+        // The lagoon seen edge-on, a band of deep blue, with the far reef crest breaking white along it at the right.
+        ctx.fill(Path(CGRect(x: 0, y: sea, width: w, height: waterline - sea)), with: .linearGradient(
+            Gradient(colors: [Color(red: 0.12, green: 0.42, blue: 0.68), Color(red: 0.22, green: 0.62, blue: 0.78)]),
+            startPoint: CGPoint(x: 0, y: sea), endPoint: CGPoint(x: 0, y: waterline)))
+        for i in 0..<30 {
+            let u: Double = Double(i) / 29
+            let x: CGFloat = w * CGFloat(0.40 + 0.62 * u)
+            let surf: Double = 0.3 + 0.7 * noise2(u * 9 + t * 0.6, Double(i) * 0.3)
+            ctx.fill(Path(ellipseIn: CGRect(x: x - 10 * k, y: sea - 1.4 * k, width: 20 * k, height: 3.4 * k)),
+                     with: .color(white.opacity(0.75 * surf)))
+        }
+
+        // The low white cay on the left: its sand, the pisonia trees' dark canopy and a fringe of beach grass.
+        var cay = Path()
+        cay.move(to: CGPoint(x: -4, y: sea + 2 * k))
+        for s in 0...40 {
+            let u: Double = Double(s) / 40
+            let up: Double = 0.040 * max(0, sin(Double.pi * u)).squareRoot()
+            cay.addLine(to: CGPoint(x: -4 + (w * 0.38 + 4) * CGFloat(u), y: sea + 2 * k - h * CGFloat(up)))
+        }
+        cay.addLine(to: CGPoint(x: w * 0.38, y: sea + 2 * k))
+        cay.closeSubpath()
+        ctx.fill(cay, with: .linearGradient(Gradient(colors: [Color(red: 1.0, green: 0.98, blue: 0.92), Color(red: 0.92, green: 0.88, blue: 0.76)]),
+                                            startPoint: CGPoint(x: 0, y: sea - h * 0.04), endPoint: CGPoint(x: 0, y: sea)))
+        var canopy = Path()
+        canopy.move(to: CGPoint(x: w * 0.05, y: sea - h * 0.026))
+        for s in 0...32 {
+            let u: Double = Double(s) / 32
+            let lump: Double = 0.030 + 0.016 * abs(sin(u * 7.3 + 0.8)) + 0.008 * noise2(u * 11, 2.2)
+            let rise: Double = 0.026 + lump * pow(max(0, sin(Double.pi * u)), 0.4)
+            canopy.addLine(to: CGPoint(x: w * CGFloat(0.05 + 0.25 * u), y: sea - h * CGFloat(rise)))
+        }
+        canopy.addLine(to: CGPoint(x: w * 0.30, y: sea - h * 0.026))
+        canopy.closeSubpath()
+        ctx.fill(canopy, with: .linearGradient(Gradient(colors: [Color(red: 0.22, green: 0.48, blue: 0.30), Color(red: 0.12, green: 0.32, blue: 0.20)]),
+                                               startPoint: CGPoint(x: 0, y: sea - h * 0.08), endPoint: CGPoint(x: 0, y: sea - h * 0.026)))
+        for i in 0..<16 {
+            let gx: CGFloat = w * (0.035 + 0.018 * CGFloat(i)) + 2 * k * CGFloat(hash(i, 71))
+            let gy: CGFloat = sea - h * 0.024 - k * CGFloat(hash(i, 72))
+            var blade = Path()
+            blade.move(to: CGPoint(x: gx, y: gy))
+            blade.addLine(to: CGPoint(x: gx + 2 * k * CGFloat(hash(i, 73) - 0.5), y: gy - (4 + 3 * CGFloat(hash(i, 74))) * k))
+            ctx.stroke(blade, with: .color(Color(red: 0.58, green: 0.68, blue: 0.34)), style: StrokeStyle(lineWidth: k, lineCap: .round))
+        }
+
+        // Below the waterline: clear turquoise, deepening; the underside of the surface bright, and light shafts from it,
+        // swaying.
+        var water = ctx
+        water.clip(to: Path(CGRect(x: 0, y: waterline, width: w, height: h - waterline)))
+        water.fill(Path(CGRect(x: 0, y: waterline, width: w, height: h - waterline)), with: .linearGradient(
+            Gradient(stops: [.init(color: Color(red: 0.26, green: 0.80, blue: 0.80), location: 0),
+                             .init(color: Color(red: 0.07, green: 0.50, blue: 0.62), location: 0.45),
+                             .init(color: Color(red: 0.02, green: 0.22, blue: 0.36), location: 1)]),
+            startPoint: CGPoint(x: 0, y: waterline), endPoint: CGPoint(x: 0, y: h)))
+        var light = water
+        light.blendMode = .plusLighter
+        let shine = Color(red: 0.60, green: 0.95, blue: 0.92)
+        light.fill(Path(CGRect(x: 0, y: waterline, width: w, height: 22 * k)), with: .linearGradient(
+            Gradient(colors: [shine.opacity(0.30), shine.opacity(0)]),
+            startPoint: CGPoint(x: 0, y: waterline), endPoint: CGPoint(x: 0, y: waterline + 22 * k)))
+        for i in 0..<5 {
+            let x: CGFloat = w * (0.10 + 0.21 * CGFloat(i)) + 16 * k * CGFloat(sin(t * 0.21 + Double(i) * 1.9))
+            let spread: CGFloat = (55 + 18 * CGFloat(i % 2)) * k
+            var shaft = Path()
+            shaft.move(to: CGPoint(x: x - 10 * k, y: waterline)); shaft.addLine(to: CGPoint(x: x + 14 * k, y: waterline))
+            shaft.addLine(to: CGPoint(x: x + 14 * k + spread, y: h)); shaft.addLine(to: CGPoint(x: x - 6 * k + 0.55 * spread, y: h))
+            shaft.closeSubpath()
+            light.fill(shaft, with: .linearGradient(Gradient(colors: [white.opacity(0.13), white.opacity(0)]),
+                                                    startPoint: CGPoint(x: x, y: waterline), endPoint: CGPoint(x: x + 0.5 * spread, y: h * 0.95)))
+        }
+
+        // Soft corals swaying behind, dim in the blue.
+        let frond = Color(red: 0.10, green: 0.36, blue: 0.48).opacity(0.8)
+        for fan in Self.reefFans {
+            let bx: CGFloat = w * fan.x, by: CGFloat = h * fan.y, tall: CGFloat = fan.height * k
+            for j in 0..<5 {
+                let lean: Double = -0.5 + 0.25 * Double(j)
+                let sway: Double = 0.12 * sin(t * 0.9 + fan.phase + Double(j) * 0.4)
+                let reach: CGFloat = 0.8 + 0.2 * CGFloat(hash(j, fan.seed))
+                var stem = Path()
+                for s in 0...8 {
+                    let u: Double = Double(s) / 8
+                    let a: Double = lean * u + sway * u * u
+                    let p = CGPoint(x: bx + tall * CGFloat(u * sin(a)), y: by - tall * CGFloat(u * cos(a)) * reach)
+                    if s == 0 { stem.move(to: p) } else { stem.addLine(to: p) }
+                }
+                water.stroke(stem, with: .color(frond), style: StrokeStyle(lineWidth: 2.6 * k, lineCap: .round, lineJoin: .round))
+            }
+        }
+
+        // White sand banking up to the right, with caustics playing over it.
+        func sandY(_ u: Double) -> CGFloat { h * CGFloat(0.92 - 0.07 * u + 0.012 * sin(u * 9 + 0.7)) }
+        var bank = Path()
+        bank.move(to: CGPoint(x: 0, y: h))
+        for s in 0...40 { bank.addLine(to: CGPoint(x: w * CGFloat(s) / 40, y: sandY(Double(s) / 40))) }
+        bank.addLine(to: CGPoint(x: w, y: h))
+        bank.closeSubpath()
+        water.fill(bank, with: .linearGradient(Gradient(colors: [Color(red: 0.70, green: 0.86, blue: 0.82), Color(red: 0.46, green: 0.64, blue: 0.64)]),
+                                               startPoint: CGPoint(x: 0, y: h * 0.84), endPoint: CGPoint(x: 0, y: h)))
+        var caustics = water
+        caustics.blendMode = .plusLighter
+        caustics.addFilter(.blur(radius: 0.8 * k))
+        caustics.drawLayer { layer in
+            for r in 0..<6 {
+                let d: Double = Double(r) / 5
+                var net = Path()
+                for s in 0...60 {
+                    let x: CGFloat = w * CGFloat(s) / 60
+                    let along: Double = Double(x / k)
+                    let n: Double = Self.noise2(along * 0.016 + t * 0.25, d * 4.1 + 3.3) * 0.65 + Self.noise2(along * 0.04 - t * 0.3, d * 7.7) * 0.35
+                    let y: CGFloat = sandY(Double(s) / 60) + CGFloat(3 + 26 * d) * k + CGFloat(n - 0.5) * 14 * k
+                    if s == 0 { net.move(to: CGPoint(x: x, y: y)) } else { net.addLine(to: CGPoint(x: x, y: y)) }
+                }
+                layer.stroke(net, with: .color(Color(red: 0.88, green: 1.0, blue: 0.96).opacity(0.34 * (1 - 0.6 * d))), lineWidth: 1.3 * k)
+            }
+        }
+
+        // The three coral heads, bass to treble. A brain coral: a dome with meandering grooves.
+        let brain = Self.reefCoralHeads[0]
+        let bx: CGFloat = w * brain.x, bBase: CGFloat = h * brain.y, rx: CGFloat = brain.size * k, ry: CGFloat = 0.66 * brain.size * k
+        var dome = Path()
+        for s in 0...32 {
+            let v: CGFloat = 2 * CGFloat(s) / 32 - 1
+            let p = CGPoint(x: bx + rx * v, y: bBase - ry * max(0, 1 - v * v).squareRoot())
+            if s == 0 { dome.move(to: p) } else { dome.addLine(to: p) }
+        }
+        dome.closeSubpath()
+        water.fill(dome, with: .radialGradient(Gradient(colors: [Color(red: 0.66, green: 0.74, blue: 0.38), Color(red: 0.30, green: 0.40, blue: 0.22)]),
+                                               center: CGPoint(x: bx - 0.25 * rx, y: bBase - 0.75 * ry), startRadius: 0, endRadius: 1.15 * rx))
+        for g in 0..<4 {
+            let gr: CGFloat = 0.22 + 0.19 * CGFloat(g)
+            var groove = Path()
+            for s in 0...24 {
+                let a: CGFloat = .pi * (0.06 + 0.88 * CGFloat(s) / 24)
+                let r: CGFloat = gr + 0.05 * sin(a * CGFloat(7 + 2 * g) + CGFloat(g))
+                let p = CGPoint(x: bx - rx * r * cos(a), y: bBase - ry * r * sin(a))
+                if s == 0 { groove.move(to: p) } else { groove.addLine(to: p) }
+            }
+            water.stroke(groove, with: .color(Color(red: 0.24, green: 0.32, blue: 0.16).opacity(0.6)), lineWidth: 1.3 * k)
+        }
+        // A plate coral: a table on a short stalk.
+        let plate = Self.reefCoralHeads[1]
+        let px: CGFloat = w * plate.x, pBase: CGFloat = h * plate.y, ps: CGFloat = plate.size * k
+        var stalk = Path()
+        stalk.move(to: CGPoint(x: px - 6 * k, y: pBase)); stalk.addLine(to: CGPoint(x: px - 3 * k, y: pBase - 0.56 * ps))
+        stalk.addLine(to: CGPoint(x: px + 3 * k, y: pBase - 0.56 * ps)); stalk.addLine(to: CGPoint(x: px + 6 * k, y: pBase))
+        stalk.closeSubpath()
+        water.fill(stalk, with: .color(Color(red: 0.36, green: 0.30, blue: 0.52)))
+        water.fill(Path(ellipseIn: CGRect(x: px - ps, y: pBase - 0.71 * ps, width: 2 * ps, height: 0.30 * ps)), with: .linearGradient(
+            Gradient(colors: [Color(red: 0.66, green: 0.56, blue: 0.92), Color(red: 0.36, green: 0.28, blue: 0.58)]),
+            startPoint: CGPoint(x: 0, y: pBase - 0.71 * ps), endPoint: CGPoint(x: 0, y: pBase - 0.41 * ps)))
+        // A staghorn: a branch out to each polyp.
+        let stag = Self.reefCoralHeads[2]
+        let sx: CGFloat = w * stag.x, sBase: CGFloat = h * stag.y
+        for (j, tip) in reefPolyps(2, size).enumerated() {
+            var branch = Path()
+            branch.move(to: CGPoint(x: sx + 0.08 * (tip.x - sx), y: sBase))
+            branch.addLine(to: CGPoint(x: sx + 0.42 * (tip.x - sx) + 5 * k * CGFloat(hash(j, 62) - 0.5), y: sBase + 0.58 * (tip.y - sBase)))
+            branch.addLine(to: tip)
+            water.stroke(branch, with: .color(Color(red: 0.90, green: 0.80, blue: 0.66)),
+                         style: StrokeStyle(lineWidth: 3.6 * k, lineCap: .round, lineJoin: .round))
+        }
+
+        // The polyps: those still closed dark, the lit ones glowing in their coral's fluorescence, each head flaring on
+        // every breath and ringing on for as long as its partial would (the note, then 4 and 10 times shorter).
+        var glow = water
+        glow.blendMode = .plusLighter
+        let closed = Color(red: 0.16, green: 0.20, blue: 0.20).opacity(0.7)
+        for (i, head) in Self.reefCoralHeads.enumerated() {
+            let points = reefPolyps(i, size)
+            let ring: Double = 0.6 + 0.4 * exp(-phase / Self.reefRing[i])
+            let c = Self.reefGlow[i]
+            let tint = Color(red: c.red, green: c.green, blue: c.blue)
+            let pale = Color(red: 0.5 + 0.5 * c.red, green: 0.5 + 0.5 * c.green, blue: 0.5 + 0.5 * c.blue)
+            for p in points.dropFirst(head.lit) {
+                let r: CGFloat = 1.8 * k
+                water.fill(Path(ellipseIn: CGRect(x: p.x - r, y: p.y - r, width: 2 * r, height: 2 * r)), with: .color(closed))
+            }
+            let haloSize: CGFloat = i == 0 ? 19 : (i == 1 ? 10 : 7)
+            let halo: CGFloat = haloSize * k * CGFloat(0.8 + 0.2 * ring)
+            for p in points.prefix(head.lit) {
+                glow.fill(Path(ellipseIn: CGRect(x: p.x - halo, y: p.y - halo, width: 2 * halo, height: 2 * halo)), with: .radialGradient(
+                    Gradient(stops: [.init(color: tint.opacity(ring), location: 0), .init(color: tint.opacity(0.55 * ring), location: 0.35),
+                                     .init(color: tint.opacity(0), location: 1)]),
+                    center: p, startRadius: 0, endRadius: halo))
+            }
+            let core: CGFloat = (i == 0 ? 4.2 : 2.6) * k
+            for p in points.prefix(head.lit) {
+                water.fill(Path(ellipseIn: CGRect(x: p.x - core, y: p.y - core, width: 2 * core, height: 2 * core)),
+                           with: .color(pale.opacity(0.95 * ring)))
+            }
+        }
+
+        // The school, curving over the heads and swimming along its curve, a silver flash running along it on each breath.
+        func onCurve(_ u: Double) -> CGPoint {
+            let q = Self.reefSchool
+            let m: Double = 1 - u
+            let a: Double = m * m * m, b: Double = 3 * m * m * u, c: Double = 3 * m * u * u, d: Double = u * u * u
+            let x: Double = a * Double(q[0].x) + b * Double(q[1].x) + c * Double(q[2].x) + d * Double(q[3].x)
+            let y: Double = a * Double(q[0].y) + b * Double(q[1].y) + c * Double(q[2].y) + d * Double(q[3].y)
+            return CGPoint(x: w * CGFloat(x), y: h * CGFloat(y))
+        }
+        let outline: [(x: CGFloat, y: CGFloat)] = [(0.5, 0), (0.18, -0.19), (-0.22, -0.12), (-0.5, -0.26), (-0.38, 0), (-0.5, 0.26),
+                                                   (-0.22, 0.12), (0.18, 0.19)]
+        let back = Color(red: 0.07, green: 0.28, blue: 0.40), silver = Color(red: 0.78, green: 0.96, blue: 1.0)
+        for i in 0..<56 {
+            let u: Double = (Double(i) / 56 + t / (32 * pulse) + 0.008 * hash(i, 81)).truncatingRemainder(dividingBy: 1)
+            let ahead = onCurve(min(1, u + 0.01)), behind = onCurve(max(0, u - 0.01))
+            let ax: CGFloat = ahead.x - behind.x, ay: CGFloat = ahead.y - behind.y
+            let norm: CGFloat = max(1e-6, (ax * ax + ay * ay).squareRoot())
+            let dx: CGFloat = ax / norm, dy: CGFloat = ay / norm
+            let spreadOut: CGFloat = CGFloat(hash(i, 82) - 0.5) * 34 * k * CGFloat(sin(Double.pi * u))
+            let side: CGFloat = spreadOut + 1.5 * k * CGFloat(sin(t * 1.7 + Double(i)))
+            let on = onCurve(u)
+            let centre = CGPoint(x: on.x - dy * side, y: on.y + dx * side)
+            let fade: Double = min(1, u / 0.1, (1 - u) / 0.1)
+            let span: CGFloat = (8 + 3 * CGFloat(hash(i, 83))) * k
+            var fish = Path(), flank = Path()
+            for (n, o) in outline.enumerated() {
+                let p = CGPoint(x: centre.x + span * (o.x * dx - o.y * dy), y: centre.y + span * (o.x * dy + o.y * dx))
+                if n == 0 { fish.move(to: p); flank.move(to: p) } else { fish.addLine(to: p) }
+                if n > 0 && n < 4 { flank.addLine(to: p) }
+            }
+            fish.closeSubpath()
+            flank.addLine(to: centre)
+            flank.closeSubpath()
+            water.fill(fish, with: .color(back.opacity(0.9 * fade)))
+            let since: Double = phase - u < 0 ? phase - u + 1 : phase - u
+            light.fill(flank, with: .color(silver.opacity((0.30 + 0.65 * exp(-6 * since)) * fade)))
+        }
+
+        // The waterline: a gently rolling meniscus.
+        var line = Path()
+        for s in 0...80 {
+            let u: Double = Double(s) / 80
+            let y: CGFloat = waterline + 1.6 * k * CGFloat(sin(u * 19 + t * 1.2)) + k * CGFloat(noise2(u * 8 + t * 0.2, 1.7) - 0.5)
+            if s == 0 { line.move(to: CGPoint(x: 0, y: y)) } else { line.addLine(to: CGPoint(x: w * CGFloat(u), y: y)) }
+        }
+        var meniscus = ctx
+        meniscus.blendMode = .plusLighter
+        meniscus.addFilter(.blur(radius: 2 * k))
+        meniscus.stroke(line, with: .color(Color(red: 0.80, green: 1.0, blue: 1.0).opacity(0.5)), lineWidth: 4 * k)
+        ctx.stroke(line, with: .color(white.opacity(0.85)), lineWidth: 1.3 * k)
+    }
 
     // MARK: - Noise
 

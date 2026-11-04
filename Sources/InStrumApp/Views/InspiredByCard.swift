@@ -4,9 +4,9 @@ import InStrumCore
 
 /// The living card. A song card ("Inspired by"): original art that breathes at the song's tempo, the song in the card's
 /// own type, liner-note micro type (key · track · tempo) and a Listen link. A place card, for a set born from its place
-/// rather than a song (no credit): the world's own art breathing at one slow fixed pulse, the set's name and mood
-/// instead of the song, artist and album, and no liner notes or Listen. Words and a link only — no artwork, no logos,
-/// no lyrics.
+/// rather than a song (no credit): the world's own art breathing at a slow fixed pulse of its own, the set's name and
+/// mood instead of the song, artist and album, and no liner notes or Listen. Words and a link only — no artwork, no
+/// logos, no lyrics.
 struct InspiredByCard: View {
     /// What the card is about: the song that inspired a sound, or the place a set was born from.
     enum Subject: Equatable {
@@ -51,11 +51,12 @@ struct InspiredByCard: View {
         }
     }
 
-    /// One breath of the card (seconds): the song's (see `CardArt.pulse(for:)`), or the place cards' slow fixed pulse.
+    /// One breath of the card (seconds): the song's (see `CardArt.pulse(for:)`), or its place's slow fixed pulse (see
+    /// `CardArt.placeBreath`).
     var pulse: Double {
         switch subject {
         case .song(let credit): return art?.pulse(for: credit) ?? credit.pulsePeriod
-        case .place: return CardArt.placePulse
+        case .place: return art?.placeBreath ?? CardArt.placePulse
         }
     }
 

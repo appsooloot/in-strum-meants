@@ -1,6 +1,7 @@
 /// The app's own instruments (made entirely in the app, no recordings).
 public enum BuiltInEngine: String, Codable, CaseIterable {
     case feltGlass, orbitPad, honeyTape, hazeBells, cabinFelt, morningBox, polarChoir, planktonKeys, teaHouseKoto, zenShakuhachi
+    case reefMarimba
 
     public var displayName: String {
         switch self {
@@ -14,6 +15,7 @@ public enum BuiltInEngine: String, Codable, CaseIterable {
         case .planktonKeys: return "Plankton Keys"
         case .teaHouseKoto: return "Tea House Koto"
         case .zenShakuhachi: return "Zen Shakuhachi"
+        case .reefMarimba: return "Reef Marimba"
         }
     }
 }
@@ -77,6 +79,11 @@ public enum PatchLibrary {
         Patch(id: "mountain-breath", name: "Mountain Breath", engine: .zenShakuhachi, values: shakuhachi(breath: 0.60, air: 0.70, bend: 0.70, bamboo: 0.45, yuri: 0.50, echo: 0.70, space: 0.60, width: 0.55)),
         Patch(id: "hollow-bamboo", name: "Hollow Bamboo", engine: .zenShakuhachi, values: shakuhachi(breath: 0.30, air: 0.35, bend: 0.40, bamboo: 0.85, yuri: 0.30, echo: 0.15, space: 0.25, width: 0.40)),
         Patch(id: "still-air", name: "Still Air", engine: .zenShakuhachi, values: shakuhachi(breath: 0.75, air: 0.90, bend: 0.50, bamboo: 0.40, yuri: 0.25, echo: 0.40, space: 0.55, width: 0.50)),
+        // Reef Marimba is born from its place (Great Barrier Reef), not from a song: no credit, so the names stay plain.
+        Patch(id: "reef-marimba", name: "Reef Marimba", engine: .reefMarimba, values: reefMarimba(mallet: 0.45, strike: 0.40, tube: 0.70, roll: 0.35, steel: 0.20, space: 0.35, width: 0.55)),
+        Patch(id: "soft-yarn", name: "Soft Yarn", engine: .reefMarimba, values: reefMarimba(mallet: 0.15, strike: 0.35, tube: 0.85, roll: 0.45, steel: 0.00, space: 0.40, width: 0.50)),
+        Patch(id: "lagoon-steel", name: "Lagoon Steel", engine: .reefMarimba, values: reefMarimba(mallet: 0.60, strike: 0.45, tube: 0.55, roll: 0.25, steel: 0.70, space: 0.40, width: 0.60)),
+        Patch(id: "night-reef", name: "Night Reef", engine: .reefMarimba, values: reefMarimba(mallet: 0.30, strike: 0.50, tube: 0.80, roll: 0.55, steel: 0.10, space: 0.55, width: 0.60)),
     ]
 
     public static func defaultPatch(for engine: BuiltInEngine) -> Patch {
@@ -120,6 +127,10 @@ public enum PatchLibrary {
     private static func shakuhachi(breath: Double, air: Double, bend: Double, bamboo: Double, yuri: Double, echo: Double, space: Double,
                                    width: Double) -> [String: Double] {
         ["breath": breath, "air": air, "bend": bend, "bamboo": bamboo, "yuri": yuri, "echo": echo, "space": space, "width": width]
+    }
+
+    private static func reefMarimba(mallet: Double, strike: Double, tube: Double, roll: Double, steel: Double, space: Double, width: Double) -> [String: Double] {
+        ["mallet": mallet, "strike": strike, "tube": tube, "roll": roll, "steel": steel, "space": space, "width": width]
     }
 
     private static func pad(bloom: Double, drift: Double, motion: Double, shimmer: Double, brightness: Double, space: Double) -> [String: Double] {

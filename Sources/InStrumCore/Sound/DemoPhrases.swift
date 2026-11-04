@@ -252,6 +252,48 @@ public enum DemoPhrases {
         return m.sorted
     }()
 
+    /// G major at 120 for about 20 s, bright and busy as the reef: sixteenth-note runs over a bass below C3 (where the
+    /// mallets soften by themselves), and one long F♯ over D and then C, rolled under a pressure crescendo (a note held
+    /// 0.3 s rolls, and leaning in quickens the roll and swells its strokes) until it resolves up to G; then the runs again,
+    /// and a last G chord struck and left to ring. Every other key lets go well inside 0.3 s, so only the long note rolls,
+    /// and each bar rings on after its key is up (a marimba has no dampers).
+    public static let reefMarimba: Phrase = {
+        var m = Builder()
+        let s = 60.0 / 120 / 4   // a sixteenth
+        /// Sixteenths from `t`, each let go before the next, leaning on each beat and a little on each half beat.
+        func run(_ t: Double, _ notes: [UInt8], _ v: UInt8) {
+            for (k, n) in notes.enumerated() {
+                let accent: UInt8 = k % 4 == 0 ? 12 : (k % 2 == 0 ? 5 : 0)
+                m.note(t + Double(k) * s, n, v + accent, 0.8 * s)
+            }
+        }
+        /// A bass bar, struck and let go at once: it rings on.
+        func bass(_ t: Double, _ n: UInt8) { m.note(t, n, 78, 0.2) }
+        bass(0.2, 43)                                                                     // G
+        run(0.2, [67, 69, 71, 74, 76, 74, 71, 74, 79, 81, 83, 81, 79, 76, 74, 71], 70)
+        bass(2.2, 40)                                                                     // Em
+        run(2.2, [76, 79, 83, 79, 76, 71, 67, 71, 76, 78, 79, 83, 88, 83, 79, 76], 70)
+        bass(4.2, 36)                                                                     // C
+        run(4.2, [72, 76, 79, 84, 83, 79, 76, 72, 71, 74, 79, 81, 79, 76, 74, 76], 70)
+        // The long F♯ over D, then C: it rolls from 6.5 s, and the pressure swells the roll until it resolves up to G.
+        bass(6.2, 38); m.note(6.2, 78, 96, 3.95)
+        m.pressure(6.7, from: 0, to: 1, over: 2.6)
+        bass(8.2, 36)
+        m.pressure(10.05, from: 1, to: 0, over: 0.12)
+        bass(10.2, 43)                                                                    // G
+        run(10.2, [79, 83, 86, 91, 90, 86, 83, 79, 81, 83, 86, 88, 86, 83, 81, 79], 72)
+        bass(12.2, 40)                                                                    // Em
+        run(12.2, [88, 86, 83, 79, 76, 79, 83, 79, 76, 74, 71, 67, 64, 67, 71, 74], 70)
+        bass(14.2, 45); bass(15.2, 38)                                                    // Am, D
+        run(14.2, [72, 76, 81, 84, 83, 81, 76, 72, 74, 78, 81, 84, 83, 81, 78, 74], 70)
+        bass(16.2, 43)                                                                    // G
+        run(16.2, [71, 74, 79, 83, 86, 83, 79, 74], 68)
+        for (k, n) in [79, 83, 86, 91].enumerated() { m.note(17.2 + 0.25 * Double(k), UInt8(n), UInt8(64 + 4 * k), 0.2) }
+        // The last chord, four mallets and the bass together, left to ring.
+        for (k, n) in [43, 67, 71, 74, 79].enumerated() { m.note(18.2 + 0.012 * Double(k), UInt8(n), 74, 0.2) }
+        return m.sorted
+    }()
+
     private struct Builder {
         var events: Phrase = []
         mutating func note(_ t: Double, _ n: UInt8, _ v: UInt8, _ length: Double) {

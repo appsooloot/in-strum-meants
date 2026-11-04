@@ -93,4 +93,20 @@ final class PresetsTests: XCTestCase {
             XCTAssertEqual(look.themeID, ButterflyGardenModel.id)
         }
     }
+
+    /// Reef Marimba's four presets (spec §4.4), each dial in the instrument's order: Mallet, Strike, Tube, Roll, Steel,
+    /// Space, Width. The first is the default.
+    func testReefMarimbaPresets() {
+        let presets = PatchLibrary.patches(for: .reefMarimba)
+        XCTAssertEqual(presets.map(\.id), ["reef-marimba", "soft-yarn", "lagoon-steel", "night-reef"])
+        XCTAssertEqual(presets.map(\.name), ["Reef Marimba", "Soft Yarn", "Lagoon Steel", "Night Reef"])
+        let dials = ["mallet", "strike", "tube", "roll", "steel", "space", "width"]
+        for p in presets { XCTAssertEqual(Set(p.values.keys), Set(dials), p.id) }
+        let expected: [[Double]] = [[0.45, 0.40, 0.70, 0.35, 0.20, 0.35, 0.55],
+                                    [0.15, 0.35, 0.85, 0.45, 0.00, 0.40, 0.50],
+                                    [0.60, 0.45, 0.55, 0.25, 0.70, 0.40, 0.60],
+                                    [0.30, 0.50, 0.80, 0.55, 0.10, 0.55, 0.60]]
+        XCTAssertEqual(presets.map { p in dials.map { p.values[$0] ?? -1 } }, expected)
+        XCTAssertEqual(PatchLibrary.defaultPatch(for: .reefMarimba).id, "reef-marimba")
+    }
 }

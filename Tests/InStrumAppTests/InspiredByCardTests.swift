@@ -66,9 +66,18 @@ final class InspiredByCardTests: XCTestCase {
                    ambience: AmbienceSettings(), creditID: nil)
     }
 
+    /// Great Barrier Reef as Sets 11 & 12 will add it to `SetLibrary` (spec §2, §9.1, §11): born from its place, so no
+    /// credit. Task 13 swaps this stand-in for `SetLibrary.greatBarrierReef`.
+    static var reef: InStrumSet {
+        InStrumSet(id: "great-barrier-reef", name: "Great Barrier Reef", moodName: "Colourful, alive",
+                   mood: Mood(energy: 0.65, warmth: 0.75, brightness: 0.85, space: 0.45, motion: 0.75),
+                   worldID: "great-barrier-reef", visual: "Coral Pulse", patchID: "reef-marimba",
+                   ambience: AmbienceSettings(), creditID: nil)
+    }
+
     /// Every set shows one card: its song's, or (born from its place, no credit) its place card.
     func testEverySetHasACardOrPlaceArt() {
-        for set in SetLibrary.all + [Self.teaHouse, Self.garden] {
+        for set in SetLibrary.all + [Self.teaHouse, Self.garden, Self.reef] {
             if let credit = set.creditID {
                 XCTAssertNotNil(CardArt.art(for: credit), "\(set.id) has no song card")
                 XCTAssertNil(CardArt.place(for: set.id), "\(set.id) has a song card and a place card")
@@ -172,6 +181,61 @@ final class InspiredByCardTests: XCTestCase {
         let teaHouse = try XCTUnwrap(Self.render(place: Self.teaHouse, at: 1.0))
         let fromTea = PreviewRenderer.difference(place, teaHouse)
         if fromTea <= 0.02 { XCTFail("the garden card and the tea house's differ by only \(fromTea)") }
+    }
+
+    /// The reef is born from its place: its card (a coral cay's lagoon from the waterline, three coral heads with 1, 4 and
+    /// 10 polyps lit, the bar's 1 : 4 : 10 tuning, and a school curving over them) breathes at a fixed 60/52 s whatever any
+    /// song's tempo, names the set and its mood with no liner notes or Listen button, draws and moves, and looks like
+    /// none of the song cards and none of the other places' cards.
+    func testReefPlaceCard() throws {
+        let art = try XCTUnwrap(CardArt.place(for: "great-barrier-reef"))
+        XCTAssertEqual(art, .greatBarrierReef)
+        XCTAssertTrue(art.isPlace)
+        XCTAssertNotEqual(art, CardArt.place(for: "tea-house-snow"))
+        for c in CreditLibrary.all { XCTAssertNotEqual(CardArt.art(for: c.id), art, c.id) }
+        XCTAssertEqual(CardArt.reefCoralHeads.map { $0.lit }, [1, 4, 10], "the bar's 1 : 4 : 10")
+        for head in CardArt.reefCoralHeads { XCTAssertGreaterThanOrEqual(head.polyps, head.lit) }
+        XCTAssertEqual(CardArt.reefPulse, 60.0 / 52, accuracy: 1e-12)
+        XCTAssertEqual(art.placeBreath, 60.0 / 52, accuracy: 1e-12)
+        XCTAssertEqual(art.pulse(for: CreditLibrary.stay), 60.0 / 52, accuracy: 1e-12, "a place card follows no song")
+        XCTAssertEqual(CardArt.teaHouseSnow.placeBreath, 60.0 / 48, accuracy: 1e-12, "the tea house keeps its own")
+
+        let card = InspiredByCard(place: Self.reef)
+        XCTAssertEqual(card.subject, .place(Self.reef))
+        XCTAssertEqual(card.art, .greatBarrierReef)
+        XCTAssertEqual(card.pulse, 60.0 / 52, accuracy: 1e-12)
+        XCTAssertEqual(InspiredByCard(place: Self.teaHouse).pulse, 60.0 / 48, accuracy: 1e-12)
+        XCTAssertEqual(card.words.kicker, "BORN FROM A PLACE")
+        XCTAssertEqual(card.words.title, "Great Barrier Reef")
+        XCTAssertEqual(card.words.subtitle, "Colourful, alive")
+        XCTAssertNil(card.words.listen, "no Listen button")
+        XCTAssertNil(card.words.linerNotes)
+        XCTAssertNil(card.words.line)
+
+        // The picture: it draws, it breathes, and it looks like no song card and no other place's card (the tea house's,
+        // and any other place-born set the library holds).
+        let a = try XCTUnwrap(Self.render(place: Self.reef, at: 0.2))
+        let s = PreviewRenderer.stats(a)
+        XCTAssertGreaterThan(s.meanLuminance, 0.05)
+        XCTAssertGreaterThan(s.variance, 0.001)
+        let b = try XCTUnwrap(Self.render(place: Self.reef, at: 2.2))
+        let moved = PreviewRenderer.difference(a, b)
+        if moved <= 0.001 { XCTFail("the reef card moved only \(moved)") }
+        let picture = try XCTUnwrap(Self.render(place: Self.reef, at: 1.0))
+        for c in CreditLibrary.all {
+            let other = try XCTUnwrap(Self.render(c, at: 1.0), c.id)
+            let d = PreviewRenderer.difference(picture, other)
+            if d <= 0.02 { XCTFail("the reef card and \(c.id) differ by only \(d)") }
+        }
+        var places = [Self.teaHouse]
+        for set in SetLibrary.all where set.creditID == nil && set.id != Self.reef.id && !places.contains(where: { $0.id == set.id }) {
+            places.append(set)
+        }
+        for place in places {
+            let other = try XCTUnwrap(Self.render(place: place, at: 1.0), place.id)
+            let d = PreviewRenderer.difference(picture, other)
+            if d <= 0.02 { XCTFail("the reef card and \(place.id)'s differ by only \(d)") }
+        }
     }
 
     /// "Stay" is felt in half time, so its card breathes at 67, not 134.

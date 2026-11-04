@@ -74,7 +74,8 @@ final class MIDIMessageBytesTests: XCTestCase {
     func testDemoPhrasesAreOriginalAndPlayable() {
         for phrase in [DemoPhrases.feltGlass, DemoPhrases.orbitPad, DemoPhrases.honeyTape, DemoPhrases.hazeBells,
                        DemoPhrases.cabinFelt, DemoPhrases.morningBox, DemoPhrases.polarChoir, DemoPhrases.planktonKeys,
-                       DemoPhrases.teaHouseKoto, DemoPhrases.zenShakuhachi] {
+                       DemoPhrases.teaHouseKoto, DemoPhrases.zenShakuhachi,
+                       DemoPhrases.reefMarimba] {
             XCTAssertGreaterThan(phrase.last?.time ?? 0, 18)
             XCTAssertEqual(phrase.map(\.time), phrase.map(\.time).sorted())
             var held = Set<UInt8>()
@@ -183,5 +184,48 @@ final class MIDIMessageBytesTests: XCTestCase {
         XCTAssertGreaterThanOrEqual(longNotes, 3, "long breathed notes")
         XCTAssertEqual(rests.filter { $0 >= 1.5 }.count, 2, "two silences between the three breaths: \(rests)")
         XCTAssertEqual(phrase.last?.time ?? 0, 22, accuracy: 1.5, "about 22 s")
+    }
+
+    /// The marimba's demo (spec §11): sixteenth-note runs, a bass below C3 (where the mallets soften by themselves) and
+    /// one long note rolled under a pressure crescendo. A note held 0.3 s rolls, so every other key lets go well before
+    /// then and the long note is the only one that rolls; the pressure rises only while it rolls, all the way, over
+    /// seconds rather than at once; and every note is inside C2–C7, so none of them folds.
+    func testReefMarimbaDemoRunsAndRollsOnce() {
+        let phrase = DemoPhrases.reefMarimba
+        var down: [UInt8: Double] = [:], held: [(note: UInt8, on: Double, off: Double)] = []
+        var pressure: UInt8 = 0, highest: UInt8 = 0, rises: [Double] = [], bass = 0, runNotes = 0
+        var lastHigh: Double? = nil
+        for (t, m) in phrase {
+            switch m {
+            case let .noteOn(_, n, _):
+                XCTAssertTrue((36...96).contains(n), "note \(n) at \(t) s is outside C2–C7")
+                if n < 48 { bass += 1 }
+                if n >= 60 {
+                    if let last = lastHigh, t - last > 0.12, t - last < 0.13 { runNotes += 1 }
+                    lastHigh = t
+                }
+                down[n] = t
+            case let .noteOff(_, n, _):
+                if let on = down.removeValue(forKey: n) { held.append((n, on, t)) }
+            case let .channelPressure(_, p):
+                if p > pressure { rises.append(t) }
+                pressure = p
+                highest = max(highest, p)
+            default:
+                XCTFail("unexpected \(m) at \(t) s")
+            }
+        }
+        let rolled = held.filter { $0.off - $0.on >= 0.3 }
+        XCTAssertEqual(rolled.count, 1, "one note is held long enough to roll")
+        XCTAssertTrue(held.allSatisfy { $0.off - $0.on < 0.25 || $0.off - $0.on >= 3 }, "the others let go well inside 0.3 s")
+        guard let long = rolled.first, let first = rises.first, let last = rises.last else { return XCTFail("no roll, or no swell") }
+        XCTAssertGreaterThanOrEqual(long.off - long.on, 3, "a long note")
+        XCTAssertGreaterThan(first, long.on + 0.3, "the swell starts once it rolls")
+        XCTAssertLessThan(last, long.off, "and rises only while it is held")
+        XCTAssertGreaterThanOrEqual(last - first, 2, "a crescendo, not a flick")
+        XCTAssertEqual(highest, 127, "all the way")
+        XCTAssertEqual(pressure, 0)
+        XCTAssertGreaterThanOrEqual(bass, 8, "a bass below C3")
+        XCTAssertGreaterThanOrEqual(runNotes, 64, "runs of sixteenths")
     }
 }

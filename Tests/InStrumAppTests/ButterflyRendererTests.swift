@@ -92,5 +92,7 @@ final class PreviewRenderTests: XCTestCase {
         try PreviewRenderer.writePNG(teaHouse, to: url.appendingPathComponent("card-place-tea-house-snow.png"))
         let garden = try XCTUnwrap(InspiredByCardTests.render(place: InspiredByCardTests.garden, at: 2.4))
         try PreviewRenderer.writePNG(garden, to: url.appendingPathComponent("card-place-zen-rock-garden.png"))
+        let reef = try XCTUnwrap(InspiredByCardTests.render(place: InspiredByCardTests.reef, at: 2.4))
+        try PreviewRenderer.writePNG(reef, to: url.appendingPathComponent("card-place-great-barrier-reef.png"))
     }
 }
