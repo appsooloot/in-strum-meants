@@ -30,9 +30,11 @@ enum MoonlitLakeShaders {
         float n = fbm3(float3(cos(az) * 4.0 + 9.0, sin(az) * 4.0, 1.3), 2);
         return (0.6 + 2.6 * n) * 0.0174533;
     }
-    // Pines along the near ridge: one tree per cell, a stacked-tier silhouette.
-    float pines(float az) {
+    // Pines along the near ridge: one tree per cell, a stacked-tier silhouette. `slope` is the cone's steepness
+    // (d height / d azimuth, the tiers' saw-tooth left out): rime needs the flank's normal.
+    float pines(float az, thread float& slope) {
         const float cells = 520.0;
+        slope = 0.0;
         float x = (az / 6.2831853 + 0.5) * cells;
         float cell = floor(x), u = x - cell;
         float3 h = hash33(float3(cell, 4.0, 2.0));
@@ -42,19 +44,33 @@ enum MoonlitLakeShaders {
         if (d >= 1.0) return 0.0;
         float height = (0.35 + 1.1 * h.y * h.z + 0.25 * h.x) * 0.0174533;
         float tiers = 0.82 + 0.18 * fract(d * 3.0 + h.y);
+        slope = -sign(u - centre) * height * tiers * cells / (6.2831853 * half_);
         return height * (1.0 - d) * tiers;
     }
 
     float3 ridgeColor(float alt, float az, constant SkyU& u, constant LakeU& l, bool farOnly, thread bool& hit) {
         float near = ridgeNear(az);
-        float nearTop = near + pines(az);
+        float slope;
+        float nearTop = near + pines(az, slope);
         float far = ridgeFar(az);
         float3 horizon = u.horizon.rgb, zenith = u.zenith.rgb;
         float mist = l.a.w, night = l.b.w;
         hit = true;
         if (!farOnly && alt < nearTop) {
             float rim = smoothstep(nearTop - 0.004, nearTop, alt) * 0.4;
-            return zenith * 0.09 + horizon * 0.05 + l.lightColor.rgb * rim * 0.02 * l.light.w;
+            float3 c = zenith * 0.09 + horizon * 0.05 + l.lightColor.rgb * rim * 0.02 * l.light.w;
+            // Rime on the pines and the ridge line (spec §6.4), in NDC-y units (radians ÷ the tangent of half the
+            // view): within a pine, the depth below its top turned into the distance from its flank by the flank's
+            // steepness; below the ridge line, the depth below the ridge (its own edge). The far shore's fringe is
+            // drawn at two thirds the width of a near one. The feathers go round the horizon (no seam), so the
+            // lake's reflection shows the same ones.
+            bool inPine = alt >= near;
+            float inside = (inPine ? (nearTop - alt) * rsqrt(1.0 + slope * slope) : near - alt) * 1.5 / u.up.w;
+            if (rimeNear(u, inside)) {
+                float feather = fbm3(float3(cos(az) * 150.0, sin(az) * 150.0, alt * 150.0), 2);
+                c = mix(c, rimeColor(u), rimeFringe(u, inside, float2(inPine ? -slope : 0.0, 1.0), feather));
+            }
+            return c;
         }
         if (alt < far) {
             // Aerial perspective: the far ridge is a hazy silhouette, darker than the sky, lighter than the pines.
@@ -71,13 +87,15 @@ enum MoonlitLakeShaders {
         return normalize(u.forward.xyz + u.right.xyz * ndc.x * u.right.w + u.up.xyz * ndc.y * u.up.w);
     }
 
-    // Reeds near the left and right edges, swaying with the wind. Returns coverage 0…1.
-    float reeds(float2 p, constant LakeU& l) {
+    // Reeds near the left and right edges, swaying with the wind. Returns coverage 0…1, and through `rime` the rime
+    // fringe on the nearest reed's edge (its feathers ride the reed as it sways).
+    float reeds(float2 p, constant LakeU& l, constant SkyU& u, thread float& rime) {
+        rime = 0.0;
         float amount = l.b.x;
         if (amount < 0.01 || abs(p.x) < 0.62) return 0.0;
         float side = p.x < 0.0 ? -1.0 : 1.0;
         float base = l.a.x, time = l.a.y, wind = l.b.y;
-        float cover = 0.0;
+        float cover = 0.0, inside = -1.0, edgeSide = 0.0, along = 0.0;
         for (int i = 0; i < 14; i++) {
             float3 h = hash33(float3(float(i), side * 7.0, 11.0));
             if (h.z > amount + 0.15) continue;
@@ -89,7 +107,14 @@ enum MoonlitLakeShaders {
             float x = x0 + sway * t * t + side * 0.03 * t * h.y;
             float w = 0.0045 * (1.0 - 0.75 * t);
             if (h.z < 0.35 && t > 0.72 && t < 0.9) w = 0.009;   // a cattail head
-            cover = max(cover, smoothstep(w, w * 0.4, abs(p.x - x)));
+            float c = smoothstep(w, w * 0.4, abs(p.x - x));
+            if (c > cover) { inside = w - abs(p.x - x); edgeSide = p.x < x ? -1.0 : 1.0; along = p.x - x + x0 + float(i) * 3.1; }
+            cover = max(cover, c);
+        }
+        // NDC x → NDC-y units: × the aspect (tanH / tanV).
+        float aspect = u.right.w / u.up.w;
+        if (cover > 0.0 && rimeNear(u, inside * aspect)) {
+            rime = rimeEdge(u, inside * aspect, float2(edgeSide, 0.0), float2(along * aspect, p.y));
         }
         return cover;
     }
@@ -108,7 +133,8 @@ enum MoonlitLakeShaders {
         float3 horizon = u.horizon.rgb;
         float3 mistCol = horizon * (1.05 + 0.15 * night) + l.lightColor.rgb * 0.015 * l.light.w * night;
 
-        float reed = reeds(p, l);
+        float reedRime;
+        float reed = reeds(p, l, u, reedRime);
         float3 col;
         float depth = 1.0;
         if (alt >= 0.0) {
@@ -187,6 +213,7 @@ enum MoonlitLakeShaders {
             depth = saturate(f / 40.0);
         }
         col = mix(col, u.zenith.rgb * 0.05 + float3(0.001, 0.0015, 0.002), reed);
+        if (reedRime > 0.0) col = mix(col, rimeColor(u), reedRime * reed);
         if (reed > 0.5) depth = 0.02;
         out.color = float4(col, 1.0);
         out.depth = float4(depth, 0, 0, 1);

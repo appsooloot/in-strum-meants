@@ -52,6 +52,14 @@ enum CoastRoadShaders {
         return float2(p.x * cr - p.y * sr, p.x * sr + p.y * cr);
     }
 
+    /// Rime on a lamp post (spec §6.4): up its windward side, and along its arm's top. `dx` is across the post from
+    /// its centre and `y` up (aspect units), `armY` the arm's centre line, `post` and `arm` their covers; the
+    /// feathers ride the post as it passes.
+    float lampPostRime(constant SkyU& sky, float dx, float y, float armY, float post, float arm) {
+        if (post >= arm) return rimeEdge(sky, post > 0.0 ? 0.012 - abs(dx) : -1.0, float2(dx < 0.0 ? -1.0 : 1.0, 0.0), float2(dx, y));
+        return rimeEdge(sky, y > armY ? 0.008 - (y - armY) : -1.0, float2(0.0, 1.0), float2(dx, y));
+    }
+
     /// Where the scrub meets the sky or sea on screen (y), by x (aspect units) and the mid layer's scroll.
     float scrubLine(float x, float scroll, float base) {
         float n = vnoiseP(float3((x + scroll) * 1.6, 2.0, 1.0), 64.0) * 0.07
@@ -122,6 +130,17 @@ enum CoastRoadShaders {
             float shine = exp(-sh * sh);
             col = mix(col, metal, max(beam, postCover * 0.95));
             col += (horizon * 0.25 + lampCol * lampsLit * 0.3) * shine * beam;
+            // Rime along the rail's top (spec §6.4), its feathers passing with the posts: two octaves of a noise that
+            // repeats every post spacing, so the post phase's wrap never shows, smeared into an even band by speed
+            // (like the posts) so it never strobes.
+            float railIn = 0.027 - ry;
+            if (beam > 0.0 && ry > 0.0 && rimeNear(sky, railIn)) {
+                float along = fract(p.x / kPostSpacing + u.b.z);
+                float feather = 0.65 * vnoiseP(float3(along * 48.0, ry * 90.0, 2.7), 48.0)
+                              + 0.35 * vnoiseP(float3(along * 96.0, ry * 180.0, 5.3), 96.0);
+                feather = mix(feather, 0.55, saturate(speed * 1.5));
+                col = mix(col, rimeColor(sky), rimeFringe(sky, railIn, float2(0.0, 1.0), feather) * beam);
+            }
             // The road's edge below the rail; wet tarmac darkens, mirrors the sky and streaks the lamps' light.
             if (p.y < bottom + 0.06) {
                 float wetRoad = u.e.x;
@@ -175,6 +194,8 @@ enum CoastRoadShaders {
         col *= alpha;
         if (lampBody > 0.0) {
             float3 postCol = float3(0.02, 0.02, 0.022) * (zenith + horizon * 0.5) + lampCol * lampsLit * 0.05;
+            float lampRime = lampPostRime(sky, lampDx, p.y, armY, post, arm);
+            if (lampRime > 0.0) postCol = mix(postCol, rimeColor(sky), lampRime);
             col = col * (1.0 - lampBody) + postCol * lampBody;
             alpha = alpha + (1.0 - alpha) * lampBody;
             depth = min(depth, 0.2);
@@ -251,7 +272,8 @@ enum CoastRoadShaders {
         o.p = pp;
         return o;
     }
-    fragment float4 road_post_fragment(PostOut in [[stage_in]], constant float4& colour [[buffer(0)]]) {
+    fragment float4 road_post_fragment(PostOut in [[stage_in]], constant float4& colour [[buffer(0)]],
+                                       constant SkyU& sky [[buffer(1)]]) {
         float2 q = in.local;
         float dx = q.x - in.p.x, headY = in.p.y;
         float post = smoothstep(0.012, 0.007, abs(dx)) * step(q.y, headY + 0.015);
@@ -259,7 +281,9 @@ enum CoastRoadShaders {
         float armY = headY + 0.012 + 0.04 * w * (1.0 - w);
         float arm = smoothstep(0.008, 0.004, abs(q.y - armY)) * step(0.0, dx) * step(dx, 0.165);
         float a = max(post, arm);
-        return float4(colour.rgb * a, a);
+        float r = lampPostRime(sky, dx, q.y, armY, post, arm);   // rimed like the road's own lamp posts
+        float3 c = r > 0.0 ? mix(colour.rgb, rimeColor(sky), r) : colour.rgb;
+        return float4(c * a, a);
     }
 
     // The car around the window: door trim and headliner lit by the sky and the dashboard, a rubber seal

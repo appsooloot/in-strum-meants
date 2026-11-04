@@ -27,6 +27,8 @@ final class MoonlitLakeRenderer: ThemeRenderer {
     /// The glitter and firefly strength after the flash limiter (gentle visuals halve them).
     private(set) var glitterOut: Float = 0
     private(set) var fireflyScale: Float = 1
+    /// Where the horizon (the far shore's foot) sits this frame, NDC y.
+    private(set) var horizonY: Float = -0.2
 
     private struct KeyInstance { var rect: SIMD4<Float>; var info: SIMD4<Float> }
 
@@ -92,6 +94,7 @@ final class MoonlitLakeRenderer: ThemeRenderer {
         // A high moon tilts the view up a little (lower horizon, wider lens) so it stays in the picture.
         let lift = Float(s.moon.altitude > -5 && s.sun.altitude < 2 ? Self.smooth(22, 50, s.moon.altitude) : 0)
         let horizonY = keyTop + (1 - keyTop) * (0.4 - 0.14 * lift)
+        self.horizonY = horizonY
         sky.viewAzimuth = viewAzimuth
         sky.horizonY = horizonY
         sky.verticalFOV = 62 + 10 * Double(lift)

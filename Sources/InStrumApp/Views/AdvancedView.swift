@@ -73,13 +73,9 @@ struct AllSettingsView: View {
                         }
                     }
                 }
-                if showsNightSky { NightSkySection(model: model) }
+                if SkyExtrasSection.matches(search) { SkyExtrasSection(model: model) }
             }
         }
-    }
-
-    private var showsNightSky: Bool {
-        search.isEmpty || "Night sky constellation lines aurora stars".localizedCaseInsensitiveContains(search)
     }
 
     private func reset(_ id: String) {
@@ -94,10 +90,18 @@ struct AllSettingsView: View {
     }
 }
 
-/// The Living Sky's night settings (every world with a sky): the constellation lines and the aurora's brightness.
-/// The Gentle / Dramatic / Dreamy looks and Reset Advanced (Visuals → World) set these too.
-struct NightSkySection: View {
+/// The Living Sky's extras (every world with a sky): the constellation lines, the aurora's brightness, iridescent
+/// cloud and how fast rime frost builds and melts. The Gentle / Dramatic / Dreamy looks and Reset Advanced
+/// (Visuals → World) set these too.
+struct SkyExtrasSection: View {
     @ObservedObject var model: AppModel
+
+    nonisolated static let title = "Sky extras"
+    /// Searching the settings finds the group by its title or any of its dials.
+    nonisolated static func matches(_ search: String) -> Bool {
+        search.isEmpty || "\(title) night sky constellation lines aurora stars iridescence iridescent clouds rime speed frost"
+            .localizedCaseInsensitiveContains(search)
+    }
 
     private var sky: SkySettings { model.skySettings }
     private func update(_ change: (inout SkySettings) -> Void) {
@@ -117,14 +121,25 @@ struct NightSkySection: View {
                 Slider(value: Binding(get: { sky.auroraScale }, set: { v in update { $0.auroraScale = v } }), in: 0...2)
                 Text("In Follow-the-sky worlds, how bright a real aurora is").font(.caption).foregroundStyle(.secondary)
             }
+            VStack(alignment: .leading, spacing: 2) {
+                Text("Iridescence \(String(format: "%.1f", sky.iridescence))×").font(.callout)
+                Slider(value: Binding(get: { sky.iridescence }, set: { v in update { $0.iridescence = v } }), in: 0...1.5)
+                Text("Pastel colours on thin cloud near the sun").font(.caption).foregroundStyle(.secondary)
+            }
+            VStack(alignment: .leading, spacing: 2) {
+                Text("Rime speed \(String(format: "%.2f", sky.rimeSpeed))×").font(.callout)
+                Slider(value: Binding(get: { sky.rimeSpeed }, set: { v in update { $0.rimeSpeed = v } }), in: 0.25...4)
+                Text("How fast rime frost feathers the world in freezing fog, and melts away after").font(.caption).foregroundStyle(.secondary)
+            }
         } header: {
             HStack {
-                Text("Night sky")
+                Text(Self.title)
                 Spacer()
                 Button("Reset group") {
                     update { s in
                         let d = SkySettings()
                         s.constellationLines = d.constellationLines; s.auroraScale = d.auroraScale
+                        s.iridescence = d.iridescence; s.rimeSpeed = d.rimeSpeed
                     }
                 }
                 .buttonStyle(.borderless).font(.caption)
