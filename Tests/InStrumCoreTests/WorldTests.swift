@@ -1820,3 +1820,386 @@ extension WorldTests {
         XCTAssertEqual(ThemeRegistry.parameterSet(for: SpaceshipLoungeModel.id, state: ThemeState()).choice("meteors.mode"), "")
     }
 }
+
+// MARK: - Submarine Window
+
+extension WorldTests {
+    private func subStep(_ model: inout SubmarineWindowModel, seconds: Double, dt: Double = 1.0 / 30,
+                         state: ThemeState = ThemeState(), quality: QualityLevel = .high) -> SubFrame {
+        let p = ThemeRegistry.parameterSet(for: SubmarineWindowModel.id, state: state)
+        var frame: SubFrame?
+        for _ in 0..<max(1, Int((seconds / dt).rounded())) {
+            frame = model.step(dt: dt, params: p, roles: RoleValues(), inputs: InputFrame(), quality: quality)
+        }
+        return frame!
+    }
+
+    /// A sky over the submarine: the sun's altitude and the local hour, and the moon (down, and new, unless given).
+    private func subSky(sun altitude: Double, hour: Double, moon: Double = -30, moonLit: Double = 0) -> SkyState {
+        var s = SkyState()
+        s.sun = SkyDirection(azimuth: 150, altitude: altitude)
+        s.hourOfDay = hour
+        s.moon = SkyDirection(azimuth: 210, altitude: moon)
+        s.moonLit = moonLit
+        return s
+    }
+
+    /// The submarine at a Depth dial under a sky, after a moment.
+    private func subFrame(depth: Double, sky: SkyState, mood: Mood = .neutral) -> SubFrame {
+        var model = SubmarineWindowModel()
+        model.mood = mood
+        model.setSky(sky)
+        return subStep(&model, seconds: 0.1, state: ThemeState(values: ["depth": .number(depth)]))
+    }
+
+    /// The Depth dial's place for a depth in metres (the inverse of the log mapping).
+    private func subDial(metres: Double) -> Double { log(metres / 15) / log(1000.0 / 15) }
+
+    func testSubDefaults() throws {
+        XCTAssertEqual(SubmarineWindowModel.id, "submarine-window")
+        XCTAssertEqual(ThemeRegistry.resolve(SubmarineWindowModel.id), SubmarineWindowModel.id)
+        XCTAssertTrue(ThemeRegistry.all.contains { $0.id == SubmarineWindowModel.id && $0.name == "Submarine Window" })
+        XCTAssertTrue(ThemeRegistry.isWorld(SubmarineWindowModel.id))
+        let ids = ThemeRegistry.entries.map(\.id)
+        let garden = try XCTUnwrap(ids.firstIndex(of: ZenRockGardenModel.id))
+        XCTAssertEqual(ids[garden + 1], SubmarineWindowModel.id, "registered after the garden")
+        assertValidParameters(SubmarineWindowModel.parameters)
+        XCTAssertEqual(SubmarineWindowModel.parameters.map(\.id),
+                       ["visual", "light.hold", "depth", "lamps", "cabin", "sonar", "keys.show", "keys.height"])
+        XCTAssertEqual(SubmarineWindowModel.visuals, ["Deep Lights", "Galaxy Warp"])
+        let params = ThemeRegistry.parameterSet(for: SubmarineWindowModel.id, state: ThemeState())
+        XCTAssertEqual(params.choice("visual"), "Deep Lights")
+        XCTAssertEqual(params.choice("light.hold"), "Follow the sky")
+        XCTAssertEqual(params.choice("aurora.mode"), "", "no aurora mode under water")
+        XCTAssertEqual(params.choice("meteors.mode"), "", "nor a meteor mode: Snell's window shows the sky's own")
+        XCTAssertEqual(params.number("depth"), 0.35, accuracy: 1e-9)
+        XCTAssertEqual(params.number("lamps"), 0.35, accuracy: 1e-9)
+        XCTAssertEqual(params.number("cabin"), 0.5, accuracy: 1e-9)
+        XCTAssertEqual(params.number("sonar"), 0.6, accuracy: 1e-9)
+        XCTAssertEqual(params.number("keys.show"), 1)
+        XCTAssertEqual(params.number("keys.height"), 0.12, accuracy: 1e-9)
+        let depth = try XCTUnwrap(SubmarineWindowModel.parameters.first { $0.id == "depth" })
+        XCTAssertTrue(depth.hero)
+        XCTAssertEqual(depth.name, "Depth")
+        XCTAssertEqual(SubmarineWindowModel.parameters.filter(\.hero).map(\.id), ["depth"])
+        XCTAssertEqual(SubmarineWindowModel.parameters.first { $0.id == "lamps" }?.name, "Outside lamps")
+        XCTAssertEqual(SubmarineWindowModel.parameters.first { $0.id == "cabin" }?.name, "Cabin light")
+        XCTAssertEqual(SubmarineWindowModel.parameters.first { $0.id == "sonar" }?.name, "Sonar screen")
+        XCTAssertEqual(Mood.deepHush, Mood(energy: 0.3, warmth: 0.3, brightness: 0.15, space: 0.9, motion: 0.45))
+        let others: [Mood] = [.serene, .dreamy, .warmHaze, .restless, .hushedWarm, .softWaking, .secretGlow, .delicate,
+                              .orderedCalm, .electricAwe]
+        XCTAssertFalse(others.contains(.deepHush), "a mood of its own")
+
+        // A frame at the default depth: 65 m, nothing played yet, the marine snow by quality, the console's keys.
+        var model = SubmarineWindowModel()
+        model.mood = .deepHush
+        model.setSky(subSky(sun: 30, hour: 11))
+        let f = subStep(&model, seconds: 0.5)
+        XCTAssertEqual(f.depth, 0.35, accuracy: 1e-6)
+        XCTAssertEqual(f.depthMetres, 65.2, accuracy: 0.1)
+        XCTAssertEqual(f.keys.count, 88)
+        XCTAssertNil(f.warp)
+        XCTAssertTrue(f.creatures.isEmpty && f.shoals.isEmpty && f.siphonophores.isEmpty && f.bubbleStreams.isEmpty)
+        XCTAssertTrue(f.sonarBlips.isEmpty)
+        XCTAssertEqual(f.mood, .deepHush)
+        XCTAssertEqual(f.lamps, 0.35, accuracy: 1e-6)
+        XCTAssertEqual(f.cabinLight, 0.5, accuracy: 1e-6)
+        XCTAssertEqual(f.sonarScreen, 0.6, accuracy: 1e-6)
+        XCTAssertEqual(f.time, 0.5, accuracy: 1e-9)
+        XCTAssertEqual(f.snow.live.count, MarineSnow.count(.high))
+        XCTAssertEqual(subStep(&model, seconds: 1.0 / 30, quality: .lite).snow.live.count, 150, "Smooth")
+        XCTAssertEqual(subStep(&model, seconds: 1.0 / 30, quality: .ultra).snow.live.count, 400)
+        XCTAssertTrue(f.snow.live.allSatisfy { (0...1).contains($0.brightness) })
+        let lamps = ThemeState(values: ["lamps": .number(0.9), "cabin": .number(0.2), "sonar": .number(1)])
+        let lit = subStep(&model, seconds: 1.0 / 30, state: lamps)
+        XCTAssertEqual([lit.lamps, lit.cabinLight, lit.sonarScreen], [0.9, 0.2, 1])
+
+        // A note releases a creature and leaves a blip; the console button lights.
+        model.handle(.noteOn(note: 60, velocity: 0.8))
+        let played = subStep(&model, seconds: 1.0 / 30)
+        XCTAssertEqual(played.creatures.count, 1)
+        XCTAssertEqual(played.creatures.first?.kind, .combJelly)
+        XCTAssertEqual(played.sonarBlips.count, 1)
+        XCTAssertTrue(played.keys.contains { $0.key.note == 60 && $0.pressed })
+        // Galaxy Warp streaks through the porthole instead; switching lets the held note go.
+        model.handle(.noteOn(note: 67, velocity: 0.8))
+        let warped = subStep(&model, seconds: 0.5, state: ThemeState(values: ["visual": .choice("Galaxy Warp")]))
+        XCTAssertNotNil(warped.warp)
+        XCTAssertTrue(warped.creatures.isEmpty, "Galaxy Warp replaces the creatures")
+        XCTAssertEqual(warped.sonarBlips.count, 2, "the sonar screen is the cabin's, whatever the visual")
+        // Through the director: a world under the Living Sky.
+        let director = SceneDirector(themeID: SubmarineWindowModel.id, state: ThemeState(), reaction: ReactionPresets.expressivePianist)
+        var s = SkySettings(); s.timeMode = .frozen; s.frozenHour = 13; s.cityID = "melbourne"; s.weatherMode = .pick; s.weather = .clear
+        director.sky.reset(settings: s)
+        let viaDirector = try XCTUnwrap(director.step(dt: 1.0 / 30, t: 0, quality: .high) as? SubFrame)
+        XCTAssertGreaterThan(viaDirector.sky.sun.altitude, 0)
+        XCTAssertEqual(viaDirector.ambience.level(.sonar), 0.5, accuracy: 1e-9)
+    }
+
+    /// The Depth dial is logarithmic (spec §8.1): 15 m at 0, the twilight zone's 200 m at 0.62, 1,000 m at 1; the
+    /// default 0.35 is about 65 m, half way the geometric mean (122 m), and each tenth of the dial a like factor (×1.52).
+    func testDepthMapsLogarithmically() {
+        XCTAssertEqual(SubmarineWindowModel.depthMetres(dial: 0), 15, accuracy: 1e-3)
+        XCTAssertEqual(SubmarineWindowModel.depthMetres(dial: 0.62), 200, accuracy: 5)
+        XCTAssertEqual(SubmarineWindowModel.depthMetres(dial: 1), 1000, accuracy: 0.05)
+        XCTAssertEqual(SubmarineWindowModel.depthMetres(dial: 0.35), 65, accuracy: 1, "the default: about 65 m")
+        XCTAssertEqual(SubmarineWindowModel.depthMetres(dial: 0.5), Float((15.0 * 1000).squareRoot()), accuracy: 0.05)
+        let tenths = (0...10).map { SubmarineWindowModel.depthMetres(dial: Double($0) / 10) }
+        let ratios = zip(tenths, tenths.dropFirst()).map { $1 / $0 }
+        for r in ratios { XCTAssertEqual(r, 1.5219, accuracy: 1e-3) }
+        XCTAssertEqual(subDial(metres: 200), 0.62, accuracy: 0.005, "the twilight zone starts at 0.62")
+        XCTAssertEqual(subDial(metres: 40), 0.2335, accuracy: 0.001)
+        // Out of range and odd dials stay inside.
+        XCTAssertEqual(SubmarineWindowModel.depthMetres(dial: -1), 15, accuracy: 1e-3)
+        XCTAssertEqual(SubmarineWindowModel.depthMetres(dial: 7), 1000, accuracy: 0.05)
+        XCTAssertEqual(SubmarineWindowModel.depthMetres(dial: .nan), SubmarineWindowModel.depthMetres(dial: 0.35))
+        // The frame carries both the dial (for the gauge) and the metres.
+        let f = subFrame(depth: 0.62, sky: subSky(sun: 30, hour: 11))
+        XCTAssertEqual(f.depth, 0.62, accuracy: 1e-6)
+        XCTAssertEqual(f.depthMetres, 200, accuracy: 5)
+        XCTAssertEqual(subFrame(depth: 1, sky: subSky(sun: 30, hour: 11)).depthMetres, 1000, accuracy: 0.05)
+    }
+
+    /// The sky drives the light (spec §8.1): day, dusk dimming, a full moon's faint light, a moonless night's dark, cloud;
+    /// and it falls with depth through the clear ocean (the Underwater Kit's Beer–Lambert bands, averaged): about a third
+    /// at 15 m by day, a twentieth at the default 65 m, 1.7% at 100 m, a dim glow at 200 m and nothing at 1,000 m.
+    func testLightFallsWithDepthAndNight() {
+        let noon = subSky(sun: 60, hour: 12), dusk = subSky(sun: -4, hour: 19), night = subSky(sun: -30, hour: 23)
+        let moonlit = subSky(sun: -30, hour: 23, moon: 60, moonLit: 1)
+        func surface(_ s: SkyState) -> Float {
+            let l = SubmarineWindowModel.surfaceLight(s)
+            return (l.x + l.y + l.z) / 3
+        }
+        XCTAssertEqual(surface(noon), 0.92, accuracy: 0.02, "a high sun: nearly the kit's noon")
+        XCTAssertGreaterThan(surface(noon), 4 * surface(dusk), "dusk dims it")
+        XCTAssertGreaterThan(surface(dusk), 3 * surface(moonlit))
+        XCTAssertGreaterThan(surface(moonlit), 5 * surface(night), "a full moon high up lights the shallows")
+        XCTAssertLessThan(surface(night), 0.005, "a moonless night: nearly dark")
+        var overcast = noon
+        overcast.cloudCover = 1
+        XCTAssertLessThan(surface(overcast), 0.45 * surface(noon), "cloud dims it")
+        let low = SubmarineWindowModel.surfaceLight(subSky(sun: 3, hour: 7))
+        XCTAssertGreaterThan(low.x, 1.2 * low.z, "a low sun's light is warmer")
+
+        let white = SIMD3<Float>(repeating: 1)
+        XCTAssertEqual(SubmarineWindowModel.lightFromAbove(white, metres: 0), 1, accuracy: 1e-6)
+        XCTAssertEqual(SubmarineWindowModel.lightFromAbove(white, metres: 100), 0.0169, accuracy: 0.0005, "about 1% at 100 m")
+        let dials: [Double] = [0, 0.2, 0.35, 0.62, 0.8, 1]
+        var bySky: [[Float]] = []
+        for sky in [noon, dusk, moonlit, night] {
+            let frames = dials.map { subFrame(depth: $0, sky: sky) }
+            let light = frames.map(\.lightFromAbove)
+            for (a, b) in zip(light, light.dropFirst()) { XCTAssertGreaterThan(a, b, "deeper, darker") }
+            XCTAssertLessThan(light[5], 1e-9, "the midnight zone: no light from above at all")
+            for f in frames { XCTAssertEqual(f.surfaceLight, SubmarineWindowModel.surfaceLight(f.sky)) }
+            bySky.append(light)
+        }
+        for i in dials.indices {
+            XCTAssertGreaterThan(bySky[0][i], bySky[1][i], "noon over dusk at \(dials[i])")
+            XCTAssertGreaterThan(bySky[1][i], bySky[2][i], "dusk over moonlight at \(dials[i])")
+            XCTAssertGreaterThan(bySky[2][i], bySky[3][i], "moonlight over a moonless night at \(dials[i])")
+        }
+        XCTAssertEqual(bySky[0][0], 0.30, accuracy: 0.02, "15 m by day")
+        XCTAssertEqual(bySky[0][2], 0.045, accuracy: 0.005, "the default 65 m")
+        XCTAssertEqual(bySky[0][3], 0.00068, accuracy: 0.0001, "200 m: a dim glow")
+    }
+
+    /// Snell's window shows only in the shallows (spec §8.1, §7.3): whole down to 20 m, half at 30 m, gone by 40 m. So
+    /// does the surface's weather: a storm churning it, rain pocking it, sea smoke turning it milky. There is never frost
+    /// (or rime) under water, and no aurora; the sky's own meteors pass through untouched.
+    func testSnellWindowOnlyShallow() {
+        XCTAssertEqual(SubmarineWindowModel.shallow(metres: 15), 1)
+        XCTAssertEqual(SubmarineWindowModel.shallow(metres: 20), 1)
+        XCTAssertEqual(SubmarineWindowModel.shallow(metres: 30), 0.5, accuracy: 1e-6)
+        XCTAssertEqual(SubmarineWindowModel.shallow(metres: 40), 0)
+        XCTAssertEqual(SubmarineWindowModel.shallow(metres: 65), 0)
+        XCTAssertEqual(SubmarineWindowModel.shallow(metres: .nan), 0)
+        let day = subSky(sun: 40, hour: 13)
+        XCTAssertEqual(subFrame(depth: 0, sky: day).snellVisible, 1, "at 15 m: the whole sky in a bright circle")
+        XCTAssertEqual(subFrame(depth: subDial(metres: 30), sky: day).snellVisible, 0.5, accuracy: 1e-3)
+        XCTAssertEqual(subFrame(depth: subDial(metres: 40), sky: day).snellVisible, 0, accuracy: 1e-4, "gone by 40 m")
+        for d in [0.35, 0.62, 1.0] { XCTAssertEqual(subFrame(depth: d, sky: day).snellVisible, 0, "\(d)") }
+        let fading = [0.0, 0.1, 0.15, 0.2, subDial(metres: 40)].map { subFrame(depth: $0, sky: day).snellVisible }
+        XCTAssertEqual(fading, fading.sorted(by: >), "it fades as the submarine dives")
+
+        // The surface's weather, only in the shallows.
+        var storm = subSky(sun: 20, hour: 15)
+        storm.weather = .storm; storm.nextWeather = .storm; storm.rain = 1; storm.wind = 0.9; storm.gust = 0.6
+        let shallowStorm = subFrame(depth: 0, sky: storm), deepStorm = subFrame(depth: 0.35, sky: storm)
+        XCTAssertEqual(shallowStorm.surfaceWaves, 1, accuracy: 1e-5, "a storm churns it")
+        XCTAssertEqual(shallowStorm.rainOnSurface, 1, accuracy: 1e-6, "rain pocks it")
+        XCTAssertEqual([deepStorm.surfaceWaves, deepStorm.rainOnSurface, deepStorm.milky], [0, 0, 0], "not at 65 m")
+        let calm = subFrame(depth: 0, sky: subSky(sun: 20, hour: 15))
+        XCTAssertEqual(calm.surfaceWaves, 0.25, accuracy: 1e-5, "a calm sea's gentle swell")
+        XCTAssertEqual(calm.rainOnSurface, 0)
+        var smoke = subSky(sun: 2, hour: 7)
+        smoke.weather = .seaSmoke; smoke.nextWeather = .seaSmoke; smoke.steam = 1; smoke.mist = 0.35; smoke.frost = 0.9
+        let milky = subFrame(depth: 0, sky: smoke)
+        XCTAssertEqual(milky.milky, 1, accuracy: 1e-6, "sea smoke turns the window milky")
+        XCTAssertLessThan(milky.surfaceWaves, 0.15, "in its still air")
+        XCTAssertEqual(subFrame(depth: 0.35, sky: smoke).milky, 0)
+
+        // No frost or rime under water, nothing wet, no fireflies and no aurora; the meteors are the sky's own.
+        var cold = smoke
+        cold.frost = 1; cold.rime = 1; cold.wetness = 0.8; cold.fireflies = 0.5; cold.aurora = 0.8; cold.auroraStorm = 0.5
+        let meteor = Meteor(start: SIMD3<Float>(0.1, 0.5, 0.86), end: SIMD3<Float>(0.3, 0.4, 0.87), born: 0, duration: 1,
+                            magnitude: -1)
+        cold.meteors = [meteor]
+        let under = subFrame(depth: 0, sky: cold).sky
+        XCTAssertEqual([under.frost, under.rime, under.wetness, under.fireflies, under.aurora, under.auroraStorm], [0, 0, 0, 0, 0, 0])
+        XCTAssertEqual(under.meteors, [meteor], "Snell's window shows the sky's own meteors")
+        XCTAssertEqual(under.steam, 1)
+        XCTAssertEqual(under.sun, cold.sun)
+        XCTAssertEqual(SubmarineWindowModel.underwater(day), day, "a plain day's sky passes as it is")
+    }
+
+    /// Ship's time (spec §8.1): the cabin keeps the Living Sky's, a dim, cool white by day and red night lighting at night
+    /// (0 with the sun above 2° below the horizon … 1 from 8° below), at any depth; held at deep night, red too.
+    func testCabinTurnsRedAtNight() throws {
+        XCTAssertEqual(subFrame(depth: 0.35, sky: subSky(sun: 30, hour: 11)).cabinNight, 0)
+        XCTAssertEqual(subFrame(depth: 0.35, sky: subSky(sun: -1, hour: 18)).cabinNight, 0, "dusk: still the day's light")
+        let twilight = subFrame(depth: 0.35, sky: subSky(sun: -5, hour: 19)).cabinNight
+        XCTAssertEqual(twilight, 0.5, accuracy: 1e-6, "switching over through twilight")
+        XCTAssertEqual(subFrame(depth: 0.35, sky: subSky(sun: -20, hour: 23)).cabinNight, 1)
+        for d in [0.0, 1.0] { XCTAssertEqual(subFrame(depth: d, sky: subSky(sun: -20, hour: 1)).cabinNight, 1, "\(d)") }
+        let ramp = [2.0, -2, -3, -5, -7, -8, -12].map { subFrame(depth: 0.35, sky: subSky(sun: $0, hour: 19)).cabinNight }
+        XCTAssertEqual(ramp, ramp.sorted(), "redder as the sun sinks")
+        let director = SceneDirector(themeID: SubmarineWindowModel.id,
+                                     state: ThemeState(values: ["light.hold": .choice(SkyHold.deepNight.rawValue)]),
+                                     reaction: ReactionPresets.expressivePianist)
+        var s = SkySettings(); s.timeMode = .frozen; s.frozenHour = 12; s.cityID = "melbourne"; s.weatherMode = .pick; s.weather = .clear
+        director.sky.reset(settings: s)
+        let held = try XCTUnwrap(director.step(dt: 1.0 / 30, t: 0, quality: .high) as? SubFrame)
+        XCTAssertEqual(held.cabinNight, 1, "the light held at deep night at noon: red")
+    }
+
+    /// Each note leaves a fading blip on the sonar screen (spec §8.1): at its pitch class round the 12-tick dial (C at the
+    /// top, clockwise, π/6 a semitone), further out the higher it is, as bright as its velocity; it fades over one turn of
+    /// the sweep (6 s), at most 24 show, whatever the visual; the sweep goes round once every 6 s.
+    func testSonarBlipsFollowNotes() throws {
+        XCTAssertEqual(SubmarineWindowModel.bearing(for: 60), 0, accuracy: 1e-6)
+        XCTAssertEqual(SubmarineWindowModel.bearing(for: 66), .pi, accuracy: 1e-6, "F♯ opposite C")
+        XCTAssertEqual(SubmarineWindowModel.bearing(for: 63), .pi / 2, accuracy: 1e-6)
+        XCTAssertEqual(SubmarineWindowModel.bearing(for: 48), SubmarineWindowModel.bearing(for: 72), "each octave on one bearing")
+        XCTAssertEqual(SubmarineWindowModel.range(for: 21), 0.2, accuracy: 1e-6)
+        XCTAssertEqual(SubmarineWindowModel.range(for: 108), 0.95, accuracy: 1e-6)
+        var model = SubmarineWindowModel()
+        model.setSky(subSky(sun: 20, hour: 10))
+        _ = subStep(&model, seconds: 0.1)
+        model.handle(.noteOn(note: 54, velocity: 1))
+        model.handle(.noteOn(note: 61, velocity: 0.2))
+        let f = subStep(&model, seconds: 1.0 / 30)
+        XCTAssertEqual(f.sonarBlips.count, 2)
+        let a = try XCTUnwrap(f.sonarBlips.first { $0.note == 54 }), b = try XCTUnwrap(f.sonarBlips.first { $0.note == 61 })
+        XCTAssertEqual(a.angle, .pi, accuracy: 1e-6, "F♯3 at the F♯ tick")
+        XCTAssertEqual(b.angle, 2 * .pi / 12, accuracy: 1e-6, "C♯4 one tick round")
+        XCTAssertEqual(a.strength, 1, accuracy: 1e-6)
+        XCTAssertEqual(b.strength, 0.3 + 0.7 * 0.2, accuracy: 1e-6)
+        XCTAssertLessThan(a.range, b.range, "the lower note nearer the centre")
+        XCTAssertEqual(a.age, 0, "fresh on the frame its note arrives")
+        XCTAssertEqual(a.brightness, 1, accuracy: 1e-6)
+        let later = try XCTUnwrap(subStep(&model, seconds: 3).sonarBlips.first { $0.note == 54 })
+        XCTAssertEqual(later.brightness, 0.5, accuracy: 0.02, "half faded half a turn on")
+        XCTAssertTrue(subStep(&model, seconds: 3.1).sonarBlips.isEmpty, "gone after a turn")
+
+        XCTAssertEqual(SubmarineWindowModel.sweep(at: 0), 0)
+        XCTAssertEqual(SubmarineWindowModel.sweep(at: 1.5), .pi / 2, accuracy: 1e-5)
+        XCTAssertEqual(SubmarineWindowModel.sweep(at: 7.5), .pi / 2, accuracy: 1e-5)
+        let s0 = subStep(&model, seconds: 1.0 / 30).sonarSweep
+        let s3 = subStep(&model, seconds: 3).sonarSweep
+        var turned = s3 - s0
+        if turned < 0 { turned += 2 * .pi }
+        XCTAssertEqual(turned, .pi, accuracy: 0.01, "half a turn in 3 s")
+
+        for i in 0..<40 { model.handle(.noteOn(note: UInt8(40 + i), velocity: 0.7)) }
+        let many = subStep(&model, seconds: 1.0 / 30)
+        XCTAssertEqual(many.sonarBlips.count, SubmarineWindowModel.blipCap)
+        XCTAssertEqual(many.sonarBlips.last?.note, 79, "the latest kept")
+        var warped = SubmarineWindowModel()
+        let warp = ThemeState(values: ["visual": .choice("Galaxy Warp")])
+        _ = subStep(&warped, seconds: 0.1, state: warp)
+        warped.handle(.noteOn(note: 60, velocity: 0.8))
+        let w = subStep(&warped, seconds: 1.0 / 30, state: warp)
+        XCTAssertEqual(w.sonarBlips.count, 1, "under Galaxy Warp too")
+        XCTAssertNotNil(w.warp)
+    }
+
+    /// The submarine's soundscape (spec §5, §8.1): its machinery, the sonar (in your key), a bed of bubbles and the hull
+    /// settling, creaking more the deeper it dives; a humpback all year, strongest at mid-depth; a reef's shrimp and the
+    /// rain's hiss (rain on the water above, muffled by the hull) only in the shallows; all through the hull (indoors 0.85,
+    /// and sea smoke above is no hush below), closeness base 0.7; never the air's sounds, nor thunder.
+    func testSubAmbience() {
+        func scene(_ depth: Double, _ sky: SkyState, mood: Mood = .neutral) -> AmbienceScene {
+            subFrame(depth: depth, sky: sky, mood: mood).ambience
+        }
+        let day = subSky(sun: 30, hour: 11)
+        let a = scene(0.35, day, mood: .deepHush)
+        XCTAssertEqual(a.level(.shipHum), 0.35, accuracy: 1e-9)
+        XCTAssertEqual(a.level(.airFlow), 0.3, accuracy: 1e-9)
+        XCTAssertEqual(a.level(.hullTicks), 0.15, accuracy: 1e-9)
+        XCTAssertEqual(a.level(.sonar), 0.5, accuracy: 1e-9)
+        XCTAssertEqual(a.level(.bubbles), 0.15, accuracy: 1e-9, "a low bed, so a burst can sound")
+        XCTAssertEqual(a.level(.hullCreak), 0.25 + 0.35 * 0.35, accuracy: 1e-6)
+        XCTAssertEqual(a.level(.whaleSong), 0.2 + 0.15 * 0.7, accuracy: 1e-6)
+        XCTAssertEqual(a.indoors, 0.85, accuracy: 1e-9)
+        XCTAssertEqual(a.closeness, MoodLook.ambienceCloseness(base: 0.7, .deepHush), accuracy: 1e-9)
+        XCTAssertEqual(a.density, MoodLook.ambienceDensity(.deepHush), accuracy: 1e-9)
+        XCTAssertNil(a.thunder)
+        XCTAssertNil(a.bubbleBurst)
+        XCTAssertNil(a.key, "the canvas hands every scene the key, for the sonar")
+
+        // Creaks rise with depth.
+        let creaks = [0.0, 0.35, 0.62, 1].map { scene($0, day).level(.hullCreak) }
+        for (x, y) in zip(creaks, creaks.dropFirst()) { XCTAssertLessThan(x, y) }
+        XCTAssertEqual(creaks[0], 0.25, accuracy: 1e-9)
+        XCTAssertEqual(creaks[3], 0.6, accuracy: 1e-9)
+        // Whales: all year, strongest at mid-depth.
+        let whales = [0.0, 0.25, 0.5, 0.75, 1].map { scene($0, day).level(.whaleSong) }
+        XCTAssertEqual(whales[2], 0.35, accuracy: 1e-9)
+        XCTAssertEqual(whales[0], 0.2, accuracy: 1e-9)
+        XCTAssertEqual(whales[4], 0.2, accuracy: 1e-9)
+        XCTAssertLessThan(whales[1], whales[2])
+        XCTAssertLessThan(whales[3], whales[2])
+        var winter = day, summer = day
+        winter.dayOfYear = 15
+        summer.dayOfYear = 200
+        XCTAssertEqual(scene(0.5, winter).level(.whaleSong), scene(0.5, summer).level(.whaleSong), "all year")
+        XCTAssertGreaterThan(scene(0.5, winter).level(.whaleSong), 0)
+        // A reef's shrimp and the rain's hiss, only in the shallows.
+        var rain = subSky(sun: 20, hour: 15)
+        rain.rain = 0.8; rain.weather = .rain; rain.nextWeather = .rain
+        let top = scene(0, rain)
+        XCTAssertEqual(top.level(.snappingShrimp), 0.3, accuracy: 1e-9)
+        XCTAssertEqual(top.level(.rainOnWater), 0.8 * 0.5, accuracy: 1e-6, "rain on the water above, a soft hiss")
+        XCTAssertEqual(top.level(.rainOnGlass), 0, "not rain on glass")
+        let thirty = scene(subDial(metres: 30), rain)
+        XCTAssertGreaterThan(thirty.level(.snappingShrimp), 0)
+        XCTAssertLessThan(thirty.level(.snappingShrimp), top.level(.snappingShrimp))
+        XCTAssertGreaterThan(thirty.level(.rainOnWater), 0)
+        for d in [subDial(metres: 40), 0.35, 0.62, 1] {
+            let s = scene(d, rain)
+            XCTAssertEqual(s.level(.snappingShrimp), 0, accuracy: 1e-9, "no shrimp at dial \(d)")
+            XCTAssertEqual(s.level(.rainOnWater), 0, accuracy: 1e-9, "no hiss at dial \(d)")
+        }
+        XCTAssertEqual(scene(0, day).level(.rainOnWater), 0, "no rain, no hiss")
+        // Sea smoke above is no hush below; the air's sounds never reach the submarine (a blizzard's howl, drips, birds
+        // under a rainbow, a humid night's insects), nor does thunder.
+        var smoke = subSky(sun: 2, hour: 7)
+        smoke.weather = .seaSmoke; smoke.nextWeather = .seaSmoke; smoke.steam = 1
+        XCTAssertEqual(scene(0, smoke).indoors, 0.85, accuracy: 1e-9)
+        var wild = subSky(sun: 10, hour: 17)
+        wild.weather = .storm; wild.nextWeather = .storm
+        wild.snow = 1; wild.gust = 1; wild.wind = 1; wild.wetness = 0.8; wild.rainbow = 1; wild.fireflies = 0.9; wild.lightning = 1
+        var model = SubmarineWindowModel()
+        model.setSky(wild)
+        for _ in 0..<3 {
+            let s = subStep(&model, seconds: 1.0 / 30, state: ThemeState(values: ["depth": .number(0)])).ambience
+            for source in [AmbienceSource.wind, .drips, .dawnChorus, .crickets, .breeze, .rainOnGlass] {
+                XCTAssertEqual(s.level(source), 0, "\(source)")
+            }
+            XCTAssertNil(s.thunder)
+            XCTAssertTrue(Set(s.levels.keys).isSubset(of: SubmarineWindowModel.heardAboard))
+            XCTAssertTrue(s.levels.values.allSatisfy { $0 >= 0 && $0 <= 1 })
+        }
+    }
+}
