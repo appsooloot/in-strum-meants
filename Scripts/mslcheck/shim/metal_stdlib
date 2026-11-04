@@ -1,0 +1,294 @@
+// A small Metal Shading Language shim so clang can type-check the app's MSL as C++ (no Metal compiler on Linux).
+// Vectors are clang ext_vector_types (swizzles .xyzw/.rgba work), address spaces are real clang address spaces
+// (so passing a `constant` reference where a plain one is expected is an error, as in Metal), and the standard
+// library functions are overloaded for float and float2/3/4. It errs on the side of accepting code.
+#pragma once
+
+// Address spaces are dropped: Metal lets a struct be copied out of constant memory, which clang's address
+// spaces would refuse, so modelling them gave false errors.
+#define device
+#define constant
+#define threadgroup
+#define thread
+#define vertex
+#define fragment
+#define kernel
+
+namespace metal {
+
+typedef unsigned int uint;
+typedef unsigned short ushort;
+typedef unsigned char uchar;
+typedef float half;
+
+typedef float float2 __attribute__((ext_vector_type(2)));
+typedef float float3 __attribute__((ext_vector_type(3)));
+typedef float float4 __attribute__((ext_vector_type(4)));
+typedef float half2 __attribute__((ext_vector_type(2)));
+typedef float half3 __attribute__((ext_vector_type(3)));
+typedef float half4 __attribute__((ext_vector_type(4)));
+typedef int int2 __attribute__((ext_vector_type(2)));
+typedef int int3 __attribute__((ext_vector_type(3)));
+typedef int int4 __attribute__((ext_vector_type(4)));
+typedef unsigned int uint2 __attribute__((ext_vector_type(2)));
+typedef unsigned int uint3 __attribute__((ext_vector_type(3)));
+typedef unsigned int uint4 __attribute__((ext_vector_type(4)));
+typedef int bool2 __attribute__((ext_vector_type(2)));
+typedef int bool3 __attribute__((ext_vector_type(3)));
+typedef int bool4 __attribute__((ext_vector_type(4)));
+
+// ---- traits
+template <class T> struct vlen { enum { n = 0 }; };
+template <> struct vlen<float2> { enum { n = 2 }; };
+template <> struct vlen<float3> { enum { n = 3 }; };
+template <> struct vlen<float4> { enum { n = 4 }; };
+template <> struct vlen<int2> { enum { n = 2 }; };
+template <> struct vlen<int3> { enum { n = 3 }; };
+template <> struct vlen<int4> { enum { n = 4 }; };
+template <> struct vlen<uint2> { enum { n = 2 }; };
+template <> struct vlen<uint3> { enum { n = 3 }; };
+template <> struct vlen<uint4> { enum { n = 4 }; };
+template <bool B, class T = void> struct en_if {};
+template <class T> struct en_if<true, T> { typedef T type; };
+
+// ---- constructors (reached through the function-like macros below, so `float3 x` stays a type)
+constexpr float2 mk_f2(float a) { return float2{a, a}; }
+constexpr float2 mk_f2(float a, float b) { return float2{a, b}; }
+template <class V, class = typename en_if<vlen<V>::n == 2>::type> constexpr float2 mk_f2(V v) { return __builtin_convertvector(v, float2); }
+template <class V, class = typename en_if<(vlen<V>::n > 2)>::type, class = void> constexpr float2 mk_f2(V v) { return float2{(float)v.x, (float)v.y}; }
+
+constexpr float3 mk_f3(float a) { return float3{a, a, a}; }
+constexpr float3 mk_f3(float a, float b, float c) { return float3{a, b, c}; }
+constexpr float3 mk_f3(float2 a, float b) { return float3{a.x, a.y, b}; }
+constexpr float3 mk_f3(float a, float2 b) { return float3{a, b.x, b.y}; }
+template <class V, class = typename en_if<vlen<V>::n == 3>::type> constexpr float3 mk_f3(V v) { return __builtin_convertvector(v, float3); }
+
+constexpr float4 mk_f4(float a) { return float4{a, a, a, a}; }
+constexpr float4 mk_f4(float a, float b, float c, float d) { return float4{a, b, c, d}; }
+constexpr float4 mk_f4(float3 a, float b) { return float4{a.x, a.y, a.z, b}; }
+constexpr float4 mk_f4(float a, float3 b) { return float4{a, b.x, b.y, b.z}; }
+constexpr float4 mk_f4(float2 a, float2 b) { return float4{a.x, a.y, b.x, b.y}; }
+constexpr float4 mk_f4(float2 a, float b, float c) { return float4{a.x, a.y, b, c}; }
+constexpr float4 mk_f4(float a, float b, float2 c) { return float4{a, b, c.x, c.y}; }
+constexpr float4 mk_f4(float a, float2 b, float c) { return float4{a, b.x, b.y, c}; }
+template <class V, class = typename en_if<vlen<V>::n == 4>::type> constexpr float4 mk_f4(V v) { return __builtin_convertvector(v, float4); }
+
+constexpr int2 mk_i2(int a) { return int2{a, a}; }
+constexpr int2 mk_i2(int a, int b) { return int2{a, b}; }
+template <class V, class = typename en_if<vlen<V>::n == 2>::type> constexpr int2 mk_i2(V v) { return __builtin_convertvector(v, int2); }
+constexpr int3 mk_i3(int a) { return int3{a, a, a}; }
+constexpr int3 mk_i3(int a, int b, int c) { return int3{a, b, c}; }
+template <class V, class = typename en_if<vlen<V>::n == 3>::type> constexpr int3 mk_i3(V v) { return __builtin_convertvector(v, int3); }
+constexpr int4 mk_i4(int a) { return int4{a, a, a, a}; }
+constexpr int4 mk_i4(int a, int b, int c, int d) { return int4{a, b, c, d}; }
+template <class V, class = typename en_if<vlen<V>::n == 4>::type> constexpr int4 mk_i4(V v) { return __builtin_convertvector(v, int4); }
+constexpr uint2 mk_u2(uint a) { return uint2{a, a}; }
+constexpr uint2 mk_u2(uint a, uint b) { return uint2{a, b}; }
+template <class V, class = typename en_if<vlen<V>::n == 2>::type> constexpr uint2 mk_u2(V v) { return __builtin_convertvector(v, uint2); }
+constexpr uint3 mk_u3(uint a) { return uint3{a, a, a}; }
+constexpr uint3 mk_u3(uint a, uint b, uint c) { return uint3{a, b, c}; }
+constexpr uint4 mk_u4(uint a, uint b, uint c, uint d) { return uint4{a, b, c, d}; }
+
+// ---- matrices (column-major, as in Metal)
+struct float2x2 {
+    float2 c[2];
+    float2x2() : c{float2{0, 0}, float2{0, 0}} {}
+    explicit float2x2(float d) : c{float2{d, 0}, float2{0, d}} {}
+    float2x2(float2 a, float2 b) : c{a, b} {}
+    float2x2(float a, float b, float d, float e) : c{float2{a, b}, float2{d, e}} {}
+    float2 &operator[](int i) { return c[i]; }
+    float2 operator[](int i) const { return c[i]; }
+};
+struct float3x3 {
+    float3 c[3];
+    float3x3() : c{float3{0, 0, 0}, float3{0, 0, 0}, float3{0, 0, 0}} {}
+    explicit float3x3(float d) : c{float3{d, 0, 0}, float3{0, d, 0}, float3{0, 0, d}} {}
+    float3x3(float3 a, float3 b, float3 d) : c{a, b, d} {}
+    float3 &operator[](int i) { return c[i]; }
+    float3 operator[](int i) const { return c[i]; }
+};
+struct float4x4 {
+    float4 c[4];
+    float4x4() : c{float4{0, 0, 0, 0}, float4{0, 0, 0, 0}, float4{0, 0, 0, 0}, float4{0, 0, 0, 0}} {}
+    float4x4(float4 a, float4 b, float4 d, float4 e) : c{a, b, d, e} {}
+    float4 &operator[](int i) { return c[i]; }
+    float4 operator[](int i) const { return c[i]; }
+};
+inline float2 operator*(const float2x2 &m, float2 v) { return m.c[0] * v.x + m.c[1] * v.y; }
+inline float3 operator*(const float3x3 &m, float3 v) { return m.c[0] * v.x + m.c[1] * v.y + m.c[2] * v.z; }
+inline float4 operator*(const float4x4 &m, float4 v) { return m.c[0] * v.x + m.c[1] * v.y + m.c[2] * v.z + m.c[3] * v.w; }
+inline float2 operator*(float2 v, const float2x2 &m) { return float2{v.x * m.c[0].x + v.y * m.c[0].y, v.x * m.c[1].x + v.y * m.c[1].y}; }
+inline float3 isd_dot3(float3 a, float3 b) { return a.x * b.x + a.y * b.y + a.z * b.z; }
+inline float3 operator*(float3 v, const float3x3 &m) { return float3{isd_dot3(v, m.c[0]).x, isd_dot3(v, m.c[1]).x, isd_dot3(v, m.c[2]).x}; }
+inline float2x2 operator*(const float2x2 &a, const float2x2 &b) { return float2x2(a * b.c[0], a * b.c[1]); }
+inline float3x3 operator*(const float3x3 &a, const float3x3 &b) { return float3x3(a * b.c[0], a * b.c[1], a * b.c[2]); }
+inline float3x3 transpose(const float3x3 &m) {
+    return float3x3(float3{m.c[0].x, m.c[1].x, m.c[2].x}, float3{m.c[0].y, m.c[1].y, m.c[2].y}, float3{m.c[0].z, m.c[1].z, m.c[2].z});
+}
+
+// ---- element-wise maths
+#define ISD_UN(NAME, IMPL)                                                                                     \
+    inline float NAME(float x) { return IMPL(x); }                                                             \
+    inline float2 NAME(float2 v) { return float2{IMPL(v.x), IMPL(v.y)}; }                                      \
+    inline float3 NAME(float3 v) { return float3{IMPL(v.x), IMPL(v.y), IMPL(v.z)}; }                           \
+    inline float4 NAME(float4 v) { return float4{IMPL(v.x), IMPL(v.y), IMPL(v.z), IMPL(v.w)}; }
+#define ISD_BIN(NAME, IMPL)                                                                                    \
+    inline float NAME(float a, float b) { return IMPL(a, b); }                                                 \
+    inline float2 NAME(float2 a, float2 b) { return float2{IMPL(a.x, b.x), IMPL(a.y, b.y)}; }                  \
+    inline float3 NAME(float3 a, float3 b) { return float3{IMPL(a.x, b.x), IMPL(a.y, b.y), IMPL(a.z, b.z)}; }   \
+    inline float4 NAME(float4 a, float4 b) { return float4{IMPL(a.x, b.x), IMPL(a.y, b.y), IMPL(a.z, b.z), IMPL(a.w, b.w)}; } \
+    inline float2 NAME(float2 a, float b) { return NAME(a, float2{b, b}); }                                    \
+    inline float3 NAME(float3 a, float b) { return NAME(a, float3{b, b, b}); }                                 \
+    inline float4 NAME(float4 a, float b) { return NAME(a, float4{b, b, b, b}); }
+
+inline float isd_fract(float x) { return x - __builtin_floorf(x); }
+inline float isd_sat(float x) { return x < 0 ? 0.f : (x > 1 ? 1.f : x); }
+inline float isd_sign(float x) { return x > 0 ? 1.f : (x < 0 ? -1.f : 0.f); }
+inline float isd_rsqrt(float x) { return 1.f / __builtin_sqrtf(x); }
+ISD_UN(abs, __builtin_fabsf) ISD_UN(fabs, __builtin_fabsf) ISD_UN(floor, __builtin_floorf) ISD_UN(ceil, __builtin_ceilf)
+ISD_UN(round, __builtin_roundf) ISD_UN(rint, __builtin_rintf) ISD_UN(trunc, __builtin_truncf) ISD_UN(fract, isd_fract)
+ISD_UN(sqrt, __builtin_sqrtf) ISD_UN(rsqrt, isd_rsqrt) ISD_UN(exp, __builtin_expf) ISD_UN(exp2, __builtin_exp2f)
+ISD_UN(log, __builtin_logf) ISD_UN(log2, __builtin_log2f) ISD_UN(log10, __builtin_log10f) ISD_UN(sin, __builtin_sinf)
+ISD_UN(cos, __builtin_cosf) ISD_UN(tan, __builtin_tanf) ISD_UN(asin, __builtin_asinf) ISD_UN(acos, __builtin_acosf)
+ISD_UN(atan, __builtin_atanf) ISD_UN(sinh, __builtin_sinhf) ISD_UN(cosh, __builtin_coshf) ISD_UN(tanh, __builtin_tanhf)
+ISD_UN(saturate, isd_sat) ISD_UN(sign, isd_sign) ISD_UN(exp10, __builtin_exp10f)
+ISD_BIN(pow, __builtin_powf) ISD_BIN(powr, __builtin_powf) ISD_BIN(atan2, __builtin_atan2f) ISD_BIN(fmod, __builtin_fmodf)
+ISD_BIN(fmin, __builtin_fminf) ISD_BIN(fmax, __builtin_fmaxf) ISD_BIN(min, __builtin_fminf) ISD_BIN(max, __builtin_fmaxf)
+ISD_BIN(copysign, __builtin_copysignf)
+inline int min(int a, int b) { return a < b ? a : b; }
+inline int max(int a, int b) { return a > b ? a : b; }
+inline uint min(uint a, uint b) { return a < b ? a : b; }
+inline uint max(uint a, uint b) { return a > b ? a : b; }
+inline int abs(int a) { return a < 0 ? -a : a; }
+inline int clamp(int x, int a, int b) { return min(max(x, a), b); }
+inline uint clamp(uint x, uint a, uint b) { return min(max(x, a), b); }
+
+template <class T> inline T clamp(T x, T a, T b) { return min(max(x, a), b); }
+inline float2 clamp(float2 x, float a, float b) { return min(max(x, a), b); }
+inline float3 clamp(float3 x, float a, float b) { return min(max(x, a), b); }
+inline float4 clamp(float4 x, float a, float b) { return min(max(x, a), b); }
+inline float clamp(float x, float a, float b) { return min(max(x, a), b); }
+
+inline float mix(float a, float b, float t) { return a + (b - a) * t; }
+inline float2 mix(float2 a, float2 b, float t) { return a + (b - a) * t; }
+inline float3 mix(float3 a, float3 b, float t) { return a + (b - a) * t; }
+inline float4 mix(float4 a, float4 b, float t) { return a + (b - a) * t; }
+inline float2 mix(float2 a, float2 b, float2 t) { return a + (b - a) * t; }
+inline float3 mix(float3 a, float3 b, float3 t) { return a + (b - a) * t; }
+inline float4 mix(float4 a, float4 b, float4 t) { return a + (b - a) * t; }
+
+inline float step(float e, float x) { return x < e ? 0.f : 1.f; }
+inline float2 step(float2 e, float2 x) { return float2{step(e.x, x.x), step(e.y, x.y)}; }
+inline float3 step(float3 e, float3 x) { return float3{step(e.x, x.x), step(e.y, x.y), step(e.z, x.z)}; }
+inline float4 step(float4 e, float4 x) { return float4{step(e.x, x.x), step(e.y, x.y), step(e.z, x.z), step(e.w, x.w)}; }
+inline float2 step(float e, float2 x) { return step(float2{e, e}, x); }
+inline float3 step(float e, float3 x) { return step(float3{e, e, e}, x); }
+inline float4 step(float e, float4 x) { return step(float4{e, e, e, e}, x); }
+
+inline float smoothstep(float a, float b, float x) { float t = isd_sat((x - a) / (b - a)); return t * t * (3.f - 2.f * t); }
+inline float2 smoothstep(float2 a, float2 b, float2 x) { return float2{smoothstep(a.x, b.x, x.x), smoothstep(a.y, b.y, x.y)}; }
+inline float3 smoothstep(float3 a, float3 b, float3 x) { return float3{smoothstep(a.x, b.x, x.x), smoothstep(a.y, b.y, x.y), smoothstep(a.z, b.z, x.z)}; }
+inline float4 smoothstep(float4 a, float4 b, float4 x) { return float4{smoothstep(a.x, b.x, x.x), smoothstep(a.y, b.y, x.y), smoothstep(a.z, b.z, x.z), smoothstep(a.w, b.w, x.w)}; }
+inline float2 smoothstep(float a, float b, float2 x) { return smoothstep(float2{a, a}, float2{b, b}, x); }
+inline float3 smoothstep(float a, float b, float3 x) { return smoothstep(float3{a, a, a}, float3{b, b, b}, x); }
+inline float4 smoothstep(float a, float b, float4 x) { return smoothstep(float4{a, a, a, a}, float4{b, b, b, b}, x); }
+
+inline float dot(float2 a, float2 b) { return a.x * b.x + a.y * b.y; }
+inline float dot(float3 a, float3 b) { return a.x * b.x + a.y * b.y + a.z * b.z; }
+inline float dot(float4 a, float4 b) { return a.x * b.x + a.y * b.y + a.z * b.z + a.w * b.w; }
+inline float length(float x) { return __builtin_fabsf(x); }
+inline float length(float2 v) { return __builtin_sqrtf(dot(v, v)); }
+inline float length(float3 v) { return __builtin_sqrtf(dot(v, v)); }
+inline float length(float4 v) { return __builtin_sqrtf(dot(v, v)); }
+inline float length_squared(float2 v) { return dot(v, v); }
+inline float length_squared(float3 v) { return dot(v, v); }
+inline float distance(float2 a, float2 b) { return length(a - b); }
+inline float distance(float3 a, float3 b) { return length(a - b); }
+inline float2 normalize(float2 v) { return v / length(v); }
+inline float3 normalize(float3 v) { return v / length(v); }
+inline float4 normalize(float4 v) { return v / length(v); }
+inline float3 cross(float3 a, float3 b) { return float3{a.y * b.z - a.z * b.y, a.z * b.x - a.x * b.z, a.x * b.y - a.y * b.x}; }
+inline float2 reflect(float2 i, float2 n) { return i - 2.f * dot(n, i) * n; }
+inline float3 reflect(float3 i, float3 n) { return i - 2.f * dot(n, i) * n; }
+inline float fma(float a, float b, float c) { return a * b + c; }
+
+template <class T> inline T select(T a, T b, bool c) { return c ? b : a; }
+inline bool any(bool b) { return b; }
+inline bool all(bool b) { return b; }
+inline bool any(int2 m) { return m.x || m.y; }
+inline bool any(int3 m) { return m.x || m.y || m.z; }
+inline bool any(int4 m) { return m.x || m.y || m.z || m.w; }
+inline bool all(int2 m) { return m.x && m.y; }
+inline bool all(int3 m) { return m.x && m.y && m.z; }
+inline bool all(int4 m) { return m.x && m.y && m.z && m.w; }
+inline bool isnan(float x) { return x != x; }
+inline bool isinf(float x) { return __builtin_isinf(x); }
+inline bool isfinite(float x) { return __builtin_isfinite(x); }
+
+template <class T> inline T dfdx(T v) { return v; }
+template <class T> inline T dfdy(T v) { return v; }
+template <class T> inline T fwidth(T v) { return v; }
+inline void discard_fragment() {}
+
+// ---- textures and samplers
+namespace filter { enum E { nearest, linear }; }
+namespace mip_filter { enum E { none, nearest, linear }; }
+namespace address { enum E { repeat, mirrored_repeat, clamp_to_edge, clamp_to_zero, clamp_to_border }; }
+namespace s_address { enum E { repeat, mirrored_repeat, clamp_to_edge, clamp_to_zero, clamp_to_border }; }
+namespace t_address { enum E { repeat, mirrored_repeat, clamp_to_edge, clamp_to_zero, clamp_to_border }; }
+namespace r_address { enum E { repeat, mirrored_repeat, clamp_to_edge, clamp_to_zero, clamp_to_border }; }
+namespace coord { enum E { normalized, pixel }; }
+namespace mag_filter { enum E { nearest, linear }; }
+namespace min_filter { enum E { nearest, linear }; }
+struct sampler {
+    template <class... A> constexpr sampler(A...) {}
+};
+struct level { float l; constexpr level(float x) : l(x) {} };
+struct bias { float b; constexpr bias(float x) : b(x) {} };
+enum class access { sample, read, write, read_write };
+template <class T, access A = access::sample> struct texture2d {
+    float4 sample(sampler, float2) const { return float4{0, 0, 0, 0}; }
+    float4 sample(sampler, float2, level) const { return float4{0, 0, 0, 0}; }
+    float4 sample(sampler, float2, bias) const { return float4{0, 0, 0, 0}; }
+    float4 sample(sampler, float2, int2) const { return float4{0, 0, 0, 0}; }
+    float4 read(uint2, uint = 0) const { return float4{0, 0, 0, 0}; }
+    float4 read(int2, uint = 0) const { return float4{0, 0, 0, 0}; }
+    void write(float4, uint2, uint = 0) const {}
+    uint get_width(uint = 0) const { return 1; }
+    uint get_height(uint = 0) const { return 1; }
+    uint get_num_mip_levels() const { return 1; }
+};
+
+} // namespace metal
+
+using metal::uint;
+
+#define float2(...) metal::mk_f2(__VA_ARGS__)
+#define float3(...) metal::mk_f3(__VA_ARGS__)
+#define float4(...) metal::mk_f4(__VA_ARGS__)
+#define half2(...) metal::mk_f2(__VA_ARGS__)
+#define half3(...) metal::mk_f3(__VA_ARGS__)
+#define half4(...) metal::mk_f4(__VA_ARGS__)
+#define int2(...) metal::mk_i2(__VA_ARGS__)
+#define int3(...) metal::mk_i3(__VA_ARGS__)
+#define int4(...) metal::mk_i4(__VA_ARGS__)
+#define uint2(...) metal::mk_u2(__VA_ARGS__)
+#define uint3(...) metal::mk_u3(__VA_ARGS__)
+#define uint4(...) metal::mk_u4(__VA_ARGS__)
+
+#define M_PI_F 3.14159265358979f
+#define M_PI_2_F 1.57079632679490f
+#define M_PI_4_F 0.78539816339745f
+#define M_1_PI_F 0.31830988618379f
+#define M_2_PI_F 0.63661977236758f
+#define M_E_F 2.71828182845905f
+#define M_SQRT2_F 1.41421356237310f
+#define M_SQRT1_2_F 0.70710678118655f
+#define M_LN2_F 0.69314718055995f
+#define M_LOG2E_F 1.44269504088896f
+#define MAXFLOAT 3.402823466e+38f
+#define FLT_MAX 3.402823466e+38f
+#define FLT_MIN 1.175494351e-38f
+#define FLT_EPSILON 1.192092896e-07f
+#define INFINITY __builtin_inff()
+#define HUGE_VALF __builtin_inff()
