@@ -53,6 +53,7 @@ final class PreviewRenderer {
         var bedroom: BedroomDawnRenderer?
         var fjord: AuroraFjordRenderer?
         var bay: BioluminescentBayRenderer?
+        var zenGarden: ZenRockGardenRenderer?
         var images: [CGImage] = []
         for t in times.sorted() {
             var current: ThemeRenderer?
@@ -114,6 +115,10 @@ final class PreviewRenderer {
                     if bay == nil { bay = BioluminescentBayRenderer(device: device) }
                     bay?.update(y, params: director.parameters, quality: quality, gentle: gentle, dt: dt, size: size)
                     current = bay
+                } else if let z = frame as? ZenGardenFrame {
+                    if zenGarden == nil { zenGarden = ZenRockGardenRenderer(device: device) }
+                    zenGarden?.update(z, params: director.parameters, quality: quality, gentle: gentle, dt: dt, size: size)
+                    current = zenGarden
                 }
                 if time + dt > t { break }
             }
@@ -133,6 +138,7 @@ final class PreviewRenderer {
         case var f as BedroomFrame: edit(&f.sky); return f
         case var f as FjordFrame: edit(&f.sky); return f
         case var f as BayFrame: edit(&f.sky); return f
+        case var f as ZenGardenFrame: edit(&f.sky); return f
         default: return frame
         }
     }
