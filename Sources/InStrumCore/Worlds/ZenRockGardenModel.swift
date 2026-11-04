@@ -350,6 +350,7 @@ extension ZenRockGardenModel {
                   kind: .choice(visuals), defaultValue: .choice("Rake Lines")),
         SkyHold.spec(default: .follow),
         AuroraMode.spec(default: .follow),
+        MeteorMode.spec(default: .follow),
         slider("ridge", "Rake depth", "Rake Lines", 0...1, 0.6, hero: true, surprise: 0.3...1,
                help: "How deep the rake cuts the gravel: the ridges' shadows in low light"),
         slider("moss", "Moss", "Garden", 0...1, 0.5, surprise: 0.2...1,

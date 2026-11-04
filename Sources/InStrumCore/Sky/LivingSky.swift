@@ -59,6 +59,25 @@ public struct SkyState: Equatable {
     /// How rimed the world is, 0…1: rime frost feathers every edge over 10–20 minutes of freezing fog, melts within
     /// minutes in sun once the fog has gone, and lingers for most of an hour in the dark.
     public var rime: Float = 0
+    /// Sea smoke rising off open water, 0…1 (spec §6.4): the weather's steam, after the world's rule (the warm rule
+    /// zeroes it). Worlds draw it from their water band; worlds without open water show only its frost haze.
+    public var steam: Float = 0
+    /// The shooting stars in the sky now (spec §6.2): at most six, heads and trains, in no particular order.
+    public var meteors: [Meteor] = []
+    /// A fireball's soft sky brightening, 0…0.08: multiply the sky by 1 + meteorFlash. Only fireballs (magnitude −4 or
+    /// brighter) set it, and it has passed the sky's own `FlashLimiter` with the lightning's rules.
+    public var meteorFlash: Float = 0
+    /// The strongest shower in the sky right now (spec §6.2), or nil: none active, or the world's meteors are "Never".
+    public var shower: ShowerNow?
+    /// Meteors expected per hour of viewing over the whole sky right now, the Advanced "Meteors" setting included: the
+    /// arrivals, of which those that would start below 5° are then dropped (about a quarter with a radiant high up).
+    public var meteorRate: Float = 0
+    /// The meteors' clock: seconds of viewing since the sky began. `Meteor.born` is on it, so `progress(at:)` and
+    /// `headBrightness(at:)` take it.
+    public var meteorTime: Double = 0
+    /// The Sun's ecliptic longitude λ⊙ on the sky's calendar (degrees, J2000; spec §6.3): it walks a day with each
+    /// quick-mode cycle and keeps today's date when frozen.
+    public var solarLongitude: Double = 0
 
     public init() {}
 }
@@ -84,6 +103,10 @@ public final class LivingSky {
     private var dawnPastel: Float = 0
     private var auroraMachine: AuroraMachine
     private var rime: Float = 0
+    /// The meteor calendar's machine, on its own stream (internal so tests can reach its tally and its
+    /// `forceMagnitude` seam), and the sky's own flash limiter for its fireballs.
+    var meteorSky: MeteorSky
+    private var meteorLimiter = FlashLimiter()
 
     public init(settings: SkySettings, seed: UInt64 = 1, homeZone: TimeZone = .current) {
         self.settings = settings
@@ -93,6 +116,7 @@ public final class LivingSky {
         rng = SeededRandom(seed: seed &+ 0x11_9E37)
         gustRng = SeededRandom(seed: seed &+ 0x6057)
         auroraMachine = AuroraMachine(seed: seed &+ 0xA0_7A)
+        meteorSky = MeteorSky(seed: seed &+ 0x3E7E_0125)
         clock.place(cityID: settings.cityID, homeZone: homeZone)
         nextGust = Double(gustRng.range(3, 8))
     }
@@ -111,11 +135,15 @@ public final class LivingSky {
         nextGust = Double(gustRng.range(3, 8))
         auroraMachine = AuroraMachine(seed: seed &+ 0xA0_7A)
         rime = 0
+        meteorSky = MeteorSky(seed: seed &+ 0x3E7E_0125)
+        meteorLimiter = FlashLimiter()
     }
 
     /// `hold` keeps the sun at a chosen altitude for worlds that hold the light; everything else keeps running.
-    /// `aurora` is the world's aurora mode for this step (a world parameter, so it never outlives the world).
-    public func step(now: Date, dt rawDt: Double, hold: SkyHold = .follow, aurora mode: AuroraMode = .follow) -> SkyState {
+    /// `aurora` and `meteors` are the world's aurora and meteor modes for this step (world parameters, so they never
+    /// outlive the world).
+    public func step(now: Date, dt rawDt: Double, hold: SkyHold = .follow, aurora mode: AuroraMode = .follow,
+                     meteors meteorMode: MeteorMode = .follow) -> SkyState {
         let dt = min(1, max(0, rawDt))
         let reading = clock.read(now: now, dt: dt, settings: settings)
         var s = SkyState()
@@ -142,6 +170,7 @@ public final class LivingSky {
         s.nextWeather = weather.transitioning ? weather.next : weather.current
         s.weatherBlend = weather.transitioning ? Float(weather.blend) : 0
         s.cloudCover = w.cloud; s.rain = w.rain; s.snow = w.snow; s.mist = w.mist; s.wind = w.wind
+        s.steam = w.steam
 
         // Gusts: one every 3–8 s while the weather is gusty (a 0.5 s rise and a 1.5 s fall).
         if w.gust > 0 {
@@ -228,6 +257,20 @@ public final class LivingSky {
         s.diamondDust = w.pillar
         s.pillar = w.pillar * (1 - SkyPalette.smoothstep(10, 12, sunAlt))
         s.constellationLines = Float(min(1, max(0, settings.constellationLines)))
+
+        // Meteors (spec §6.3): the calendar runs on the sky's own date (UT solar longitude), the sporadic meteors on
+        // the local solar hour, and every rate per second of viewing; a fireball's brightening passes the sky's own
+        // flash limiter as the exposure it causes (1 + flash), the lightning's rules.
+        let solarHour = Solar.apparentSolarHour(at: t, longitude: clock.location.longitude)
+        let m = meteorSky.step(dt: dt, date: reading.calendar, sky: s, mode: meteorMode, rate: settings.meteorRate,
+                               solarHour: solarHour)
+        s.meteors = m.meteors
+        s.shower = m.shower
+        s.meteorRate = m.perHour
+        s.meteorTime = meteorSky.time
+        s.solarLongitude = meteorSky.lambda
+        let exposure = meteorLimiter.limit(exposure: 1 + m.flash, sparkle: 0, dt: dt).exposure
+        s.meteorFlash = min(MeteorSky.maxFlash, max(0, exposure - 1))
         return s
     }
 

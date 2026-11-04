@@ -138,6 +138,7 @@ extension SnowboundCabinModel {
         ParamSpec(id: "visual", name: "Visual", group: "Visual", help: "What your playing does to the window",
                   kind: .choice(visuals), defaultValue: .choice("Frost Grow")),
         SkyHold.spec(default: .follow),
+        MeteorMode.spec(default: .follow),
         slider("frost", "Frost", "Frost Grow", 0...1, 0.6, hero: true, surprise: 0.3...1,
                help: "How far the frost creeps over the glass while you hold notes"),
         slider("fire", "Fire glow", "Cabin", 0...1, 0.7, hero: true, surprise: 0.3...1,

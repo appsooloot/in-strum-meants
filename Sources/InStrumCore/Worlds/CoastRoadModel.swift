@@ -134,7 +134,7 @@ public struct CoastRoadModel: ThemeModel, MoodAware, SkyAware {
         let wave = breaks.map { Double($0.strength) }.max()
         return AmbienceScene(levels: levels, nightCool: nightCool, activity: activity, thunder: thunder,
                              closeness: MoodLook.ambienceCloseness(base: 0.5, mood), density: MoodLook.ambienceDensity(mood),
-                             wave: wave, speed: Double(coast.speed), surfDistance: 0.9, wetness: Double(sky.wetness))
+                             wave: wave, speed: Double(coast.speed), surfDistance: 0.9, indoors: WeatherAmbience.indoorsLift(sky), wetness: Double(sky.wetness))
     }
 }
 
@@ -148,6 +148,7 @@ extension CoastRoadModel {
         ParamSpec(id: "visual", name: "Visual", group: "Visual", help: "What your playing draws on the drive",
                   kind: .choice(visuals), defaultValue: .choice("Coast Lights")),
         SkyHold.spec(default: .blueHour),
+        MeteorMode.spec(default: .follow),
         slider("lights.trails", "Light trails", "Coast Lights", 0...1, 0.6, hero: true, surprise: 0.2...1,
                help: "How long the passing lights streak"),
         slider("speed.response", "Speed response", "Coast Lights", 0...1, 0.6, hero: true, surprise: 0.2...1,

@@ -135,7 +135,7 @@ public struct GoldenHourBeachModel: ThemeModel, MoodAware, SkyAware {
         let wave = breaks.map { Double($0.strength) }.max()
         return AmbienceScene(levels: levels, nightCool: nightCool, activity: activity, thunder: thunder,
                              closeness: MoodLook.ambienceCloseness(base: 0.5, mood), density: MoodLook.ambienceDensity(mood),
-                             wave: wave, speed: 0, surfDistance: 0.15, wetness: Double(sky.wetness))
+                             wave: wave, speed: 0, surfDistance: 0.15, indoors: WeatherAmbience.indoorsLift(sky), wetness: Double(sky.wetness))
     }
 }
 
@@ -149,6 +149,7 @@ extension GoldenHourBeachModel {
         ParamSpec(id: "visual", name: "Visual", group: "Visual", help: "What your playing draws on the beach",
                   kind: .choice(visuals), defaultValue: .choice("Tide Lines")),
         SkyHold.spec(default: .goldenHour),
+        MeteorMode.spec(default: .follow),
         slider("lines.glow", "Line glow", "Tide Lines", 0...1, 0.6, hero: true, surprise: 0.2...1,
                help: "How brightly each note's line glows in the wet sand"),
         slider("lines.linger", "Lines linger", "Tide Lines", 0...1, 0.5, hero: true, surprise: 0.2...0.9,

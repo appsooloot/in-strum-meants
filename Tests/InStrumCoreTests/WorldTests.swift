@@ -1214,7 +1214,7 @@ extension WorldTests {
         XCTAssertTrue(ThemeRegistry.isWorld(TeaHouseSnowModel.id))
         assertValidParameters(TeaHouseSnowModel.parameters)
         XCTAssertEqual(TeaHouseSnowModel.parameters.map(\.id),
-                       ["visual", "light.hold", "aurora.mode", "screens", "steam", "blossom", "keys.show", "keys.height"])
+                       ["visual", "light.hold", "aurora.mode", "meteors.mode", "screens", "steam", "blossom", "keys.show", "keys.height"])
         let params = ThemeRegistry.parameterSet(for: TeaHouseSnowModel.id, state: ThemeState())
         XCTAssertEqual(TeaHouseSnowModel.visuals, ["Steam Lines", "Frost Grow"])
         XCTAssertEqual(params.choice("visual"), "Steam Lines")
@@ -1645,5 +1645,178 @@ extension WorldTests {
         var rimed = gardenSky(sun: 5, hour: 8)
         rimed.rime = 0.9
         XCTAssertEqual(scene(rimed).indoors, 0.15, accuracy: 1e-9)
+    }
+}
+
+// MARK: - Sets 11 & 12: the warm rule, sea smoke's hush, and the meteors in every night-sky world
+
+extension WorldTests {
+    /// The warm-world rule (spec §7.5): snow and flurries fall as rain, blizzards become squalls, sleet and hail rain;
+    /// frost, rime, diamond dust and its pillars, ice fog and sea smoke never happen (the sea smoke and ice fog a light
+    /// haze, and their ice's halos go); fireflies are left alone.
+    func testWarmRule() {
+        func kind(_ k: WeatherKind, _ edit: (inout SkyState) -> Void = { _ in }) -> SkyState {
+            var s = sky(sun: 20, hour: 9); s.weather = k; s.nextWeather = k
+            edit(&s)
+            return s
+        }
+        let snow = WorldWeather.warm(kind(.snow) { $0.snow = 0.8; $0.frost = 0.6; $0.halo = 0.2 })
+        XCTAssertEqual(snow.weather, .rain)
+        XCTAssertEqual(snow.rain, 0.8, accuracy: 1e-6, "snow falls as rain")
+        XCTAssertEqual([snow.snow, snow.frost], [0, 0])
+        let flurries = WorldWeather.warm(kind(.flurries) { $0.snow = 0.3 })
+        XCTAssertEqual(flurries.weather, .rain)
+        XCTAssertEqual(flurries.rain, 0.3, accuracy: 1e-6)
+        let blizzard = WorldWeather.warm(kind(.blizzard) { $0.snow = 1; $0.wind = 1; $0.gust = 1; $0.mist = 0.6; $0.frost = 0.9 })
+        XCTAssertEqual(blizzard.weather, .squall)
+        XCTAssertEqual([blizzard.rain, blizzard.snow, blizzard.frost], [1, 0, 0])
+        XCTAssertEqual([blizzard.wind, blizzard.gust], [1, 1], "a squall's wind")
+        for k in [WeatherKind.sleet, .hail] {
+            let w = WorldWeather.warm(kind(k) { $0.rain = 0.5; $0.snow = 0.4 })
+            XCTAssertEqual(w.weather, .rain, "\(k)")
+            XCTAssertEqual([w.rain, w.snow], [0.5, 0], "\(k)")
+        }
+        XCTAssertEqual(WorldWeather.warm(kind(.freezingDrizzle) { $0.rain = 0.25; $0.frost = 0.5 }).weather, .drizzle)
+        // Sea smoke and ice fog: a light haze, no steam, and the swell of any clear morning.
+        let smoke = WorldWeather.warm(kind(.seaSmoke) { $0.steam = 1; $0.mist = 0.35; $0.frost = 0.9; $0.halo = 0.3 })
+        XCTAssertEqual(smoke.steam, 0)
+        XCTAssertGreaterThanOrEqual(smoke.mist, 0.25)
+        XCTAssertEqual(smoke.mist, 0.25, accuracy: 1e-6, "a light morning haze")
+        XCTAssertEqual([smoke.frost, smoke.halo], [0, 0])
+        XCTAssertEqual(smoke.weather, .clear)
+        XCTAssertEqual(OceanSwell.weatherScale(smoke), 1, accuracy: 1e-6)
+        let iceFog = WorldWeather.warm(kind(.iceFog) { $0.mist = 0.7; $0.halo = 0.8; $0.frost = 0.8 })
+        XCTAssertEqual(iceFog.mist, 0.25, accuracy: 1e-6)
+        XCTAssertEqual([iceFog.halo, iceFog.frost], [0, 0])
+        // Rime, diamond dust, pillars and frost: none.
+        let rime = WorldWeather.warm(kind(.rime) { $0.rime = 0.8; $0.frost = 1; $0.mist = 0.85 })
+        XCTAssertEqual([rime.rime, rime.frost], [0, 0])
+        XCTAssertEqual(rime.weather, .mist, "fog that never freezes")
+        XCTAssertFalse(WeatherAmbience.inRime(rime))
+        let dust = WorldWeather.warm(kind(.diamondDust) { $0.diamondDust = 1; $0.pillar = 1; $0.frost = 0.9; $0.halo = 1 })
+        XCTAssertEqual([dust.diamondDust, dust.pillar, dust.frost, dust.halo], [0, 0, 0, 0])
+        XCTAssertEqual(dust.weather, .clear)
+        // Fireflies are left alone; a plain sky is left as it is.
+        let humid = WorldWeather.warm(kind(.humid) { $0.fireflies = 0.9; $0.mist = 0.35 })
+        XCTAssertEqual(humid.fireflies, 0.9)
+        XCTAssertEqual(humid.weather, .humid)
+        var clear = kind(.clear) { $0.mist = 0.1; $0.halo = 0.1; $0.wind = 0.1 }
+        clear.aurora = 0.4
+        XCTAssertEqual(WorldWeather.warm(clear), clear)
+        // Half way from a clear morning into sea smoke: no steam, and the haze half come.
+        var gliding = kind(.clear) { $0.nextWeather = .seaSmoke; $0.weatherBlend = 0.5; $0.steam = 0.5; $0.mist = 0.2; $0.frost = 0.45 }
+        gliding.halo = 0.15
+        let half = WorldWeather.warm(gliding)
+        XCTAssertEqual(half.steam, 0)
+        XCTAssertEqual(half.mist, 0.2 + (0.25 - 0.2) * 0.5, accuracy: 1e-6)
+        XCTAssertEqual(half.halo, 0.075, accuracy: 1e-6)
+        XCTAssertEqual(half.nextWeather, .clear)
+        for v in [half.rain, half.snow, half.mist, half.halo, half.frost] { XCTAssertTrue((0...1).contains(v)) }
+    }
+
+    /// Sea smoke hushes the outdoors (spec §5): with the steam past 0.3 the wind drops to 0.15 at most, and
+    /// `indoorsLift` muffles the outdoor sources (0.15 × min(1, steam / 0.6), or the rime's if that is more); the water
+    /// worlds and the still places take it, and a warm world (no steam) is left as it is.
+    func testSeaSmokeHushesOutdoors() {
+        var smoke = daySky(); smoke.weather = .seaSmoke; smoke.nextWeather = .seaSmoke; smoke.steam = 1
+        var levels: [AmbienceSource: Double] = [.wind: 0.6, .breeze: 0.4, .water: 0.8]
+        WeatherAmbience.levels(smoke, base: &levels)
+        XCTAssertEqual(levels[.wind] ?? -1, 0.15, accuracy: 1e-9)
+        XCTAssertEqual(levels[.breeze] ?? -1, 0.4, accuracy: 1e-9, "only the wind drops")
+        XCTAssertEqual(levels[.water] ?? -1, 0.8, accuracy: 1e-9)
+        XCTAssertTrue(WeatherAmbience.inSeaSmoke(smoke))
+        var hush: [AmbienceSource: Double] = [.water: 0.8]
+        WeatherAmbience.levels(smoke, base: &hush)
+        XCTAssertNil(hush[.wind], "and no wind is added")
+        // Thin steam (0.3 or less) leaves the wind as it is.
+        var thin = daySky(); thin.steam = 0.3
+        XCTAssertFalse(WeatherAmbience.inSeaSmoke(thin))
+        var windy: [AmbienceSource: Double] = [.wind: 0.6]
+        WeatherAmbience.levels(thin, base: &windy)
+        XCTAssertEqual(windy[.wind] ?? -1, 0.6, accuracy: 1e-9)
+        // The lift: 0.15 × min(1, steam / 0.6), the rime's if that is more (never the two added).
+        XCTAssertEqual(WeatherAmbience.indoorsLift(smoke), 0.15, accuracy: 1e-9)
+        XCTAssertEqual(WeatherAmbience.indoorsLift(thin), 0.075, accuracy: 1e-6)
+        var both = smoke; both.rime = 0.9
+        XCTAssertEqual(WeatherAmbience.indoorsLift(both), 0.15, accuracy: 1e-9)
+        var odd = daySky(); odd.steam = .nan
+        XCTAssertEqual(WeatherAmbience.indoorsLift(odd), 0)
+        XCTAssertFalse(WeatherAmbience.inSeaSmoke(odd))
+        // A blizzard's howl still comes through.
+        var howling = smoke; howling.snow = 1; howling.gust = 1
+        var howl: [AmbienceSource: Double] = [.wind: 0.6]
+        WeatherAmbience.levels(howling, base: &howl)
+        XCTAssertGreaterThanOrEqual(howl[.wind] ?? 0, 0.95)
+        // In the water worlds: a gale over the lake, beach, road, fjord and bay drops, and their outdoors is muffled.
+        var gale = smoke; gale.wind = 0.9
+        for (name, scene) in scenes(gale) {
+            XCTAssertEqual(scene.level(.wind), 0.15, accuracy: 1e-9, name)
+            XCTAssertEqual(scene.indoors, 0.15, accuracy: 1e-9, name)
+        }
+        var fjord = AuroraFjordModel(); fjord.setSky(gale)
+        let f = fjordStep(&fjord, seconds: 0.1).ambience
+        XCTAssertEqual(f.level(.wind), 0.15, accuracy: 1e-9, "the cold fjord keeps its sea smoke")
+        XCTAssertEqual(f.indoors, 0.15, accuracy: 1e-9)
+        var bay = BioluminescentBayModel(); bay.setSky(gale)
+        let b = bayStep(&bay, seconds: 0.1).ambience
+        XCTAssertEqual(b.level(.wind), 0.15, accuracy: 1e-9)
+        XCTAssertEqual(b.indoors, 0.15, accuracy: 1e-9)
+        var clearGale = daySky(); clearGale.wind = 0.9
+        for (name, scene) in scenes(clearGale) {
+            XCTAssertEqual(scene.level(.wind), 0.6, accuracy: 1e-5, name)
+            XCTAssertEqual(scene.indoors, 0, "\(name): without sea smoke nothing changes")
+        }
+        // The still places add it to their own indoors.
+        var garden = ZenRockGardenModel()
+        var morning = gardenSky(sun: 5, hour: 8); morning.steam = 1
+        garden.setSky(morning)
+        XCTAssertEqual(gardenStep(&garden, seconds: 0.1).ambience.indoors, 0.15, accuracy: 1e-9)
+        var teaHouse = TeaHouseSnowModel()
+        var cold = teaHouseSky(sun: 5, hour: 8); cold.weather = .seaSmoke; cold.nextWeather = .seaSmoke; cold.steam = 1
+        teaHouse.setSky(cold)
+        XCTAssertEqual(teaHouseStep(&teaHouse, seconds: 0.1).ambience.indoors, 0.55 + 0.15, accuracy: 1e-9)
+        // A warm world has no sea smoke, so no hush.
+        let warm = WorldWeather.warm(gale)
+        XCTAssertFalse(WeatherAmbience.inSeaSmoke(warm))
+        XCTAssertEqual(WeatherAmbience.indoorsLift(warm), 0)
+    }
+
+    /// Review focus 4: a world's parameters saved before the meteors decode, and the world follows the calendar; every
+    /// night-sky world lists the mode (defaulting to follow), the lounge doesn't.
+    func testOldWorldParametersStillLoad() throws {
+        let saved = #"{"values":{"glitter":{"number":{"_0":0.9}},"visual":{"choice":{"_0":"Galaxy Warp"}}},"macros":{"glow":0.25}}"#
+        let state = try JSONDecoder().decode(ThemeState.self, from: Data(saved.utf8))
+        XCTAssertNil(state.values["meteors.mode"])
+        let lake = ThemeRegistry.parameterSet(for: MoonlitLakeModel.id, state: state)
+        XCTAssertEqual(lake.choice("meteors.mode"), MeteorMode.follow.rawValue)
+        XCTAssertEqual(lake.baseNumber("glitter"), 0.9, accuracy: 1e-9, "the rest is kept")
+        XCTAssertEqual(lake.choice("visual"), "Galaxy Warp")
+        XCTAssertEqual(lake.macros[.glow], 0.25)
+        XCTAssertTrue(lake.saved["meteors.mode"] == nil, "following is the default: nothing new to save")
+        // A value from a later build (or a typo) falls back to follow too.
+        let odd = ThemeState(values: ["meteors.mode": .choice("Sometimes")])
+        XCTAssertEqual(ThemeRegistry.parameterSet(for: MoonlitLakeModel.id, state: odd).choice("meteors.mode"), "Follow the calendar")
+        // Through the director: the decoded lake shows the calendar's sky (here the Geminids).
+        let director = SceneDirector(themeID: MoonlitLakeModel.id, state: state, reaction: ReactionPresets.expressivePianist)
+        var s = SkySettings(); s.timeMode = .frozen; s.frozenHour = 21; s.frozenPhase = 0; s.cityID = "tokyo"
+        s.weatherMode = .pick; s.weather = .clear
+        director.sky.reset(settings: s)
+        let peak = try XCTUnwrap(ISO8601DateFormatter().date(from: "2026-12-14T03:00:00Z"))
+        director.clock = { peak }
+        _ = director.step(dt: 1.0 / 30, t: 0, quality: .high)
+        XCTAssertEqual(director.lastSky?.shower?.code, "GEM")
+        XCTAssertGreaterThan(director.lastSky?.meteorRate ?? 0, 0)
+        // Every night-sky world offers the mode, following the calendar by default; the lounge doesn't.
+        let nightSkies = [MoonlitLakeModel.id, GoldenHourBeachModel.id, CoastRoadModel.id, SnowboundCabinModel.id,
+                          BedroomDawnModel.id, AuroraFjordModel.id, BioluminescentBayModel.id, TeaHouseSnowModel.id,
+                          ZenRockGardenModel.id]
+        for id in nightSkies {
+            let params = ThemeRegistry.parameterSet(for: id, state: ThemeState())
+            XCTAssertEqual(params.choice("meteors.mode"), "Follow the calendar", id)
+            let spec = try XCTUnwrap(ThemeRegistry.parameters(for: id).first { $0.id == "meteors.mode" }, id)
+            XCTAssertEqual(spec.group, "Sky", id)
+            assertValidParameters(ThemeRegistry.parameters(for: id))
+        }
+        XCTAssertEqual(ThemeRegistry.parameterSet(for: SpaceshipLoungeModel.id, state: ThemeState()).choice("meteors.mode"), "")
     }
 }

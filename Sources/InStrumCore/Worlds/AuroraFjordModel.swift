@@ -202,7 +202,7 @@ public struct AuroraFjordModel: ThemeModel, MoodAware, SkyAware {
         let activity = min(1, 0.6 * roles[.energy] + 0.4 * roles[.density])
         return AmbienceScene(levels: levels, nightCool: nightCool, activity: activity, thunder: thunder,
                              closeness: MoodLook.ambienceCloseness(base: 0.45, mood), density: MoodLook.ambienceDensity(mood),
-                             wetness: Double(sky.wetness))
+                             indoors: WeatherAmbience.indoorsLift(sky), wetness: Double(sky.wetness))
     }
 }
 
@@ -217,6 +217,7 @@ extension AuroraFjordModel {
                   kind: .choice(visuals), defaultValue: .choice("Curtain Lights")),
         SkyHold.spec(default: .deepNight),
         AuroraMode.spec(default: .always),
+        MeteorMode.spec(default: .follow),
         slider("floes", "Ice floes", "Fjord", 0...1, 0.6, hero: true, surprise: 0.2...1,
                help: "How much ice drifts on the water"),
         slider("village", "Village lights", "Fjord", 0...1, 0.7, surprise: 0.3...1,

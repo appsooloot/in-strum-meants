@@ -51,8 +51,8 @@ public struct OceanSwell {
         fillAhead()
     }
 
-    /// Clear and light cloud 1, rain and drizzle 1.2, a storm 1.8 (bigger and steeper), mist 0.8; blended
-    /// while the weather changes.
+    /// Clear and light cloud 1, rain and drizzle 1.2, a storm 1.8 (bigger and steeper), mist 0.8, and sea smoke 0.4
+    /// (it needs still air); blended while the weather changes.
     public static func weatherScale(_ s: SkyState) -> Float {
         func base(_ k: WeatherKind) -> Float {
             switch k {
@@ -76,6 +76,7 @@ public struct OceanSwell {
             case .humid: return 0.9
             case .diamondDust: return 0.3
             case .rime: return 0.3
+            case .seaSmoke: return 0.4
             }
         }
         let b = min(1, max(0, s.weatherBlend))

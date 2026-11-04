@@ -206,6 +206,7 @@ extension BedroomDawnModel {
         ParamSpec(id: "visual", name: "Visual", group: "Visual", help: "What your playing does to the room",
                   kind: .choice(visuals), defaultValue: .choice("Curtain Light")),
         SkyHold.spec(default: .pastelDawn),
+        MeteorMode.spec(default: .follow),
         slider("light", "Morning light", "Curtain Light", 0...1, 0.6, hero: true, surprise: 0.3...1,
                help: "How much the light through the curtains swells while you hold notes"),
         slider("sway", "Curtain sway", "Curtain Light", 0...1, 0.5, hero: true, surprise: 0.2...0.9,

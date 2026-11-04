@@ -107,6 +107,14 @@ public enum Solar {
         return SkyDirection(azimuth: h.az, altitude: h.alt)
     }
 
+    /// Local apparent solar time at `longitude` (east +), hours 0…<24: 12 when the sun crosses the meridian.
+    static func apparentSolarHour(at t: Date, longitude: Double) -> Double {
+        let minutes = t.timeIntervalSince1970.truncatingRemainder(dividingBy: 86_400) / 60
+        var solar = (minutes + core(t).equationOfTime + 4 * longitude).truncatingRemainder(dividingBy: 1440)
+        if solar < 0 { solar += 1440 }
+        return solar / 60
+    }
+
     /// Refraction-corrected direction of the sun.
     public static func direction(at t: Date, from p: GeoPoint) -> SkyDirection {
         var d = geometric(at: t, from: p)
