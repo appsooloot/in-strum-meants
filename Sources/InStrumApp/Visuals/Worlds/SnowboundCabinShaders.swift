@@ -99,9 +99,13 @@ enum SnowboundCabinShaders {
         return p;
     }
 
-    // One snowy pine at cx: coverage (soft-edged), and through `snow` how much of the hit is snow on the boughs.
-    float pine(float sx, float sy, float cx, float base, float ht, float wBase, float r, thread float& snow) {
+    // One snowy pine at cx: coverage (soft-edged), through `snow` how much of the hit is snow on the boughs, and
+    // through `rime` the rime fringe on its flanks (spec §6.4; `far` scales the depth: > 1 thins the fringe for a
+    // distant row, < 1 widens it for a pine right outside the glass).
+    float pine(float sx, float sy, float cx, float base, float ht, float wBase, float r, float far, constant SkyU& u,
+               thread float& snow, thread float& rime) {
         snow = 0.0;
+        rime = 0.0;
         float t = (sy - base) / ht;
         if (t < -0.1 || t > 1.0) return 0.0;
         float tier = fract(t * 6.0 + r);
@@ -113,23 +117,31 @@ enum SnowboundCabinShaders {
         if (t < 0.06) inTree = max(inTree, 1.0 - smoothstep(wBase * 0.05, wBase * 0.08, dx));
         float s = smoothstep(0.5, 0.85, tier) * smoothstep(0.15, 0.85, dx / max(w, 1e-4)) + smoothstep(0.86, 0.96, t);
         snow = saturate(s) * (0.55 + 0.45 * fract(r * 7.3));
+        if (inTree > 0.0 && t >= 0.06) {
+            // The boughs narrow upward (each tier and the whole tree): that taper tilts the flank's normal up.
+            float taper = wBase / ht * (0.6 + 0.4 * (1.0 - tier) + 2.4 * (1.0 - t));
+            float inside = (w - dx) * rsqrt(1.0 + taper * taper) * far;
+            if (rimeNear(u, inside)) rime = rimeEdge(u, inside, float2(sx < cx ? -1.0 : 1.0, taper), float2(sx, sy));
+        }
         return inTree;
     }
 
-    // A row of snowy pines (some gaps): the nearest hit's coverage and snow.
-    float pines(float sx, float sy, float base, float height, float density, float seed, float gaps, thread float& snow) {
+    // A row of snowy pines (some gaps): the nearest hit's coverage, snow and rime.
+    float pines(float sx, float sy, float base, float height, float density, float seed, float gaps, float far,
+                constant SkyU& u, thread float& snow, thread float& rime) {
         float cell = floor(sx * density + seed);
         float hit = 0.0;
         snow = 0.0;
+        rime = 0.0;
         for (int k = -1; k <= 1; k++) {
             float id = cell + float(k);
             float r = ch11(id * 1.37 + seed);
             if (ch11(id * 3.71 + seed * 2.0) < gaps) continue;
             float cx = (id + 0.5 + (r - 0.5) * 0.6 - seed) / density;
             float ht = height * (0.55 + 0.6 * ch11(id * 2.11 + seed * 3.0));
-            float sn;
-            float h = pine(sx, sy, cx, base, ht, 0.42 / density, r, sn);
-            if (h > hit) { hit = h; snow = sn; }
+            float sn, rm;
+            float h = pine(sx, sy, cx, base, ht, 0.42 / density, r, far, u, sn, rm);
+            if (h > hit) { hit = h; snow = sn; rime = rm; }
         }
         return hit;
     }
@@ -204,11 +216,13 @@ enum SnowboundCabinShaders {
 
         // ---- two big pines just outside, half in view at the window's edges (nearest after the drifts)
         for (int side = -1; side <= 1; side += 2) {
-            float snow;
-            float hit = pine(sx, sy, float(side) * (halfW + 0.03), glassBottom - 0.04, glassH * 0.95, 0.19, side < 0 ? 0.31 : 0.77, snow);
+            float snow, rime;
+            float hit = pine(sx, sy, float(side) * (halfW + 0.03), glassBottom - 0.04, glassH * 0.95, 0.19, side < 0 ? 0.31 : 0.77,
+                             0.6, u, snow, rime);   // right outside the glass: a wider fringe (about 1% of the view)
             if (hit > 0.5) {
                 float3 col = mix(float3(0.012, 0.022, 0.02) * (skyAmb * 1.4 + fireCol * fire * 0.25 * night),
                                  float3(0.92, 0.95, 1.0) * snowAmb * 0.95, snow);
+                col = mix(col, rimeColor(u), rime);
                 ColorDepth o; o.color = float4(col, 1); o.depth = float4(0.2, 0, 0, 1); return o;
             }
         }
@@ -266,10 +280,11 @@ enum SnowboundCabinShaders {
 
         // ---- the near row of pines along the far edge of the field
         float farLight = c.c.x;
-        float s3, s2, s1;
-        float p3 = pines(sx, sy, groundTop - 0.008, 0.2, 5.5, 7.31, 0.35, s3);
+        float s3, s2, s1, r3, r2, r1;
+        float p3 = pines(sx, sy, groundTop - 0.008, 0.2, 5.5, 7.31, 0.35, 1.25, u, s3, r3);
         if (p3 > 0.5) {
             float3 col = mix(float3(0.016, 0.028, 0.027) * (skyAmb * 1.3 + fireCol * fire * 0.15 * night), float3(0.92, 0.95, 1.0) * snowAmb, s3);
+            col = mix(col, rimeColor(u), r3);
             col = mix(col, haze, 0.08 + 0.3 * mist);
             ColorDepth o; o.color = float4(col, 1); o.depth = float4(0.55, 0, 0, 1); return o;
         }
@@ -299,9 +314,10 @@ enum SnowboundCabinShaders {
         // The far cabin's window glows into the snow and the trees around it at night.
         float2 glowD = float2((sx - cabX - 0.012) * 0.8, sy - cabBase - cabH * 0.5);
         float cabinGlow = farLight * exp(-dot(glowD, glowD) * 260.0) * 0.4;
-        float p2 = pines(sx, sy, horizon - 0.01, 0.11, 10.0, 3.17, 0.15, s2);
+        float p2 = pines(sx, sy, horizon - 0.01, 0.11, 10.0, 3.17, 0.15, 1.6, u, s2, r2);
         if (p2 > 0.5) {
             float3 col = mix(float3(0.02, 0.034, 0.034) * skyAmb * 1.2, float3(0.9, 0.94, 1.0) * snowAmb * 0.92, s2);
+            col = mix(col, rimeColor(u), r2);
             col = mix(col, haze * 0.95, 0.2 + 0.35 * mist) + float3(1.0, 0.65, 0.3) * cabinGlow;
             ColorDepth o; o.color = float4(col, 1); o.depth = float4(0.7, 0, 0, 1); return o;
         }
@@ -311,12 +327,13 @@ enum SnowboundCabinShaders {
             col = mix(col, haze, 0.25 + 0.35 * mist);
             ColorDepth o; o.color = float4(col, 1); o.depth = float4(0.72, 0, 0, 1); return o;
         }
-        float p1 = pines(sx, sy, horizon + 0.002, 0.06, 18.0, 1.93, 0.05, s1);
+        float p1 = pines(sx, sy, horizon + 0.002, 0.06, 18.0, 1.93, 0.05, 2.2, u, s1, r1);
         float3 behind = float3(0);
         float behindA = 0.0;
         float behindDepth = 1.0;
         if (p1 > 0.5) {
             float3 col = mix(float3(0.03, 0.045, 0.05) * skyAmb, float3(0.88, 0.92, 1.0) * snowAmb * 0.85, s1);
+            col = mix(col, rimeColor(u), r1);
             behind = mix(col, haze * 0.95, 0.4 + 0.3 * mist);
             behindA = 1.0; behindDepth = 0.78;
         } else {

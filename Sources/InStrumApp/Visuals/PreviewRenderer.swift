@@ -33,8 +33,10 @@ final class PreviewRenderer {
     /// Simulates the demo performance at 60 fps through the app's SceneDirector and captures
     /// a frame of `themeID` at each time (seconds).
     /// `sky` overrides the Living Sky for worlds (frozen settings give repeatable frames); `mood` sets the set's mood.
+    /// `skyEdit` holds each frame's sky in a state the Living Sky only reaches over minutes (a world fully rimed).
     func render(themeID: String, at times: [Double], state: ThemeState = ThemeState(), quality: QualityLevel = .high,
-                sky: SkySettings? = nil, mood: Mood = .neutral, gentle: Bool = false) -> [CGImage] {
+                sky: SkySettings? = nil, mood: Mood = .neutral, gentle: Bool = false,
+                skyEdit: ((inout SkyState) -> Void)? = nil) -> [CGImage] {
         let director = SceneDirector(themeID: themeID, state: state, reaction: ReactionPresets.expressivePianist)
         let start = Date(timeIntervalSince1970: 1_793_000_000)   // a fixed wall clock, so previews repeat
         var elapsed = 0.0
@@ -61,7 +63,8 @@ final class PreviewRenderer {
                 }
                 director.handle(events, at: time)
                 elapsed = time
-                let frame = director.step(dt: dt, t: time, quality: quality)
+                var frame = director.step(dt: dt, t: time, quality: quality)
+                if let skyEdit { frame = Self.editingSky(frame, skyEdit) }
                 let size = CGSize(width: width, height: height)
                 if let g = frame as? GardenFrame {
                     if garden == nil { garden = ButterflyRenderer(device: device) }
@@ -107,6 +110,19 @@ final class PreviewRenderer {
             if let r = current, let image = capture(r) { images.append(image) }
         }
         return images
+    }
+
+    /// A world's frame with its sky edited (frames without a sky pass through unchanged).
+    static func editingSky(_ frame: Any, _ edit: (inout SkyState) -> Void) -> Any {
+        switch frame {
+        case var f as LakeFrame: edit(&f.sky); return f
+        case var f as LoungeFrame: edit(&f.sky); return f
+        case var f as BeachFrame: edit(&f.sky); return f
+        case var f as RoadFrame: edit(&f.sky); return f
+        case var f as CabinFrame: edit(&f.sky); return f
+        case var f as BedroomFrame: edit(&f.sky); return f
+        default: return frame
+        }
     }
 
     func renderButterflyGarden(at times: [Double], params: ParameterSet? = nil) -> [CGImage] {

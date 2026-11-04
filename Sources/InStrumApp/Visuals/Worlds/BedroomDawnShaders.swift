@@ -112,6 +112,8 @@ enum BedroomDawnShaders {
                 if (canopy) {
                     float rim = smoothstep(0.25, 0.38, r) * sunUp;
                     col = float3(0.05, 0.09, 0.04) * (skyAmb * 1.5 + sunCol * 0.25) * (0.7 + 0.6 * leaves) + sunCol * float3(0.5, 0.45, 0.2) * rim * 0.4;
+                    // Rime round the canopy's windward rim (spec §6.4), its feathers swaying with the leaves.
+                    col = rimed(col, u, (0.38 + 0.12 * (leaves - 0.5) - r) / 1.15, cp * float2(0.72, 1.32), cp);
                 } else {
                     col = float3(0.05, 0.04, 0.035) * (skyAmb * 1.3 + sunCol * 0.2);
                 }
@@ -148,6 +150,9 @@ enum BedroomDawnShaders {
             if (post || arm || head) {
                 float3 col = float3(0.03, 0.035, 0.04) * (skyAmb * 1.2 + sunCol * 0.2);
                 if (head && hq.y < -0.002) col = warmLamp * 3.0 * lamp + float3(0.05) * (1.0 - lamp);
+                // Rime up the post's windward side and along the arm's and the lamp's tops.
+                float rimeIn = head ? 0.01 - hq.y : (arm ? lampTop - sy : 0.007 - abs(sx - lampX));
+                col = rimed(col, u, rimeIn, (head || arm) ? float2(0.0, 1.0) : float2(sx < lampX ? -1.0 : 1.0, 0.0), float2(sx, sy));
                 ColorDepth o; o.color = float4(col, 1); o.depth = float4(0.4, 0, 0, 1); return o;
             }
         }
@@ -218,6 +223,9 @@ enum BedroomDawnShaders {
                 col = float3(0.12, 0.12, 0.14) * tiles * (skyAmb * 1.3 + sunCol * 0.5 * (side > 0.5 ? saturate(-Ls.x + 0.5) : saturate(Ls.x + 0.5)));
                 // Frost on the roofs on cold mornings.
                 col = mix(col, float3(0.85, 0.88, 0.95) * (skyAmb * 1.3 + sunCol * 0.4), saturate(c.beam.w * 1.5) * 0.6);
+                // Rime along the roof line (spec §6.4): the depth below it, square to the slope.
+                float slope = (ridgeH - eave) * 2.0 / houseW * (hx < 0.5 * houseW ? 1.0 : -1.0);
+                col = rimed(col, u, (roofLine - sy) * rsqrt(1.0 + slope * slope), float2(-slope, 1.0), float2(sx, sy));
             } else {
                 // Facade: painted brick, two windows per house, lit as the morning comes.
                 float3 paint = mix(float3(0.42, 0.3, 0.24), float3(0.55, 0.5, 0.42), hr);

@@ -38,6 +38,21 @@ enum SkyShaders {
         }
         return s / (1.0 - pow(0.5, float(octaves)));
     }
+    /// fbm3 that also hands back its first octave (the field's big, smooth cells): the same sum, so the clouds drawn
+    /// with it are the clouds fbm3 draws.
+    float fbm3c(float3 p, int octaves, thread float& first) {
+        float s = 0.0, a = 0.5;
+        first = 0.5;
+        for (int i = 0; i < 3; i++) {
+            if (i >= octaves) break;
+            float v = vnoise3(p);
+            if (i == 0) first = v;
+            s += a * v;
+            p = p * 2.03 + float3(17.1, 9.2, 3.7);
+            a *= 0.5;
+        }
+        return s / (1.0 - 2.0 * a);   // 1 − 0.5^octaves, exactly (a halves once per octave from 0.5)
+    }
 
     // ---------------------------------------------------------------- sky dome
     // camera: right.xyz/tanH, up.xyz/tanV, forward.xyz/time (all in east-north-up)
@@ -56,6 +71,7 @@ enum SkyShaders {
         float4 aurora;      // pole-ward azimuth unit vector (east, north), band base altitude (degrees), hemisphere
         float4 dust;        // diamond dust, pillar, aurora hue shift (−1 cool … +1 warm), aurora glow 0…1
         float4 ripples[8];  // along the band 0…1, age (s), strength, width
+        float4 still;       // iridescence 0…1, rime 0…1, the wind on screen (x right, y up: the way it blows × its strength)
     };
     // eq0.w is 1 when the real star texture is bound (0: a 1×1 placeholder, the procedural stars carry the sky).
 
@@ -236,6 +252,45 @@ enum SkyShaders {
         return exp(-x * x) * exp(-toDeg(dy) / 6.0);
     }
 
+    /// Iridescent cloud (spec §6.3): thin cloud (density 0.05–0.5) within 40° of the sun turns pastel, in bands whose
+    /// hue cycles with the angle from the sun and with the cloud's density (so they run along its edges), most
+    /// saturated 10–20° from the sun and gone by 40°. With the sun low, a smooth iridescent cap (a pileus) arcs over the
+    /// tops of the cloud's big cells: `n1` is the field's first octave (the cells, whose contours are smooth), `edge1`
+    /// the level of it where the cloud begins, `near` how close the full field is to the cloud's edge from outside
+    /// (so a cap only ever sits just over a cloud), and the one extra read is that octave 1.5° higher up the sky
+    /// (where it falls away, this is a cell's upper side). The band is one sine (and its cosine) of a dot product:
+    /// mother-of-pearl pinks and greens with a little lilac and gold between them, never a rainbow. The colour is
+    /// never brighter than the cloud's own light + 20%. Returns the cloud's colour and, in `veil`, the cap's density.
+    float3 iridescentCloud(float3 cloud, float3 d, float angleDeg, float density, float n1, float edge1, float near,
+                           float2 drift, float time, constant SkyU& u, thread float& veil) {
+        veil = 0.0;
+        float zone = smoothstep(3.0, 10.0, angleDeg) * (1.0 - smoothstep(20.0, 40.0, angleDeg));
+        float k = saturate(u.still.x) * zone;
+        if (k <= 0.0) return cloud;
+        float thin = smoothstep(0.03, 0.1, density) * (1.0 - smoothstep(0.3, 0.55, density));
+        float cap = 0.0, capBand = 0.0;
+        float low = 1.0 - smoothstep(12.0, 25.0, u.sun.w);
+        if (low > 0.0 && near > 0.0) {
+            float3 du = normalize(d + float3(0.0, 0.0, 0.026));
+            float2 uvu = du.xy / (du.z + 0.12) * 0.55 + drift;
+            float fall = saturate((n1 - vnoise3(float3(uvu * 2.2, time * 0.003))) * 10.0);
+            float lift = edge1 - n1;                       // how far below the cloud's own level in the cells
+            capBand = smoothstep(0.02, 0.07, lift) * (1.0 - smoothstep(0.07, 0.17, lift));
+            cap = capBand * fall * near * low;
+            veil = 0.16 * cap * k;
+        }
+        float a = k * max(thin, cap);
+        if (a <= 0.0) return cloud;
+        // Broad bands: a cycle per 9° out from the sun and one across the thin edge (along the cap for a cap).
+        float phase = dot(float2(angleDeg, density + 0.5 * capBand), float2(0.7, 11.0));
+        float s = sin(phase), c = cos(phase);
+        float3 chroma = s * float3(0.6, -0.22, 0.4) + 0.3 * c * float3(-0.05, -0.08, 0.95);   // pink↔green, lilac↔gold
+        float3 iri = cloud * (1.0 + chroma * (0.85 * a));                                       // luminance kept
+        const float3 lw = float3(0.2126, 0.7152, 0.0722);
+        float lc = dot(cloud, lw), li = dot(iri, lw);
+        return max(iri, 0.0) * min(1.0, 1.2 * lc / max(li, 1e-5));
+    }
+
     /// The sky's light in direction `d` (alt ≥ 0): gradient, sunset band, stars, Milky Way, aurora, moon, pillars,
     /// clouds, sun. `moonMask` returns how much of the moon disc covers the ray. Shared by the dome and by reflections.
     /// `stars` is the real star texture (fragment texture 0; a 1×1 placeholder while it builds, with u.eq0.w = 0).
@@ -357,8 +412,10 @@ enum SkyShaders {
 
         // Clouds: a drifting layer lit by the sun or the moon.
         if (cloudCover > 0.01 && alt > 0.0) {
-            float2 uv = d.xy / (d.z + 0.12) * 0.55 + float2(time * 0.004 * (0.3 + u.weather.y), time * 0.0015);
-            float n = fbm3(float3(uv * 2.2, time * 0.003), octaves);
+            float2 drift = float2(time * 0.004 * (0.3 + u.weather.y), time * 0.0015);
+            float2 uv = d.xy / (d.z + 0.12) * 0.55 + drift;
+            float n1;
+            float n = fbm3c(float3(uv * 2.2, time * 0.003), octaves, n1);
             // Calibrated so light cloud leaves most of the sky clear and overcast closes it.
             float threshold = 0.85 - 0.6 * cloudCover;
             float density = smoothstep(threshold, threshold + 0.12 + 0.1 * cloudCover, n) * smoothstep(0.0, 0.08, alt);
@@ -373,7 +430,19 @@ enum SkyShaders {
             float pastel = u.extra.y * smoothstep(-10.0, -6.0, sunAlt) * (1.0 - smoothstep(4.0, 8.0, sunAlt));
             lightCol = mix(lightCol, float3(1.0, 0.68, 0.78), 0.7 * pastel);
             float3 cloud = base * (0.55 + 0.45 * lightAmt) + lightCol * lightAmt * (0.25 + 0.9 * facing) * (1.0 - 0.6 * density);
-            col = mix(col, cloud, density * (1.0 - moonMask * 0.0));
+            float cover = density;
+            if (u.still.x > 0.0 && day) {
+                // The first octave's level where the cloud begins (its weight in the sum is 0.5 / (1 − 0.5^octaves);
+                // the finer octaves average a half each).
+                float w1 = octaves > 2 ? 0.5714286 : 0.6666667;
+                // Just outside the cloud (with a little clear air between, as over a real cap).
+                float near = smoothstep(threshold - 0.14, threshold - 0.06, n) * (1.0 - smoothstep(threshold - 0.04, threshold, n));
+                float veil;
+                cloud = iridescentCloud(cloud, d, toDeg(sunAngle), density, n1, (threshold - 0.5 * (1.0 - w1)) / w1, near,
+                                        drift, time, u, veil);
+                cover = max(density, veil * smoothstep(0.0, 0.08, alt));
+            }
+            col = mix(col, cloud, cover * (1.0 - moonMask * 0.0));
         }
 
         // Rainbows: the primary bow 42° and the secondary 51° from the point opposite the sun, a little light
@@ -394,6 +463,67 @@ enum SkyShaders {
         }
 
         return col;
+    }
+
+    // ---------------------------------------------------------------- rime frost on silhouettes (spec §6.4)
+    // Freezing fog feathers the windward edge of everything it touches. A world calls these where it knows how far a
+    // pixel lies inside one of its silhouettes:
+    //   inside   NDC-y units (screen x × aspect, y) from the silhouette's edge, > 0 inside it (≤ 0: no rime)
+    //   outward  the edge's outward normal on screen (x right, y up; any length; zero rimes every side alike)
+    //   p        a point fixed to the silhouette in NDC-y units, for the feathers (so they never swim)
+    // The fringe reaches 0.6% of the view's height (0.012 NDC) × the sky's rime (u.still.y) on the side facing into
+    // the wind (u.still.zw, the way it blows on screen), a third as far on the lee, ruffled by two octaves of noise.
+
+    /// Whether a pixel this far inside a silhouette can carry rime now (the fringe's widest reach): test it before
+    /// paying for the feathers.
+    bool rimeNear(constant SkyU& u, float inside) {
+        return u.still.y > 0.0 && inside > 0.0 && inside < 0.0156 * saturate(u.still.y);
+    }
+
+    /// The fringe's cover 0…1, given its feather noise 0…1 (for worlds whose silhouettes need their own, periodic
+    /// noise; rimeEdge takes it at a point).
+    float rimeFringe(constant SkyU& u, float inside, float2 outward, float feather) {
+        float rime = saturate(u.still.y);
+        if (rime <= 0.0 || inside <= 0.0) return 0.0;
+        float2 w = u.still.zw;
+        float wl = length(w), nl = length(outward);
+        float facing = (wl > 1e-4 && nl > 1e-6) ? -dot(outward, w) / (nl * wl) : 0.0;   // 1 into the wind … −1 the lee
+        float f = saturate(feather);
+        float width = 0.012 * rime * (0.6 + 0.4 * facing) * (0.3 + 0.95 * f);
+        if (inside >= width) return 0.0;
+        // Thickest at the edge and thinning into the silhouette, in tufts with gaps between them where the noise is
+        // low: feathers of ice rather than an outline.
+        float t = inside / max(width, 1e-6);
+        return (1.0 - t) * (1.0 - t) * smoothstep(0.2, 0.6, f) * (0.55 + 0.35 * rime);
+    }
+
+    /// For a silhouette made of overlapping shapes (a trunk's segments, fronds, a knot): offer each shape's `inside`
+    /// and its outward direction `away`; the deepest is kept, so the fringe follows the outline of their union.
+    /// Start with deepest = −1.
+    void rimeKeepDeepest(float inside, float2 away, thread float& deepest, thread float2& outward) {
+        if (inside > deepest) { deepest = inside; outward = away; }
+    }
+
+    /// Two octaves of feather noise at `p` (NDC-y units): about three feathers to a full fringe's width.
+    float rimeFeather(float2 p) {
+        return fbm3(float3(p * 90.0, 2.7), 2);
+    }
+
+    /// The rime fringe's cover 0…1 at a silhouette pixel (see above).
+    float rimeEdge(constant SkyU& u, float inside, float2 outward, float2 p) {
+        if (!rimeNear(u, inside)) return 0.0;
+        return rimeFringe(u, inside, outward, rimeFeather(p));
+    }
+
+    /// Rime's light: the sky's horizon colour × 1.3 (white by day, blue-grey at night).
+    float3 rimeColor(constant SkyU& u) {
+        return u.horizon.rgb * 1.3;
+    }
+
+    /// A silhouette's colour with its rime fringe (exactly `col` where there is none).
+    float3 rimed(float3 col, constant SkyU& u, float inside, float2 outward, float2 p) {
+        float r = rimeEdge(u, inside, outward, p);
+        return r > 0.0 ? mix(col, rimeColor(u), r) : col;
     }
 
     """

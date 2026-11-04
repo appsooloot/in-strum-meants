@@ -83,13 +83,22 @@ final class SkyLayer {
     var starTextureOverride: MTLTexture?
 
     nonisolated static let rippleCount = 8
-    /// SkyU's float4 count: 13 + night, aurora, dust and 8 ripples (the MSL struct's size / 16).
-    nonisolated static let uniformCount = 24
+    /// SkyU's float4 count: 13 + night, aurora, dust, 8 ripples and still (the MSL struct's size / 16).
+    nonisolated static let uniformCount = 25
+    /// The `still` row's index: iridescence, rime, and the wind on screen.
+    nonisolated static let stillRow = 24
+
+    /// The wind on screen for rime's windward side (x right, y up: the way it blows, × the sky's wind 0…1). Every
+    /// world already draws its weather blowing to the right (the weather layer's tilt and streamers, the chimney
+    /// smoke, the diamond dust's drift), so rime gathers on the left-facing edges.
+    nonisolated static func screenWind(_ s: SkyState) -> SIMD2<Float> {
+        SIMD2(s.wind.isFinite ? min(1, max(0, s.wind)) : 0, 0)
+    }
 
     private let pipeline: MTLRenderPipelineState
     /// A 1×1 black texture bound while the real stars build, so no pass ever lacks texture 0.
     private let placeholder: MTLTexture
-    private var u = [SIMD4<Float>](repeating: .zero, count: 24)
+    private var u = [SIMD4<Float>](repeating: .zero, count: SkyLayer.uniformCount)
 
     /// The real stars (nil until the shared background build arrives).
     var starTexture: MTLTexture? {
@@ -191,6 +200,10 @@ final class SkyLayer {
         u[14] = SIMD4(Float(sin(poleAz)), Float(cos(poleAz)), s.auroraAltitude, s.hemisphere)
         u[15] = SIMD4(s.diamondDust, s.pillar, min(1, max(-1, auroraTint.x)), min(1, max(0, auroraTint.y)))
         for i in 0..<Self.rippleCount { u[16 + i] = i < ripples.count ? ripples[i] : .zero }
+        // Still places: iridescent cloud and rime frost (0 leaves the sky and every silhouette as before).
+        func unit(_ v: Float) -> Float { v.isFinite ? min(1, max(0, v)) : 0 }
+        let wind = Self.screenWind(s)
+        u[Self.stillRow] = SIMD4(unit(s.iridescence), unit(s.rime), wind.x, wind.y)
     }
 
     func draw(_ e: MTLRenderCommandEncoder) {
@@ -408,27 +421,42 @@ final class WeatherLayer {
         }
     }
 
-    /// Diamond dust: tiny crystals over the whole view, falling very slowly, drifting with the wind, twinkling.
+    /// Rime frost's ice-fog drift: the crystals at this share of their cap, falling at `rimeFogFall` of their speed.
+    static let rimeFogDensity: Float = 0.3, rimeFogFall: Float = 0.35
+
+    /// Diamond dust: tiny crystals over the whole view, falling very slowly, drifting with the wind, twinkling. In
+    /// rime frost the same crystals are its fine ice-fog drift (spec §6.4): fewer, slower, fainter.
     private func updateCrystals(_ s: SkyState, quality: QualityLevel, dt: Float) {
         crystalInstances.removeAll(keepingCapacity: true)
-        let amount = min(1, max(0, s.diamondDust))
+        let (amount, fogShare) = Self.crystalMix(s)
         let wanted = Int((Float(Self.crystalCap(quality)) * amount).rounded())
         while crystals.count < wanted { crystals.append(newCrystal(anywhere: true)) }
         if crystals.count > wanted { crystals.removeLast(crystals.count - wanted) }
         crystalCount = crystals.count
+        // The more of the drift is fog rather than dust, the slower it settles and twinkles, and the less it glints.
+        let fall = 1 - (1 - Self.rimeFogFall) * fogShare
         let drift = 0.04 * s.wind + 0.01
         for i in crystals.indices {
             var c = crystals[i]
-            c.y -= c.speed * dt
+            c.y -= c.speed * fall * dt
             c.x += drift * (0.6 + 0.8 * c.speed / 0.03) * dt / aspect
             if c.y < -1.05 { c = newCrystal(anywhere: false) }
             if c.x > 1.05 { c.x -= 2.1 } else if c.x < -1.05 { c.x += 2.1 }
             crystals[i] = c
-            let tw = 0.5 + 0.5 * sin((clock * c.rate + c.phase) * 2 * .pi)
+            let tw = 0.5 + 0.5 * sin((clock * c.rate * (1 - 0.5 * fogShare) + c.phase) * 2 * .pi)
             let glint = tw * tw * tw   // mostly faint, now and then a bright glint
-            let alpha = (0.15 + 0.85 * glint) * (gentle ? 0.5 : 0.9)
+            let alpha = (0.15 + 0.85 * glint) * (gentle ? 0.5 : 0.9) * (1 - 0.45 * fogShare)
             crystalInstances.append(SIMD4(c.x, c.y, c.size * pixelNDC, alpha))
         }
+    }
+
+    /// The crystals' share of their cap (diamond dust's, or rime fog's thinner drift, whichever is more) and how much
+    /// of it is fog (0 dust alone … 1 fog alone).
+    static func crystalMix(_ s: SkyState) -> (amount: Float, fogShare: Float) {
+        let dust = min(1, max(0, s.diamondDust))
+        let rimeFog = WeatherAmbience.rimeWeather(s)
+        let fog = rimeFogDensity * (rimeFog.isFinite ? min(1, max(0, rimeFog)) : 0)
+        return (max(dust, fog), fog / max(dust + fog, 1e-6))
     }
 
     private func newFirefly() -> Firefly {
