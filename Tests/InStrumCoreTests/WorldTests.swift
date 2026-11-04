@@ -1160,3 +1160,226 @@ extension WorldTests {
         XCTAssertTrue(w.ripples.isEmpty, "Galaxy Warp replaces the ripples")
     }
 }
+
+// MARK: - Tea House Snow
+
+extension WorldTests {
+    private func teaHouseStep(_ model: inout TeaHouseSnowModel, seconds: Double, state: ThemeState = ThemeState()) -> TeaHouseFrame {
+        let p = ThemeRegistry.parameterSet(for: TeaHouseSnowModel.id, state: state)
+        var frame: TeaHouseFrame?
+        for _ in 0..<max(1, Int((seconds * 30).rounded())) {
+            frame = model.step(dt: 1.0 / 30, params: p, roles: RoleValues(), inputs: InputFrame(), quality: .high)
+        }
+        return frame!
+    }
+
+    private func teaHouseSky(sun altitude: Double, hour: Double) -> SkyState {
+        var s = SkyState(); s.sun = SkyDirection(azimuth: 180, altitude: altitude); s.hourOfDay = hour
+        return s
+    }
+
+    func testTeaHouseDefaults() {
+        XCTAssertEqual(TeaHouseSnowModel.id, "tea-house-snow")
+        XCTAssertEqual(ThemeRegistry.resolve(TeaHouseSnowModel.id), TeaHouseSnowModel.id)
+        XCTAssertTrue(ThemeRegistry.all.contains { $0.id == TeaHouseSnowModel.id && $0.name == "Tea House Snow" })
+        XCTAssertTrue(ThemeRegistry.isWorld(TeaHouseSnowModel.id))
+        assertValidParameters(TeaHouseSnowModel.parameters)
+        XCTAssertEqual(TeaHouseSnowModel.parameters.map(\.id),
+                       ["visual", "light.hold", "aurora.mode", "screens", "steam", "blossom", "keys.show", "keys.height"])
+        let params = ThemeRegistry.parameterSet(for: TeaHouseSnowModel.id, state: ThemeState())
+        XCTAssertEqual(TeaHouseSnowModel.visuals, ["Steam Lines", "Frost Grow"])
+        XCTAssertEqual(params.choice("visual"), "Steam Lines")
+        XCTAssertEqual(params.choice("light.hold"), "Follow the sky")
+        XCTAssertEqual(params.choice("aurora.mode"), "Follow the sky")
+        XCTAssertEqual(params.number("screens"), 0.5, accuracy: 1e-9)
+        XCTAssertEqual(params.number("steam"), 0.6, accuracy: 1e-9)
+        XCTAssertEqual(params.number("blossom"), 0.4, accuracy: 1e-9)
+        XCTAssertEqual(params.number("keys.show"), 1)
+        XCTAssertEqual(params.number("keys.height"), 0.12, accuracy: 1e-9)
+        func spec(_ id: String) -> ParamSpec? { TeaHouseSnowModel.parameters.first { $0.id == id } }
+        XCTAssertEqual(spec("screens")?.name, "Screens open")
+        XCTAssertEqual(spec("steam")?.name, "Tea steam")
+        XCTAssertEqual(spec("blossom")?.name, "Plum blossom")
+        XCTAssertEqual(Set(TeaHouseSnowModel.parameters.filter(\.hero).map(\.id)), ["screens", "steam"])
+        XCTAssertEqual(Mood.delicate, Mood(energy: 0.2, warmth: 0.55, brightness: 0.5, space: 0.3, motion: 0.2))
+
+        // The frame carries Steam Lines and the keys.
+        var model = TeaHouseSnowModel()
+        model.mood = .delicate
+        model.setSky(teaHouseSky(sun: -20, hour: 22))
+        model.handle(.noteOn(note: 60, velocity: 0.9))
+        let f = teaHouseStep(&model, seconds: 0.5)
+        XCTAssertEqual(f.wisps.count, 1)
+        XCTAssertEqual(f.wisps.first?.note, 60)
+        XCTAssertGreaterThan(f.steamGlow, 0.2, "a held note brightens the steam (0.255 by 0.5 s in this mood)")
+        XCTAssertEqual(f.lanternFlake?.time ?? -1, 1.0 / 30, accuracy: 1e-9, "a hard note knocks snow off the lantern's cap")
+        XCTAssertEqual(f.ribbons, 3, "Tea steam 0.6: three ribbons")
+        XCTAssertEqual(f.ribbonPath, SteamLines.straight)
+        XCTAssertEqual(f.screensOpen, 0.5, accuracy: 1e-6)
+        XCTAssertEqual(f.blossom, 0.4, accuracy: 1e-6)
+        XCTAssertTrue(f.patches.isEmpty)
+        XCTAssertEqual(f.keys.count, 88)
+        XCTAssertTrue(f.keys.contains { $0.key.note == 60 && $0.pressed })
+        XCTAssertEqual(f.mood, .delicate)
+        XCTAssertNil(f.warp, "no Galaxy Warp in the tea house")
+        XCTAssertEqual(f.time, 0.5, accuracy: 1e-9)
+        // The steam's ribbons follow the setting: a thread at 0, a steaming bowl at 1.
+        var thin = TeaHouseSnowModel(), thick = TeaHouseSnowModel()
+        XCTAssertEqual(teaHouseStep(&thin, seconds: 0.1, state: ThemeState(values: ["steam": .number(0)])).ribbons, 2)
+        XCTAssertEqual(teaHouseStep(&thick, seconds: 0.1, state: ThemeState(values: ["steam": .number(1)])).ribbons, 4)
+        var closed = TeaHouseSnowModel()
+        XCTAssertEqual(teaHouseStep(&closed, seconds: 0.1, state: ThemeState(values: ["screens": .number(0)])).screensOpen, 0)
+
+        // Frost Grow on the screens' paper instead: notes melt patches in the frost, the steam rests.
+        var frosty = TeaHouseSnowModel()
+        var cold = teaHouseSky(sun: -20, hour: 22); cold.frost = 0.5
+        frosty.setSky(cold)
+        frosty.handle(.noteOn(note: 64, velocity: 0.9))
+        let g = teaHouseStep(&frosty, seconds: 3, state: ThemeState(values: ["visual": .choice("Frost Grow")]))
+        XCTAssertEqual(g.patches.count, 1)
+        XCTAssertGreaterThan(g.frostLevel, 0.5 * 0.6 * 0.5, "the cold sky's frost on the paper, and Frost Grow's growth")
+        XCTAssertTrue(g.wisps.isEmpty)
+        XCTAssertEqual(g.steamGlow, 0)
+        XCTAssertEqual(g.puff, .still)
+        XCTAssertNil(g.lanternFlake, "the lantern's flake is Steam Lines'")
+        XCTAssertEqual(g.ribbons, 3, "the tea still steams")
+
+        // Switching visuals lets held notes go: back on Steam Lines, the wisp is no longer drawn up.
+        let back = teaHouseStep(&model, seconds: 0.1, state: ThemeState(values: ["visual": .choice("Frost Grow")]))
+        XCTAssertTrue(back.wisps.isEmpty)
+        let again = teaHouseStep(&model, seconds: 0.1)
+        XCTAssertTrue(again.wisps.allSatisfy { !$0.held })
+
+        // Deterministic: a fresh tea house, the same notes, the same steam.
+        func steam() -> TeaHouseFrame {
+            var m = TeaHouseSnowModel()
+            m.setSky(teaHouseSky(sun: -20, hour: 22))
+            for (i, n) in [60, 62, 64, 67, 72].enumerated() {
+                m.handle(.noteOn(note: UInt8(n), velocity: 0.5 + 0.1 * Float(i)))
+                _ = teaHouseStep(&m, seconds: 0.2)
+            }
+            return teaHouseStep(&m, seconds: 1)
+        }
+        let s1 = steam(), s2 = steam()
+        XCTAssertEqual(s1.wisps, s2.wisps)
+        XCTAssertEqual(s1.ribbonPath, s2.ribbonPath)
+        XCTAssertEqual(s1.lanternFlake, s2.lanternFlake)
+        XCTAssertNotEqual(s1.ribbonPath, SteamLines.straight, "the run shaped the ribbon")
+    }
+
+    func testTeaHouseTurnsRainToSnow() {
+        var rain = teaHouseSky(sun: 20, hour: 13); rain.rain = 0.75; rain.weather = .rain; rain.nextWeather = .rain
+        rain.lightning = 0.5; rain.wetness = 0.7; rain.fireflies = 0.4; rain.rainbow = 0.5
+        var model = TeaHouseSnowModel()
+        model.setSky(rain)
+        let f = teaHouseStep(&model, seconds: 0.1)
+        XCTAssertEqual(f.sky, WorldWeather.cold(rain), "the cabin's cold rule")
+        XCTAssertEqual(f.sky.snow, 0.75, accuracy: 1e-6)
+        XCTAssertEqual(f.sky.rain, 0)
+        XCTAssertEqual(f.sky.lightning, 0)
+        XCTAssertEqual(f.sky.wetness, 0)
+        XCTAssertEqual(f.sky.rainbow, 0)
+        XCTAssertEqual(f.sky.fireflies, 0)
+        XCTAssertEqual(f.sky.weather, .snow)
+        XCTAssertEqual(f.ambience.wetness, 0)
+        XCTAssertNil(f.ambience.thunder)
+        XCTAssertEqual(f.ambience.snowOnGlass, 0.75, accuracy: 1e-6, "the rain ticks on the paper as snow")
+        XCTAssertEqual(f.ambience.level(.drips), 0, "nothing drips: it never got wet")
+        XCTAssertLessThan(f.blossom, 0.4 * 0.3, "the plum's blossoms hide while it snows this hard")
+
+        var storm = teaHouseSky(sun: 20, hour: 13); storm.rain = 1; storm.wind = 0.9; storm.gust = 0.6
+        storm.weather = .storm; storm.nextWeather = .storm; storm.lightning = 1
+        var stormy = TeaHouseSnowModel()
+        stormy.setSky(storm)
+        let b = teaHouseStep(&stormy, seconds: 0.1)
+        XCTAssertEqual(b.sky.weather, .blizzard)
+        XCTAssertEqual(b.sky.snow, 1)
+        XCTAssertEqual(b.sky.lightning, 0)
+        XCTAssertEqual(b.blossom, 0, "none in a blizzard")
+        XCTAssertGreaterThanOrEqual(b.ambience.level(.wind), 0.95, "a blizzard howls round the tea house")
+
+        // Light snow leaves the blossoms; rime frost and diamond dust are at home here.
+        var flurry = teaHouseSky(sun: 20, hour: 13); flurry.snow = 0.3; flurry.weather = .flurries; flurry.nextWeather = .flurries
+        var light = TeaHouseSnowModel()
+        light.setSky(flurry)
+        XCTAssertEqual(teaHouseStep(&light, seconds: 0.1).blossom, 0.4, accuracy: 1e-6)
+        var fog = teaHouseSky(sun: 5, hour: 8); fog.weather = .rime; fog.nextWeather = .rime; fog.rime = 0.8; fog.mist = 0.85
+        var rimed = TeaHouseSnowModel()
+        rimed.setSky(fog)
+        let r = teaHouseStep(&rimed, seconds: 0.1)
+        XCTAssertEqual(r.sky.weather, .rime)
+        XCTAssertEqual(r.sky.rime, 0.8, accuracy: 1e-6)
+        XCTAssertEqual(TeaHouseSnowModel.blossom(0.4, snow: 0.5), 0.4, accuracy: 1e-6)
+        XCTAssertEqual(TeaHouseSnowModel.blossom(0.4, snow: 0.85), 0, accuracy: 1e-6)
+        XCTAssertEqual(TeaHouseSnowModel.blossom(.nan, snow: .nan), 0)
+    }
+
+    /// Spec §8.1: the kettle 0.35, the paper screens 0.4 × (0.4 + wind), the temple bell 0.5 from dusk and through the
+    /// night (0.25 by day), the wind 0.1 + gust, snow ticking on the paper (snow × indoors), birds at dawn 0.2; indoors
+    /// 0.8 − 0.5 × screens (and the rime's hush on top); closeness from 0.75.
+    func testTeaHouseAmbience() {
+        var model = TeaHouseSnowModel()
+        model.mood = .delicate
+        var s = teaHouseSky(sun: 30, hour: 12); s.snow = 0.8; s.wind = 0.3; s.gust = 0.3
+        model.setSky(s)
+        let a = teaHouseStep(&model, seconds: 0.1).ambience
+        XCTAssertEqual(a.level(.kettle), 0.35, accuracy: 1e-9, "the iron kettle on the brazier")
+        XCTAssertEqual(a.level(.paperScreens), 0.4 * (0.4 + 0.3), accuracy: 1e-6)
+        XCTAssertEqual(a.level(.wind), 0.1 + 0.3, accuracy: 1e-6)
+        XCTAssertEqual(a.indoors, 0.8 - 0.5 * 0.5, accuracy: 1e-9, "the screens half open")
+        XCTAssertEqual(a.level(.rainOnGlass), 0.8 * 0.55, accuracy: 1e-6, "snow ticking on the paper")
+        XCTAssertEqual(a.snowOnGlass, 0.8, accuracy: 1e-6)
+        XCTAssertEqual(a.level(.templeBell), 0.25, accuracy: 1e-9, "the bell by day")
+        XCTAssertEqual(a.level(.dawnChorus), 0)
+        XCTAssertEqual(a.closeness, MoodLook.ambienceCloseness(base: 0.75, .delicate), accuracy: 1e-9)
+        XCTAssertEqual(a.density, MoodLook.ambienceDensity(.delicate), accuracy: 1e-9)
+        XCTAssertEqual(a.wetness, 0)
+        XCTAssertEqual(a.nightCool, 0)
+        for source in [AmbienceSource.fire, .crickets, .owl, .surf, .road, .clock, .lapping] { XCTAssertEqual(a.level(source), 0, "\(source)") }
+
+        // Indoors follows the screens (0.8 closed … 0.3 open), and the snow's ticks on the paper with it.
+        for screens in [0.0, 0.25, 1.0] {
+            var m = TeaHouseSnowModel()
+            m.setSky(s)
+            let b = teaHouseStep(&m, seconds: 0.1, state: ThemeState(values: ["screens": .number(screens)])).ambience
+            XCTAssertEqual(b.indoors, 0.8 - 0.5 * screens, accuracy: 1e-9, "screens \(screens)")
+            XCTAssertEqual(b.level(.rainOnGlass), 0.8 * (0.8 - 0.5 * screens), accuracy: 1e-6, "screens \(screens)")
+            XCTAssertEqual(TeaHouseSnowModel.indoors(screens: screens), 0.8 - 0.5 * screens, accuracy: 1e-12)
+        }
+        // The snow's ticks follow the snow: none without it, half as many at half the snow.
+        func ticks(_ snow: Float) -> (Double, Double) {
+            var m = TeaHouseSnowModel()
+            var snowy = s; snowy.snow = snow
+            m.setSky(snowy)
+            let a = teaHouseStep(&m, seconds: 0.1).ambience
+            return (a.level(.rainOnGlass), a.snowOnGlass)
+        }
+        XCTAssertEqual(ticks(0).0, 0)
+        XCTAssertEqual(ticks(0).1, 0)
+        XCTAssertEqual(ticks(0.4).0, 0.5 * ticks(0.8).0, accuracy: 1e-6)
+        XCTAssertEqual(ticks(0.4).1, 0.4, accuracy: 1e-6)
+
+        // The bell rings out fuller at dusk and through the night than at noon; birds at dawn.
+        func scene(sun: Double, hour: Double) -> AmbienceScene {
+            var m = TeaHouseSnowModel()
+            m.setSky(teaHouseSky(sun: sun, hour: hour))
+            return teaHouseStep(&m, seconds: 0.1).ambience
+        }
+        let noon = scene(sun: 60, hour: 12), dusk = scene(sun: -3, hour: 18.5), night = scene(sun: -30, hour: 23)
+        XCTAssertEqual(noon.level(.templeBell), 0.25, accuracy: 1e-9)
+        XCTAssertGreaterThan(dusk.level(.templeBell), noon.level(.templeBell) + 0.2, "louder at dusk")
+        XCTAssertEqual(night.level(.templeBell), 0.5, accuracy: 1e-9)
+        XCTAssertEqual(scene(sun: 2, hour: 6.5).level(.dawnChorus), 0.2, accuracy: 1e-9)
+        XCTAssertEqual(dusk.level(.dawnChorus), 0, "no dawn chorus in the evening")
+        XCTAssertEqual(night.level(.dawnChorus), 0)
+
+        // Rime: a rimed garden hushes the outdoors a little more and the wind drops.
+        var rimed = s; rimed.rime = 1
+        var r = TeaHouseSnowModel()
+        r.setSky(rimed)
+        let hush = teaHouseStep(&r, seconds: 0.1).ambience
+        XCTAssertEqual(hush.indoors, 0.55 + 0.15, accuracy: 1e-9)
+        XCTAssertLessThanOrEqual(hush.level(.wind), 0.15 + 1e-9)
+        XCTAssertEqual(hush.level(.rainOnGlass), 0.8 * 0.55, accuracy: 1e-6, "the ticks are on the paper: the rime doesn't hush them")
+    }
+}
