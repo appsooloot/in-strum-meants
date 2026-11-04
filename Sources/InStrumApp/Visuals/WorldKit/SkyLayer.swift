@@ -456,8 +456,11 @@ final class WeatherLayer {
             c.x += drift * (0.6 + 0.8 * c.speed / 0.03) * dt / aspect
             if c.y < -1.05 { c = newCrystal(anywhere: false) }
             if c.x > 1.05 { c.x -= 2.1 } else if c.x < -1.05 { c.x += 2.1 }
+            // A running phase (0…1): fog slows the twinkle smoothly as it thickens, and no clock wrap ever jumps it.
+            c.phase += c.rate * (1 - 0.5 * fogShare) * dt
+            if c.phase >= 1 { c.phase -= c.phase.rounded(.down) }
             crystals[i] = c
-            let tw = 0.5 + 0.5 * sin((clock * c.rate * (1 - 0.5 * fogShare) + c.phase) * 2 * .pi)
+            let tw = 0.5 + 0.5 * sin(c.phase * 2 * .pi)
             let glint = tw * tw * tw   // mostly faint, now and then a bright glint
             let alpha = (0.15 + 0.85 * glint) * (gentle ? 0.5 : 0.9) * (1 - 0.45 * fogShare)
             crystalInstances.append(SIMD4(c.x, c.y, c.size * pixelNDC, alpha))
