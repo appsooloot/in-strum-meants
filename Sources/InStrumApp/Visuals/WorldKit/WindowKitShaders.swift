@@ -314,5 +314,153 @@ enum WindowKitShaders {
                  + src.sample(lin, in.uv + t * float2(-0.5, 0.5)).rgb + src.sample(lin, in.uv + t * float2(0.5, 0.5)).rgb;
         return float4(min(c * 0.25, float3(8.0)), 1);
     }
+
+    // ---------------------------------------------------------------- the round porthole (spec §7.4)
+    // Round glass is one pane inscribed in `rect` (a circle when the rect is square on screen), in a brass ring. It
+    // draws no frost. Its glass is opaque when it has the view behind it (copied by makeView, sampled through the
+    // thick acrylic's barrel warp), and only its fog and reflection otherwise.
+    struct PortU {
+        float4 view;    // the copied view's origin in target pixels (x, y) and its size (w, h)
+        float4 centre;  // the glass's centre in target pixels (x, y), the barrel warp at the rim, view bound (0/1)
+        float4 a;       // cold outside 0…1, bolt count, the first bolt's angle (radians), the bolts' circle (of the ring)
+        float4 b;       // bolt head radius (of the ring's width), the gasket's width (of the ring's), unused, unused
+    };
+
+    constexpr sampler portLin(filter::linear, address::clamp_to_edge);
+
+    /// The view through the acrylic at a pixel, warped `k` times as far out from the glass's centre.
+    float3 portView(float2 pos, float k, constant PortU& pu, texture2d<float> view) {
+        float2 px = pu.centre.xy + (pos - pu.centre.xy) * k - pu.view.xy;
+        float2 uv = clamp(px, float2(0.5), max(pu.view.zw - 0.5, float2(0.5))) / float2(view.get_width(), view.get_height());
+        return min(view.sample(portLin, uv, level(0.0)).rgb, float3(64.0));   // one level: no derivatives needed
+    }
+
+    fragment float4 port_glass_fragment(GlassOut in [[stage_in]], constant GlassU& u [[buffer(0)]],
+                                        constant PortU& pu [[buffer(1)]], texture2d<float> view [[texture(0)]]) {
+        float2 w = in.win;
+        float2 c = w - 0.5;
+        float rr = 2.0 * length(c);                       // 0 at the centre … 1 at the rim
+        if (rr > 1.0) return float4(0);                   // outside the circle: the view is left as it was
+        float time = u.a.z;
+        float cond = u.a.y, cold = saturate(pu.a.x);
+        float3 inside = u.glint.rgb, outside = u.light.rgb;
+        bool bound = pu.centre.w > 0.5;
+
+        // The view through thick acrylic: sampled farther out toward the rim (4% there), with a faint colour fringe
+        // on High and Ultra, a green-blue cast thickening to the rim and the deep ring's shadow just inside it.
+        float3 col = outside;
+        if (bound) {
+            float k = 1.0 + pu.centre.z * rr * rr;
+            col = portView(in.pos.xy, k, pu, view);
+            if (u.c.y > 0.5) {
+                float spread = 0.004 * rr * rr;
+                col.r = portView(in.pos.xy, k + spread, pu, view).r;
+                col.b = portView(in.pos.xy, k - spread, pu, view).b;
+            }
+            col *= mix(float3(1.0), float3(0.9, 0.97, 0.95), rr * rr) * (1.0 - 0.45 * smoothstep(0.9, 1.0, rr));
+        }
+
+        // Condensation: warm damp air on glass the sea chills fogs it from the rim in, wider and denser the colder
+        // the sea (deeper), gathering lowest; mottled (2 octaves) and beaded with droplets catching the cabin light.
+        float2 dir = rr > 1e-5 ? c / (0.5 * rr) : float2(0.0, 1.0);
+        float band = cond * (0.1 + 0.16 * cold) * (1.0 + 0.7 * saturate(-dir.y));
+        float mottle = 0.65 * vn2(w * 7.0 + float2(0.0, time * 0.01)) + 0.35 * vn2(w * 23.0 + 3.7);
+        float fogT = band > 1e-5 ? (1.0 - rr) / band : 9.0;
+        float fog = cond * (1.0 - smoothstep(0.25 + 0.45 * mottle, 1.0, fogT)) * (0.75 + 0.25 * cold);
+        float bead = step(0.93, h21(floor(in.pos.xy * 0.5) + 0.5)) * fog;
+        float fogA = fog * 0.62;
+        float3 fogCol = col * 0.55 + inside * 0.22 + 0.02 + inside * bead * 0.2;
+
+        // The cabin, faintly mirrored in the acrylic: its lamp a soft glow high on the left.
+        float2 rc = w - float2(0.28, 0.74);
+        float3 refl = u.reflection.rgb * u.reflection.w * (0.25 + 0.75 * exp(-dot(rc, rc) * 9.0));
+        if (bound) return float4(mix(col, fogCol, fogA) + refl, 1.0);
+        return float4(fogCol * fogA + refl, fogA);
+    }
+
+    // The brass ring: a rubber gasket against the glass, an inner bevel down to it, a flat flange with hex bolts,
+    // a rounded outer edge; polished brass brushed in circles, lit warm by the cabin and catching the sea's light on
+    // the bevel. Drawn over `rect` ± the frame's width, discarding off the ring.
+    fragment ColorDepth port_frame_fragment(FrameOut in [[stage_in]], constant GlassU& u [[buffer(0)]],
+                                            constant PortU& pu [[buffer(1)]]) {
+        float aspect = u.c.x;
+        float2 centre = 0.5 * (u.rect.xy + u.rect.zw);
+        float R = 0.5 * (u.rect.w - u.rect.y);          // the glass's radius (NDC-y units, round on screen)
+        float W = max(u.b.w * aspect, 1e-5);             // the ring's width
+        float2 q = (in.ndc - centre) * float2(aspect, 1.0);
+        float r = length(q);
+        if (r < R || r > R + W) discard_fragment();
+        float s = (r - R) / W;                           // 0 at the glass … 1 at the ring's outside
+        float2 radial = q / max(r, 1e-6);
+        float ang = atan2(q.y, q.x);
+        float gasket = pu.b.y;
+
+        // The cross-section's tilt along the radius (+ facing out): the bevel leans toward the glass, the flange is
+        // flat with a slight crown, the outer edge rolls away.
+        float tilt = -0.62 * smoothstep(gasket, gasket + 0.03, s) * (1.0 - smoothstep(gasket + 0.17, gasket + 0.22, s))
+                   + 0.12 * (s - 0.55) + 0.85 * smoothstep(0.84, 1.0, s);
+        tilt = clamp(tilt, -0.9, 0.9);
+        float3 nrm = normalize(float3(radial * tilt, 1.0));
+        float occl = 1.0 - 0.5 * smoothstep(0.93, 1.0, s);
+        float3 albedo = float3(0.8, 0.58, 0.26);
+        bool rubber = s < gasket;
+
+        // The bolts: hex heads on round washers at even angles round the flange, each in a dark ring of shadow.
+        float stepA = 6.2831853 / max(pu.a.y, 1.0);
+        float k = floor((ang - pu.a.z) / stepA + 0.5);
+        float ba = pu.a.z + k * stepA;
+        float2 bdir = float2(cos(ba), sin(ba));
+        float2 v = q - bdir * (R + pu.a.w * W);
+        float rb = pu.b.x * W;
+        float2 lv = abs(float2(dot(v, bdir), dot(v, float2(-bdir.y, bdir.x))));
+        float hex = max(lv.x * 0.8660254 + lv.y * 0.5, lv.y) / max(rb, 1e-6);
+        float rv = length(v) / max(rb, 1e-6);
+        if (!rubber) {
+            if (hex < 1.0) {
+                // A chamfered head: flat on top, its edges leaning out from the bolt's centre.
+                float lean = 0.75 * smoothstep(0.6, 0.98, hex);
+                nrm = normalize(float3(v / max(length(v), 1e-6) * lean, 1.0));
+                albedo = float3(0.72, 0.52, 0.24);
+                occl = 1.0;
+            } else if (rv < 1.3) {
+                nrm = float3(0.0, 0.0, 1.0);             // the washer
+                albedo = float3(0.66, 0.5, 0.28);
+            } else {
+                occl *= mix(0.45, 1.0, smoothstep(1.3, 1.75, rv));
+            }
+        }
+
+        // Brushed in circles (2 octaves, periodic round the ring), tarnished a little in patches.
+        float2 around = float2(cos(ang), sin(ang));
+        float grain = 0.6 * vn2(float2(s * 38.0, 0.0) + around * 2.5) + 0.4 * vn2(float2(s * 97.0, 5.1) + around * 6.0);
+        float tarnish = 0.6 * vn2(q * 9.0) + 0.4 * vn2(q * 23.0 + 4.0);
+        albedo *= 0.82 + 0.25 * tarnish;
+
+        float3 Lc = normalize(float3(-0.45, 0.6, 0.66));    // the cabin's lamp: up and to the left, in front
+        float3 H = normalize(Lc + float3(0.0, 0.0, 1.0));
+        float diff = saturate(dot(nrm, Lc));
+        float sh = saturate(dot(nrm, H));
+        float s2 = sh * sh, s4 = s2 * s2, s8 = s4 * s4, s16 = s8 * s8, s32 = s16 * s16, s64 = s32 * s32;
+        float3 cabin = u.glint.rgb, sea = u.light.rgb;
+        float3 col;
+        if (rubber) {
+            // The gasket: black rubber, a soft bead with a dull sheen.
+            float bead = sin(3.14159265 * saturate(s / max(gasket, 1e-4)));
+            col = float3(0.03, 0.028, 0.026) * (0.4 + 0.6 * bead) * (0.4 + cabin) + cabin * (s16 * 0.06 * bead);
+        } else {
+            // Polished metal mirrors the room: the reflected ray looks up to the lit ceiling or down to the dim floor,
+            // so the ring's rolls and bevels read as curves; the lamp's highlight runs along them, brushed in circles.
+            float3 rv3 = float3(2.0 * nrm.z * nrm.xy, 2.0 * nrm.z * nrm.z - 1.0);
+            float room = 0.2 + 0.8 * smoothstep(-0.55, 0.75, rv3.y);
+            float spec = s64 * (1.4 + 1.2 * grain) + s8 * 0.25;
+            float bevel = saturate(-tilt);
+            col = albedo * cabin * (0.06 + 0.3 * diff + 0.55 * room + spec) + albedo * sea * (0.5 * bevel + 0.05) + albedo * 0.01;
+            col *= occl;
+        }
+        ColorDepth o;
+        o.color = float4(col, 1);
+        o.depth = float4(0.02, 0, 0, 1);
+        return o;
+    }
     """
 }

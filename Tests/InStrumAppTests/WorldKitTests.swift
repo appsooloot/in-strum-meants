@@ -1167,6 +1167,15 @@ final class CoastRoadRendererTests: XCTestCase {
             let hits = pattern.numberOfMatches(in: source, range: NSRange(source.startIndex..., in: source))
             XCTAssertEqual(hits, 0, name)
         }
+        // The Underwater Kit, its probe and the porthole: no pow() at all (Beer–Lambert is exp, squares are written out).
+        XCTAssertFalse(UnderwaterShaders.common.contains("pow("), "the Underwater Kit")
+        XCTAssertFalse(String(UnderwaterProbe.source.dropFirst(SkyShaders.common.count)).contains("pow("), "the Underwater Kit's probe")
+        for fn in ["float3 portView(", "fragment float4 port_glass_fragment(", "fragment ColorDepth port_frame_fragment("] {
+            let start = try XCTUnwrap(WindowKitShaders.source.range(of: fn), fn)
+            let tail = WindowKitShaders.source[start.lowerBound...]
+            let end = tail.range(of: "\n}\n")?.upperBound ?? tail.endIndex
+            XCTAssertFalse(tail[..<end].contains("pow("), fn)
+        }
         // Any pow() in the new sky code takes a base that cannot be negative: none at all in the aurora, the real stars,
         // the pillars, iridescent cloud and the rime helpers every world calls.
         for fn in ["float3 realStars(", "float3 auroraLight(", "float lightPillar(", "float fbm3c(", "float3 iridescentCloud(",
