@@ -57,6 +57,7 @@ final class DemoRenderTests: XCTestCase {
             ("polar-choir", ISD_ENGINE_POLAR_CHOIR, DemoPhrases.polarChoir),
             ("plankton-keys", ISD_ENGINE_PLANKTON_KEYS, DemoPhrases.planktonKeys),
             ("tea-house-koto", ISD_ENGINE_TEA_HOUSE_KOTO, DemoPhrases.teaHouseKoto),
+            ("zen-shakuhachi", ISD_ENGINE_ZEN_SHAKUHACHI, DemoPhrases.zenShakuhachi),
         ]
         var written = 0
         for (name, engine, phrase) in demos {

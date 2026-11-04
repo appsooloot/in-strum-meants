@@ -1,6 +1,6 @@
 /// The app's own instruments (made entirely in the app, no recordings).
 public enum BuiltInEngine: String, Codable, CaseIterable {
-    case feltGlass, orbitPad, honeyTape, hazeBells, cabinFelt, morningBox, polarChoir, planktonKeys, teaHouseKoto
+    case feltGlass, orbitPad, honeyTape, hazeBells, cabinFelt, morningBox, polarChoir, planktonKeys, teaHouseKoto, zenShakuhachi
 
     public var displayName: String {
         switch self {
@@ -13,6 +13,7 @@ public enum BuiltInEngine: String, Codable, CaseIterable {
         case .polarChoir: return "Polar Choir"
         case .planktonKeys: return "Plankton Keys"
         case .teaHouseKoto: return "Tea House Koto"
+        case .zenShakuhachi: return "Zen Shakuhachi"
         }
     }
 }
@@ -71,6 +72,11 @@ public enum PatchLibrary {
         Patch(id: "winter-strings", name: "Winter Strings", engine: .teaHouseKoto, values: koto(pick: 0.35, silk: 0.70, body: 0.60, bloom: 0.55, yuri: 0.20, space: 0.45, width: 0.55)),
         Patch(id: "near-the-bridge", name: "Near the Bridge", engine: .teaHouseKoto, values: koto(pick: 0.15, silk: 0.25, body: 0.40, bloom: 0.25, yuri: 0.35, space: 0.25, width: 0.45)),
         Patch(id: "night-tea", name: "Night Tea", engine: .teaHouseKoto, values: koto(pick: 0.45, silk: 0.60, body: 0.55, bloom: 0.60, yuri: 0.40, space: 0.50, width: 0.50)),
+        // Zen Shakuhachi is born from its place (Zen Rock Garden), not from a song: no credit, so the names stay plain.
+        Patch(id: "zen-shakuhachi", name: "Zen Shakuhachi", engine: .zenShakuhachi, values: shakuhachi(breath: 0.45, air: 0.55, bend: 0.60, bamboo: 0.50, yuri: 0.40, echo: 0.30, space: 0.40, width: 0.45)),
+        Patch(id: "mountain-breath", name: "Mountain Breath", engine: .zenShakuhachi, values: shakuhachi(breath: 0.60, air: 0.70, bend: 0.70, bamboo: 0.45, yuri: 0.50, echo: 0.70, space: 0.60, width: 0.55)),
+        Patch(id: "hollow-bamboo", name: "Hollow Bamboo", engine: .zenShakuhachi, values: shakuhachi(breath: 0.30, air: 0.35, bend: 0.40, bamboo: 0.85, yuri: 0.30, echo: 0.15, space: 0.25, width: 0.40)),
+        Patch(id: "still-air", name: "Still Air", engine: .zenShakuhachi, values: shakuhachi(breath: 0.75, air: 0.90, bend: 0.50, bamboo: 0.40, yuri: 0.25, echo: 0.40, space: 0.55, width: 0.50)),
     ]
 
     public static func defaultPatch(for engine: BuiltInEngine) -> Patch {
@@ -109,6 +115,11 @@ public enum PatchLibrary {
 
     private static func koto(pick: Double, silk: Double, body: Double, bloom: Double, yuri: Double, space: Double, width: Double) -> [String: Double] {
         ["pick": pick, "silk": silk, "body": body, "bloom": bloom, "yuri": yuri, "space": space, "width": width]
+    }
+
+    private static func shakuhachi(breath: Double, air: Double, bend: Double, bamboo: Double, yuri: Double, echo: Double, space: Double,
+                                   width: Double) -> [String: Double] {
+        ["breath": breath, "air": air, "bend": bend, "bamboo": bamboo, "yuri": yuri, "echo": echo, "space": space, "width": width]
     }
 
     private static func pad(bloom: Double, drift: Double, motion: Double, shimmer: Double, brightness: Double, space: Double) -> [String: Double] {

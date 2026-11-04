@@ -8,7 +8,7 @@ import InStrumCore
 enum CardArt {
     case comeBackToEarth, innerbloom, musicToWatchBoysTo, highByTheBeach, stay, dunno, wings, happinessIsAButterfly
     /// Place cards (see `place(for:)`).
-    case teaHouseSnow
+    case teaHouseSnow, zenRockGarden
 
     /// The place cards breathe at one slow fixed pulse, 48 breaths a minute: with no song there is no tempo to hide.
     static let placePulse = 60.0 / 48
@@ -23,6 +23,24 @@ enum CardArt {
     private static let steamWisps: [(x: Double, f: Double, a0: Double, a1: Double, drift: Double, phase: Double, top: Double)] = [
         (0.62, 1.3, 0.012, 0.055, -0.11, 0.0, 0.74), (0.655, 1.9, 0.008, 0.040, -0.05, 2.1, 0.62),
         (0.69, 1.1, 0.016, 0.065, -0.17, 4.0, 0.56)]
+
+    /// The Zen Rock Garden card's five bamboo rings along the top (the shakuhachi's five holes: the card's easter egg): the
+    /// nodes of the eave's bamboo pole, x as fractions of the card, left to right.
+    static let rockGardenRings: [CGFloat] = [0.14, 0.32, 0.50, 0.68, 0.86]
+
+    /// The eave's bamboo pole that carries them across the top of the Zen Rock Garden card: its top and bottom edges, as
+    /// fractions of the card's height.
+    static let rockGardenPole: ClosedRange<CGFloat> = 0.035...0.078
+
+    /// The Zen Rock Garden card's five stones in three groups, each group on a moss island inside its raked rings: the
+    /// group's centre (fractions of the card), its innermost ring's half-width and its moss island's (points at 600 wide),
+    /// the rings' squash (height over width: the gravel seen from the veranda), and its stones (offset from the centre,
+    /// half-width and height, in points).
+    static let rockGardenGroups: [(x: CGFloat, y: CGFloat, ring: CGFloat, moss: CGFloat, squash: CGFloat,
+                                   stones: [(dx: CGFloat, dy: CGFloat, half: CGFloat, tall: CGFloat)])] = [
+        (0.225, 0.585, 56, 42, 0.27, [(-13, 2, 14, 44), (19, 6, 16, 19)]),
+        (0.530, 0.465, 38, 28, 0.24, [(0, 1, 18, 14)]),
+        (0.800, 0.625, 48, 36, 0.28, [(-10, 3, 14, 30), (17, 6, 9, 14)])]
 
     /// The Stay card's six-armed frost stars (x, y as fractions of the card, radius in points at 600 × 360): round the
     /// edges, clear of the liner notes (top right), the title block (bottom left) and the Listen button.
@@ -64,6 +82,7 @@ enum CardArt {
     static func place(for setID: String) -> CardArt? {
         switch setID {
         case "tea-house-snow": return .teaHouseSnow   // Set 9 (spec §11)
+        case "zen-rock-garden": return .zenRockGarden   // Set 10 (spec §11)
         default: return nil
         }
     }
@@ -73,7 +92,7 @@ enum CardArt {
         switch self {
         case .comeBackToEarth, .innerbloom, .musicToWatchBoysTo, .highByTheBeach, .stay, .dunno, .wings, .happinessIsAButterfly:
             return false
-        case .teaHouseSnow:
+        case .teaHouseSnow, .zenRockGarden:
             return true
         }
     }
@@ -91,6 +110,7 @@ enum CardArt {
         case .wings: return .system(size: 28, weight: .light, design: .rounded)
         case .happinessIsAButterfly: return .system(size: 26, weight: .regular, design: .serif)
         case .teaHouseSnow: return .system(size: 28, weight: .light, design: .serif)
+        case .zenRockGarden: return .system(size: 27, weight: .light, design: .default)
         }
     }
 
@@ -105,6 +125,7 @@ enum CardArt {
         case .wings: return 2
         case .happinessIsAButterfly: return 1
         case .teaHouseSnow: return 2.5
+        case .zenRockGarden: return 4
         }
     }
 
@@ -116,7 +137,7 @@ enum CardArt {
         case .stay: return 2 * credit.pulsePeriod
         case .wings: return 60.0 / 60
         case .happinessIsAButterfly: return credit.pulsePeriod   // 68 BPM: the motes blink at 60/68 s
-        case .teaHouseSnow: return Self.placePulse
+        case .teaHouseSnow, .zenRockGarden: return Self.placePulse
         default: return credit.pulsePeriod
         }
     }
@@ -133,6 +154,7 @@ enum CardArt {
         case .wings: Self.auroraWater(ctx, size, t, pulse)
         case .happinessIsAButterfly: Self.moonlitCove(ctx, size, t, pulse)
         case .teaHouseSnow: Self.teaHouse(ctx, size, t, pulse)
+        case .zenRockGarden: Self.rockGarden(ctx, size, t, pulse)
         }
     }
 
@@ -954,6 +976,274 @@ enum CardArt {
         core.addFilter(.blur(radius: 1.2 * k))
         core.drawLayer { layer in for i in 0..<3 { wisp(layer, i, width: { 1.2 + 1.5 * $0 }, opacity: 0.28) } }
     }
+
+    // MARK: - Zen Rock Garden (a place card): a dry garden at dawn seen from a temple hall's veranda, raked circles round
+    // five stones, and the eave's bamboo pole along the top with its five rings
+
+    private static func rockGarden(_ ctx: GraphicsContext, _ size: CGSize, _ t: Double, _ pulse: Double) {
+        let w = size.width, h = size.height
+        let k: CGFloat = w / 600
+        let breath: Double = 0.5 + 0.5 * cos(2 * Double.pi * t / pulse)   // 1 at the top of each breath
+        let poleTop: CGFloat = h * rockGardenPole.lowerBound, poleBottom: CGFloat = h * rockGardenPole.upperBound
+        let cap: CGFloat = h * 0.235, wallBottom: CGFloat = h * 0.345, near: CGFloat = h * 0.715, veranda: CGFloat = h * 0.80
+        var light = ctx
+        light.blendMode = .plusLighter
+
+        // The sky at dawn beyond the wall, blue-violet to rose to apricot, and the sun's glow low on the left behind the
+        // woods, a little brighter on each breath.
+        ctx.fill(Path(CGRect(x: 0, y: 0, width: w, height: wallBottom)), with: .linearGradient(
+            Gradient(stops: [.init(color: Color(red: 0.46, green: 0.50, blue: 0.68), location: 0),
+                             .init(color: Color(red: 0.84, green: 0.72, blue: 0.76), location: 0.5),
+                             .init(color: Color(red: 0.99, green: 0.82, blue: 0.64), location: 1)]),
+            startPoint: CGPoint(x: 0, y: poleBottom), endPoint: CGPoint(x: 0, y: cap)))
+        let dawn = Color(red: 1, green: 0.74, blue: 0.46)
+        let sun = CGPoint(x: w * 0.06, y: cap - 2 * k)
+        light.fill(Path(ellipseIn: CGRect(x: sun.x - 170 * k, y: sun.y - 120 * k, width: 340 * k, height: 240 * k)), with: .radialGradient(
+            Gradient(colors: [dawn.opacity(0.22 + 0.05 * breath), dawn.opacity(0)]), center: sun, startRadius: 0, endRadius: 170 * k))
+
+        // The temple's woods beyond the wall: rounded crowns in two layers, the far one hazy in the dawn.
+        let woods: [(colour: Color, rise: CGFloat, small: CGFloat, large: CGFloat, seed: Int)] = [
+            (Color(red: 0.62, green: 0.60, blue: 0.66), 26, 14, 22, 101), (Color(red: 0.30, green: 0.34, blue: 0.32), 14, 11, 19, 111)]
+        for layer in woods {
+            for i in 0..<26 {
+                let x: CGFloat = w * (CGFloat(i) + CGFloat(hash(i, layer.seed))) / 25 - 10 * k
+                let r: CGFloat = (layer.small + (layer.large - layer.small) * CGFloat(hash(i, layer.seed + 1))) * k
+                let y: CGFloat = cap - layer.rise * k * (0.4 + 0.6 * CGFloat(hash(i, layer.seed + 2))) + r * 0.6
+                ctx.fill(Path(ellipseIn: CGRect(x: x - r * 1.3, y: y - r, width: r * 2.6, height: r * 2)), with: .color(layer.colour))
+            }
+        }
+        // A tall cedar among them at the left, its crown lost above the eave: needle clumps drooping from a dark trunk.
+        let cedarX: CGFloat = w * 0.16
+        ctx.fill(Path(CGRect(x: cedarX - 2.2 * k, y: poleBottom, width: 4.4 * k, height: cap - poleBottom)),
+                 with: .color(Color(red: 0.16, green: 0.12, blue: 0.11)))
+        for i in 0..<80 {
+            let u: CGFloat = CGFloat(hash(i, 121))
+            let y: CGFloat = poleBottom + (cap - poleBottom) * u
+            let half: CGFloat = (14 + 30 * u) * k
+            let x: CGFloat = cedarX + half * (2 * CGFloat(hash(i, 122)) - 1)
+            let r: CGFloat = (5 + 5 * CGFloat(hash(i, 123))) * k
+            let shade: Double = 0.10 + 0.07 * hash(i, 124)
+            ctx.fill(Path(ellipseIn: CGRect(x: x - r, y: y - 0.45 * r, width: 2 * r, height: 0.9 * r)),
+                     with: .color(Color(red: shade, green: shade + 0.05, blue: shade + 0.04)))
+        }
+        // A maple beyond the wall at the right, red with autumn, reaching in over the cap.
+        let bark = Color(red: 0.17, green: 0.12, blue: 0.11)
+        let trunk: [CGPoint] = [CGPoint(x: w * 0.905, y: cap + 3 * k), CGPoint(x: w * 0.895, y: h * 0.17),
+                                CGPoint(x: w * 0.86, y: h * 0.125), CGPoint(x: w * 0.80, y: h * 0.115)]
+        let bough: [CGPoint] = [CGPoint(x: w * 0.893, y: h * 0.165), CGPoint(x: w * 0.95, y: h * 0.125), CGPoint(x: w * 1.01, y: h * 0.12)]
+        let twig: [CGPoint] = [CGPoint(x: w * 0.86, y: h * 0.125), CGPoint(x: w * 0.84, y: h * 0.20)]
+        let limbs: [([CGPoint], CGFloat)] = [(trunk, 3.6), (bough, 2.6), (twig, 1.6)]
+        for (points, width) in limbs {
+            var limb = Path()
+            limb.addLines(points)
+            ctx.stroke(limb, with: .color(bark), style: StrokeStyle(lineWidth: width * k, lineCap: .round, lineJoin: .round))
+        }
+        for i in 0..<90 {
+            let a: Double = 2 * Double.pi * hash(i, 61), reach: Double = hash(i, 62).squareRoot()
+            let x: CGFloat = w * 0.88 + 72 * k * CGFloat(reach * cos(a))
+            let y: CGFloat = h * 0.150 + 26 * k * CGFloat(reach * sin(a))
+            let r: CGFloat = (4 + 3 * CGFloat(hash(i, 63))) * k
+            let shade: Double = hash(i, 64)
+            let red = Color(red: 0.62 + 0.30 * shade, green: 0.12 + 0.30 * hash(i, 65) * shade, blue: 0.08 + 0.06 * hash(i, 66))
+            ctx.fill(mapleLeaf(CGPoint(x: x, y: y), r, 2 * Double.pi * hash(i, 67)), with: .color(red.opacity(0.95)))
+        }
+
+        // The low earthen wall: the clay face with its old oil stains, a damp foot, and the tiled cap with its round ends.
+        ctx.fill(Path(CGRect(x: 0, y: cap, width: w, height: wallBottom - cap)), with: .linearGradient(
+            Gradient(colors: [Color(red: 0.80, green: 0.66, blue: 0.48), Color(red: 0.66, green: 0.52, blue: 0.38)]),
+            startPoint: CGPoint(x: 0, y: cap), endPoint: CGPoint(x: 0, y: wallBottom)))
+        let stain = Color(red: 0.45, green: 0.33, blue: 0.24)
+        for i in 0..<16 {
+            let x: CGFloat = w * CGFloat(hash(i, 75)), width: CGFloat = (14 + 30 * CGFloat(hash(i, 76))) * k
+            let top: CGFloat = cap + (6 + 14 * CGFloat(hash(i, 77))) * k
+            ctx.fill(Path(CGRect(x: x, y: top, width: width, height: wallBottom - top)), with: .linearGradient(
+                Gradient(colors: [stain.opacity(0), stain.opacity(0.22 + 0.12 * hash(i, 78))]),
+                startPoint: CGPoint(x: 0, y: top), endPoint: CGPoint(x: 0, y: wallBottom)))
+        }
+        ctx.fill(Path(CGRect(x: 0, y: wallBottom - 3.5 * k, width: w, height: 3.5 * k)), with: .color(Color(red: 0.50, green: 0.39, blue: 0.30)))
+        ctx.fill(Path(CGRect(x: 0, y: cap - 7 * k, width: w, height: 9 * k)), with: .color(Color(red: 0.21, green: 0.21, blue: 0.24)))
+        ctx.fill(Path(CGRect(x: 0, y: cap - 9 * k, width: w, height: 2.6 * k)), with: .color(Color(red: 0.36, green: 0.36, blue: 0.40)))
+        for i in 0..<40 {
+            let x: CGFloat = w * (CGFloat(i) + 0.5) / 40
+            ctx.fill(Path(ellipseIn: CGRect(x: x - 3.9 * k, y: cap - 1.5 * k, width: 7.8 * k, height: 7 * k)),
+                     with: .color(Color(red: 0.26, green: 0.26, blue: 0.29)))
+            ctx.fill(Path(ellipseIn: CGRect(x: x - 2 * k, y: cap + 0.2 * k, width: 4 * k, height: 3.4 * k)),
+                     with: .color(Color(red: 0.33, green: 0.33, blue: 0.37)))
+        }
+        // Mist drifting along the foot of the wall.
+        var mist = ctx
+        mist.addFilter(.blur(radius: 8 * k))
+        mist.drawLayer { layer in
+            let span = Double(w + 160 * k)
+            for i in 0..<9 {
+                let travel: Double = Double(w) * hash(i, 71) + t * 10 * Double(k) * (0.6 + hash(i, 72))
+                let x: CGFloat = CGFloat(travel.truncatingRemainder(dividingBy: span)) - 80 * k
+                layer.fill(Path(ellipseIn: CGRect(x: x - 70 * k, y: wallBottom - 12 * k, width: 140 * k, height: 22 * k)),
+                           with: .color(Color(red: 1, green: 0.97, blue: 0.93).opacity(0.20)))
+            }
+        }
+
+        // The gravel: white and warm in the low sun (which breathes on it), hazier towards the wall, and the hall's shadow
+        // over the near part.
+        ctx.fill(Path(CGRect(x: 0, y: wallBottom, width: w, height: veranda - wallBottom)), with: .linearGradient(
+            Gradient(colors: [Color(red: 0.80, green: 0.79, blue: 0.78), Color(red: 0.92, green: 0.89, blue: 0.83)]),
+            startPoint: CGPoint(x: 0, y: wallBottom), endPoint: CGPoint(x: 0, y: near)))
+        let morning = Color(red: 1, green: 0.84, blue: 0.62)
+        light.fill(Path(ellipseIn: CGRect(x: -w * 0.45, y: wallBottom - h * 0.25, width: w * 1.1, height: h * 0.9)), with: .radialGradient(
+            Gradient(colors: [morning.opacity(0.09 + 0.08 * breath), morning.opacity(0)]),
+            center: CGPoint(x: 0, y: wallBottom), startRadius: 0, endRadius: w * 0.62))
+        let hallShadow = Color(red: 0.44, green: 0.47, blue: 0.56)
+        ctx.fill(Path(CGRect(x: 0, y: near - 8 * k, width: w, height: veranda - near + 8 * k)), with: .linearGradient(
+            Gradient(stops: [.init(color: hallShadow.opacity(0), location: 0), .init(color: hallShadow.opacity(0.55), location: 0.35),
+                             .init(color: Color(red: 0.38, green: 0.41, blue: 0.50).opacity(0.75), location: 1)]),
+            startPoint: CGPoint(x: 0, y: near - 8 * k), endPoint: CGPoint(x: 0, y: veranda)))
+
+        // The straight rake lines between the groups: a lit ridge over its shadowed side, the grooves growing towards the
+        // viewer, each line stopping a gravel-width short of a group's rings.
+        let ringCount = 4, ringStep: CGFloat = 10, lines = 22
+        func depth(_ y: CGFloat) -> CGFloat { 0.55 + 0.45 * (y - wallBottom) / (veranda - wallBottom) }
+        let ridge = Color(red: 1, green: 0.98, blue: 0.93), furrow = Color(red: 0.50, green: 0.50, blue: 0.57)
+        for i in 1..<lines {
+            let y: CGFloat = wallBottom + (veranda - wallBottom) * CGFloat(pow(Double(i) / Double(lines), 1.3))
+            let s: CGFloat = depth(y)
+            var runs: [(CGFloat, CGFloat)] = [(0, w)]
+            for g in Self.rockGardenGroups {
+                let rx: CGFloat = (g.ring + ringStep * CGFloat(ringCount - 1) + 6) * k
+                let dy: CGFloat = (y - h * g.y) / (rx * g.squash)
+                guard abs(dy) < 1 else { continue }
+                let half: CGFloat = rx * (1 - dy * dy).squareRoot()
+                let lo: CGFloat = w * g.x - half, hi: CGFloat = w * g.x + half
+                var next: [(CGFloat, CGFloat)] = []
+                for (a, b) in runs {
+                    if b <= lo || a >= hi { next.append((a, b)); continue }
+                    if a < lo { next.append((a, lo)) }
+                    if b > hi { next.append((hi, b)) }
+                }
+                runs = next
+            }
+            for (a, b) in runs {
+                ctx.fill(Path(CGRect(x: a, y: y + 0.6 * k * s, width: b - a, height: 1.3 * k * s)), with: .color(furrow.opacity(0.42)))
+                ctx.fill(Path(CGRect(x: a, y: y - 0.6 * k * s, width: b - a, height: k * s)), with: .color(ridge.opacity(0.60)))
+            }
+        }
+
+        // The three groups: rings breathing outward on each breath as if just raked, a moss island, and five stones in all,
+        // each lit from the low sun on the left and casting its long morning shadow to the right.
+        for (gi, g) in Self.rockGardenGroups.enumerated() {
+            let cx: CGFloat = w * g.x, cy: CGFloat = h * g.y
+            let s: CGFloat = depth(cy)
+            for j in (0..<ringCount).reversed() {
+                let rx: CGFloat = (g.ring + ringStep * CGFloat(j)) * k
+                let ry: CGFloat = rx * g.squash
+                let phase: Double = frac(t / pulse - Double(j) / Double(ringCount) - Double(gi) * 0.21)
+                let glint: Double = 0.5 + 0.5 * exp(-phase * 3.5)
+                ctx.stroke(Path(ellipseIn: CGRect(x: cx - rx, y: cy + 0.8 * k * s - ry, width: 2 * rx, height: 2 * ry)),
+                           with: .color(furrow.opacity(0.45)), lineWidth: 1.4 * k * s)
+                ctx.stroke(Path(ellipseIn: CGRect(x: cx - rx, y: cy - 0.4 * k * s - ry, width: 2 * rx, height: 2 * ry)),
+                           with: .color(ridge.opacity(0.70 * glint)), lineWidth: 1.1 * k * s)
+            }
+            let mx: CGFloat = g.moss * k, my: CGFloat = g.moss * k * g.squash * 1.25
+            ctx.fill(Path(ellipseIn: CGRect(x: cx - mx * 1.05, y: cy - my * 0.95, width: mx * 2.1, height: my * 2)),
+                     with: .color(Color(red: 0.15, green: 0.22, blue: 0.12)))
+            ctx.fill(Path(ellipseIn: CGRect(x: cx - mx, y: cy - my, width: mx * 2, height: my * 1.85)), with: .linearGradient(
+                Gradient(colors: [Color(red: 0.38, green: 0.48, blue: 0.23), Color(red: 0.20, green: 0.31, blue: 0.15)]),
+                startPoint: CGPoint(x: cx, y: cy - my), endPoint: CGPoint(x: cx, y: cy + my)))
+            for q in 0..<14 {
+                let a: Double = 2 * Double.pi * hash(gi * 31 + q, 81)
+                let reach: CGFloat = CGFloat(hash(gi * 31 + q, 82).squareRoot())
+                let p = CGPoint(x: cx + mx * 0.85 * reach * CGFloat(cos(a)), y: cy + my * 0.75 * reach * CGFloat(sin(a)))
+                ctx.fill(Path(ellipseIn: CGRect(x: p.x - 2.2 * k, y: p.y - k, width: 4.4 * k, height: 2 * k)),
+                         with: .color(Color(red: 0.50, green: 0.60, blue: 0.29).opacity(0.6)))
+            }
+            for stone in g.stones {
+                let bx: CGFloat = cx + stone.dx * k, by: CGFloat = cy + stone.dy * k
+                let hw: CGFloat = stone.half * k, tall: CGFloat = stone.tall * k
+                ctx.fill(Path(ellipseIn: CGRect(x: bx - 0.2 * hw, y: by - 3 * k, width: hw * 2.6 + tall * 0.8, height: 6 * k)),
+                         with: .color(Color(red: 0.11, green: 0.16, blue: 0.11).opacity(0.55)))
+                var body = Path()
+                body.addLines([CGPoint(x: bx - hw, y: by), CGPoint(x: bx - hw * 0.95, y: by - tall * 0.55),
+                               CGPoint(x: bx - hw * 0.55, y: by - tall * 0.92), CGPoint(x: bx - hw * 0.05, y: by - tall),
+                               CGPoint(x: bx + hw * 0.6, y: by - tall * 0.8), CGPoint(x: bx + hw, y: by - tall * 0.35),
+                               CGPoint(x: bx + hw * 1.05, y: by)])
+                body.closeSubpath()
+                ctx.fill(body, with: .color(Color(red: 0.26, green: 0.25, blue: 0.24)))
+                var lit = Path()
+                lit.addLines([CGPoint(x: bx - hw, y: by - k), CGPoint(x: bx - hw * 0.95, y: by - tall * 0.55),
+                              CGPoint(x: bx - hw * 0.55, y: by - tall * 0.92), CGPoint(x: bx - hw * 0.05, y: by - tall),
+                              CGPoint(x: bx + hw * 0.05, y: by - tall * 0.55), CGPoint(x: bx - hw * 0.35, y: by - k)])
+                lit.closeSubpath()
+                ctx.fill(lit, with: .linearGradient(
+                    Gradient(colors: [Color(red: 0.66, green: 0.60, blue: 0.52), Color(red: 0.40, green: 0.37, blue: 0.34)]),
+                    startPoint: CGPoint(x: bx - hw, y: by - tall), endPoint: CGPoint(x: bx, y: by)))
+            }
+        }
+        // Two maple leaves drifting down over the wall into the garden, each taking eight breaths.
+        for leaf in 0..<2 {
+            let u: Double = frac(t / (8 * pulse) + Double(leaf) * 0.5)
+            let sway: Double = sin(2 * Double.pi * (u * 2.5 + Double(leaf) * 0.3))
+            let x: CGFloat = w * CGFloat(0.84 - 0.24 * u) + 12 * k * CGFloat(sway)
+            let y: CGFloat = h * CGFloat(0.16 + 0.52 * u)
+            let fade: Double = min(1, (1 - u) / 0.15) * min(1, u / 0.05)
+            ctx.fill(mapleLeaf(CGPoint(x: x, y: y), 4.6 * k, 2 * Double.pi * (u * 1.5 + Double(leaf) * 0.4)),
+                     with: .color(Color(red: 0.86, green: 0.28, blue: 0.12).opacity(0.9 * fade)))
+        }
+
+        // The veranda's boards below the garden, their edge catching the dawn.
+        ctx.fill(Path(CGRect(x: 0, y: veranda, width: w, height: h - veranda)), with: .linearGradient(
+            Gradient(colors: [Color(red: 0.24, green: 0.17, blue: 0.12), Color(red: 0.09, green: 0.06, blue: 0.05)]),
+            startPoint: CGPoint(x: 0, y: veranda), endPoint: CGPoint(x: 0, y: h)))
+        ctx.fill(Path(CGRect(x: 0, y: veranda, width: w, height: 2.2 * k)), with: .color(Color(red: 0.86, green: 0.66, blue: 0.44).opacity(0.75)))
+        for fy: CGFloat in [0.865, 0.935] {
+            ctx.fill(Path(CGRect(x: 0, y: h * fy, width: w, height: 0.8 * k)), with: .color(Color(red: 0.05, green: 0.03, blue: 0.02).opacity(0.6)))
+        }
+
+        // The eave above: its dark underside, and the bamboo pole along the top with its five rings (the shakuhachi's five
+        // holes); a glint runs along the rings, one after another, on each breath.
+        ctx.fill(Path(CGRect(x: 0, y: 0, width: w, height: poleTop + k)), with: .linearGradient(
+            Gradient(colors: [Color(red: 0.10, green: 0.08, blue: 0.07), Color(red: 0.19, green: 0.15, blue: 0.12)]),
+            startPoint: .zero, endPoint: CGPoint(x: 0, y: poleTop)))
+        ctx.fill(Path(CGRect(x: 0, y: poleTop, width: w, height: poleBottom - poleTop)), with: .linearGradient(
+            Gradient(stops: [.init(color: Color(red: 0.40, green: 0.38, blue: 0.20), location: 0),
+                             .init(color: Color(red: 0.80, green: 0.75, blue: 0.47), location: 0.32),
+                             .init(color: Color(red: 0.56, green: 0.52, blue: 0.29), location: 0.6),
+                             .init(color: Color(red: 0.30, green: 0.28, blue: 0.14), location: 1)]),
+            startPoint: CGPoint(x: 0, y: poleTop), endPoint: CGPoint(x: 0, y: poleBottom)))
+        ctx.fill(Path(CGRect(x: 0, y: poleBottom, width: w, height: 2.5 * k)), with: .color(Color(red: 0.10, green: 0.08, blue: 0.06).opacity(0.40)))
+        let glow = Color(red: 1, green: 0.92, blue: 0.66)
+        let ringCountOnPole = Double(Self.rockGardenRings.count)
+        for (i, fx) in Self.rockGardenRings.enumerated() {
+            let x: CGFloat = w * fx
+            let glint: Double = exp(-frac(t / pulse - Double(i) / ringCountOnPole) * 5)
+            let node = CGRect(x: x - 2.6 * k, y: poleTop - 1.2 * k, width: 5.2 * k, height: poleBottom - poleTop + 2.4 * k)
+            ctx.fill(Path(node), with: .linearGradient(
+                Gradient(stops: [.init(color: Color(red: 0.34, green: 0.31, blue: 0.15), location: 0),
+                                 .init(color: Color(red: 0.72, green: 0.67, blue: 0.40), location: 0.35),
+                                 .init(color: Color(red: 0.25, green: 0.23, blue: 0.11), location: 1)]),
+                startPoint: CGPoint(x: 0, y: poleTop), endPoint: CGPoint(x: 0, y: poleBottom)))
+            ctx.fill(Path(CGRect(x: x - 0.6 * k, y: node.minY, width: 1.2 * k, height: node.height)),
+                     with: .color(Color(red: 0.18, green: 0.16, blue: 0.08)))
+            let middle = CGPoint(x: x, y: (poleTop + poleBottom) / 2)
+            light.fill(Path(ellipseIn: CGRect(x: x - 14 * k, y: poleTop - 8 * k, width: 28 * k, height: poleBottom - poleTop + 16 * k)),
+                       with: .radialGradient(Gradient(colors: [glow.opacity(0.55 * glint), glow.opacity(0)]),
+                                             center: middle, startRadius: 0, endRadius: 14 * k))
+        }
+    }
+
+    /// A maple leaf: five points, alternating between `r` and 0.45 `r` from its centre, turned by `a`.
+    private static func mapleLeaf(_ c: CGPoint, _ r: CGFloat, _ a: Double) -> Path {
+        var p = Path()
+        for q in 0..<10 {
+            let reach: CGFloat = q % 2 == 0 ? r : r * 0.45
+            let angle: Double = a + Double(q) * Double.pi / 5
+            let point = CGPoint(x: c.x + reach * CGFloat(cos(angle)), y: c.y + reach * CGFloat(sin(angle)))
+            if q == 0 { p.move(to: point) } else { p.addLine(to: point) }
+        }
+        p.closeSubpath()
+        return p
+    }
+
+    /// The fractional part, in 0..<1 for a negative x too (a phase that started before time zero).
+    private static func frac(_ x: Double) -> Double { x - x.rounded(.down) }
 
     // MARK: - Noise
 
