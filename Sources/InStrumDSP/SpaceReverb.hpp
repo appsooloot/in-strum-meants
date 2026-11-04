@@ -11,6 +11,9 @@ public:
     SpaceReverb(double sampleRate, int maxFrames);
     /// size, damping, shimmer 0…1; pre-delay 0…80 ms. Real-time safe.
     void configure(float size, float damping, float predelayMs, float shimmer);
+    /// The tank's decay (RT60, seconds) in place of the one `size` sets, from the next configure; 0 (the default)
+    /// keeps the size's own. Real-time safe.
+    void setDecay(float seconds) { decayOverride = seconds; }
     /// 100% wet. In-place is allowed.
     void process(const float *inL, const float *inR, float *outL, float *outR, int frames);
     void clear();
@@ -47,6 +50,7 @@ private:
     float gain[kLines] = {};
     float lfoPhase[kLines] = {}, lfoRate[kLines] = {};
     float modDepth;
+    float decayOverride = 0;
     Smoothed predelaySamples;
     // Shimmer (octave up, two crossfaded grains)
     Delay shimmerBuf;

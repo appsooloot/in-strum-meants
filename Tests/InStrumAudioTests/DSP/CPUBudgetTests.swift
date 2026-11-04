@@ -95,6 +95,16 @@ final class CPUBudgetTests: XCTestCase {
         XCTAssertLessThan(seconds / 10, 0.06, "Plankton Keys used \(String(format: "%.1f", seconds * 10))% of real time")
     }
 
+    /// A 12-note chord struck every second for 10 s over a 4-note roll held from the start (it rolls from 0.3 s), at
+    /// the default dials (tube, steel and reverb all running).
+    func testReefMarimbaBudget() {
+        var events = [57, 62, 66, 69].map { R.noteOn(0, UInt8($0), 100) }
+        let chord: [UInt8] = [36, 43, 48, 52, 55, 60, 64, 67, 71, 72, 76, 79]
+        for k in 0..<10 { for n in chord { events.append(R.noteOn(0.5 + Double(k), n, 90)) } }
+        let seconds = bestOfThree { _ = R.render(ISD_ENGINE_REEF_MARIMBA, seconds: 10, events: events) }
+        XCTAssertLessThan(seconds / 10, 0.06, "Reef Marimba used \(String(format: "%.1f", seconds * 10))% of real time")
+    }
+
     /// The cabin's and the bedroom's soundscapes, each heard through the window.
     func testWindowAmbienceBudget() {
         typealias A = AmbienceTests
