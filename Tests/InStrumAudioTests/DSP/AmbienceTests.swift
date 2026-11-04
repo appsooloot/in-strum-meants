@@ -444,9 +444,9 @@ extension AmbienceTests {
             let sorted = frames[lo..<hi].sorted()
             let hit = frames[i] - sorted[sorted.count / 2] >= db
             if hit && start < 0 { start = i }
-            if !hit && start >= 0 { runs.append((start, i - start)); start = -1 }
+            if !hit && start >= 0 { runs.append((start: start, length: i - start)); start = -1 }
         }
-        if start >= 0 { runs.append((start, frames.count - start)) }
+        if start >= 0 { runs.append((start: start, length: frames.count - start)) }
         return runs
     }
 
@@ -463,7 +463,7 @@ extension AmbienceTests {
 
     /// Over two minutes at density 1.5 the ice groans (40–120 Hz swells of 1–4 s, 8 dB over their surroundings) and
     /// cracks (5 ms broadband transients, 12 dB over the 200 ms around them).
-    func testIceGroansAndCracks() throws {
+    func testIceGroansAndCracks() {
         guard let a = isd_ambience_create(Self.sr, 512, 1) else { return XCTFail("no ambience") }
         defer { isd_ambience_destroy(a) }
         isd_ambience_set_density(a, 1.5)
@@ -475,7 +475,7 @@ extension AmbienceTests {
         }
         let started = isd_ambience_debug_events(a, ISD_AMB_ICE_GROAN)
         XCTAssertGreaterThanOrEqual(started, 5, "\(started) groans and cracks started")
-        let mid = Self.mid((l, r))
+        let mid = Self.mid((l: l, r: r))
         // Cracks: the sample-to-sample difference keeps the click and drops the groans and the bed.
         var diff = [Float](repeating: 0, count: mid.count)
         for i in 1..<mid.count { diff[i] = mid[i] - mid[i - 1] }
@@ -495,7 +495,7 @@ extension AmbienceTests {
         }
         let n = Int(0.25 * lowSR)
         let frames = stride(from: 0, to: band.count - n + 1, by: n).map { s -> Double in
-            let e = band[s..<(s + n)].reduce(0) { $0 + $1 * $1 } / Double(n)
+            let e = band[s..<(s + n)].reduce(0.0) { $0 + $1 * $1 } / Double(n)
             return e > 0 ? 10 * log10(e) : -200
         }
         let groans = Self.swells(frames, above: 8, window: 80).filter { (2...18).contains($0.length) }   // 0.5–4.5 s
@@ -506,7 +506,7 @@ extension AmbienceTests {
     func testBoatPasses() {
         let out = Self.render(seconds: 26, actions: [Self.level(ISD_AMB_BOAT, 1), Self.startBoat(at: 2)])
         let left = Self.frameDB(Self.bandpass(out.l, 60, 120), ms: 500), right = Self.frameDB(Self.bandpass(out.r, 60, 120), ms: 500)
-        let both = zip(left, right).map { 10 * log10(0.5 * (pow(10, $0 / 10) + pow(10, $1 / 10))) }
+        let both: [Double] = zip(left, right).map { (a: Double, b: Double) -> Double in 10 * log10(0.5 * (pow(10, a / 10) + pow(10, b / 10))) }
         let peak = both.max() ?? -200
         XCTAssertGreaterThan(peak, -50, "the boat is heard (\(peak) dB)")
         XCTAssertGreaterThanOrEqual(peak - both[5], 10, "the engine swells in: \(both[5]) → \(peak) dB")
@@ -532,7 +532,7 @@ extension AmbienceTests {
         for i in stride(from: 0, to: total, by: 512) {
             l.withUnsafeMutableBufferPointer { lp in r.withUnsafeMutableBufferPointer { rp in isd_ambience_render(a, lp.baseAddress! + i, rp.baseAddress! + i, Int32(min(512, total - i))) } }
         }
-        let body = SynthRender.slice(Self.mid((l, r)), 3, 63)
+        let body = SynthRender.slice(Self.mid((l: l, r: r)), 3, 63)
         let runs = Self.swells(Self.frameDB(Self.bandpass(body, 300, 2000), ms: 50), above: 6, window: 60)
         let sloshes = runs.filter { (4...20).contains($0.length) }   // 0.2–1.0 s in 50 ms frames
         XCTAssertTrue((6...40).contains(sloshes.count), "\(sloshes.count) sloshes a minute (of \(runs.count) swells)")
