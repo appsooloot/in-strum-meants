@@ -34,9 +34,11 @@ final class PreviewRenderer {
     /// a frame of `themeID` at each time (seconds).
     /// `sky` overrides the Living Sky for worlds (frozen settings give repeatable frames); `mood` sets the set's mood.
     /// `skyEdit` holds each frame's sky in a state the Living Sky only reaches over minutes (a world fully rimed).
+    /// `controls` gives the director's controls at each time (hold the moment, the sleep dim, Reduce Motion); the
+    /// renderers then step by the director's `visualDt`, and each capture takes its `exposureScale`.
     func render(themeID: String, at times: [Double], state: ThemeState = ThemeState(), quality: QualityLevel = .high,
                 sky: SkySettings? = nil, mood: Mood = .neutral, gentle: Bool = false,
-                skyEdit: ((inout SkyState) -> Void)? = nil) -> [CGImage] {
+                skyEdit: ((inout SkyState) -> Void)? = nil, controls: ((Double) -> SceneControls)? = nil) -> [CGImage] {
         let director = SceneDirector(themeID: themeID, state: state, reaction: ReactionPresets.expressivePianist)
         let start = Date(timeIntervalSince1970: 1_793_000_000)   // a fixed wall clock, so previews repeat
         var elapsed = 0.0
@@ -46,7 +48,7 @@ final class PreviewRenderer {
         var perf = PerformanceState()
         let script = ScriptedPerformance.demo
         var next = 0, time = 0.0
-        let dt = 1.0 / 60
+        let frameStep = 1.0 / 60
         var garden: ButterflyRenderer?, steinway: SteinwayRenderer?, moonlitLake: MoonlitLakeRenderer?
         var lounge: SpaceshipLoungeRenderer?, beach: GoldenHourBeachRenderer?, road: CoastRoadRenderer?
         var cabin: SnowboundCabinRenderer?
@@ -58,25 +60,27 @@ final class PreviewRenderer {
         var images: [CGImage] = []
         for t in times.sorted() {
             var current: ThemeRenderer?
-            while time + dt <= t || current == nil {
-                time += dt
+            while time + frameStep <= t || current == nil {
+                time += frameStep
                 var events: [PerformanceEvent] = []
                 while next < script.count, script[next].time <= time {
                     events += perf.apply(script[next].message, at: script[next].time)
                     next += 1
                 }
+                if let controls { director.controls = controls(time) }
                 director.handle(events, at: time)
                 elapsed = time
-                var frame = director.step(dt: dt, t: time, quality: quality)
+                var frame = director.step(dt: frameStep, t: time, quality: quality)
+                let dt = director.visualDt
                 if let skyEdit { frame = Self.editingSky(frame, skyEdit) }
                 let size = CGSize(width: width, height: height)
                 if let g = frame as? GardenFrame {
                     if garden == nil { garden = ButterflyRenderer(device: device) }
-                    garden?.update(g, params: director.parameters, quality: quality, gentle: false, dt: dt, size: size)
+                    garden?.update(g, params: director.parameters, quality: quality, gentle: gentle, dt: dt, size: size)
                     current = garden
                 } else if let f = frame as? SteinwayFrame {
                     if steinway == nil { steinway = SteinwayRenderer(device: device) }
-                    steinway?.update(f, quality: quality, gentle: false, dt: dt)
+                    steinway?.update(f, quality: quality, gentle: gentle, dt: dt)
                     current = steinway
                 } else if let l = frame as? LakeFrame {
                     if moonlitLake == nil { moonlitLake = MoonlitLakeRenderer(device: device) }
@@ -128,9 +132,9 @@ final class PreviewRenderer {
                     zenGarden?.update(z, params: director.parameters, quality: quality, gentle: gentle, dt: dt, size: size)
                     current = zenGarden
                 }
-                if time + dt > t { break }
+                if time + frameStep > t { break }
             }
-            if let r = current, let image = capture(r) { images.append(image) }
+            if let r = current, let image = capture(r, exposureScale: director.exposureScale) { images.append(image) }
         }
         return images
     }
@@ -156,14 +160,17 @@ final class PreviewRenderer {
         render(themeID: ButterflyGardenModel.id, at: times, state: ThemeState(values: params?.saved ?? [:]))
     }
 
-    func capture(_ renderer: ThemeRenderer) -> CGImage? {
+    /// `exposureScale` multiplies the renderer's post exposure, as the canvas does with the director's.
+    func capture(_ renderer: ThemeRenderer, exposureScale: Float = 1) -> CGImage? {
         guard let cb = queue.makeCommandBuffer() else { return nil }
         renderer.render(stack: stack, commandBuffer: cb)
         let pass = MTLRenderPassDescriptor()
         pass.colorAttachments[0].texture = target
         pass.colorAttachments[0].loadAction = .clear
         pass.colorAttachments[0].storeAction = .store
-        stack.post(into: pass, commandBuffer: cb, settings: renderer.post)
+        var post = renderer.post
+        post.exposure *= exposureScale
+        stack.post(into: pass, commandBuffer: cb, settings: post)
         let bytesPerRow = width * 4
         guard let out = device.makeBuffer(length: bytesPerRow * height, options: .storageModeShared),
               let blit = cb.makeBlitCommandEncoder() else { return nil }

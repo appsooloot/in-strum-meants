@@ -61,6 +61,57 @@ final class SettingsStoreTests: XCTestCase {
         try SettingsStore(directory: nested).save(.default)
         XCTAssertEqual(SettingsStore(directory: nested).load(), .default)
     }
+
+    /// Small Wins' four settings (review focus 5): a file from before them loads with the soft pedal, 88 keys, breathing
+    /// on at depth 1 and Reduce Motion followed; bad values fall back (or clamp) without losing the rest of the file;
+    /// every value round-trips.
+    func testSmallWinsSettingsLoadWithDefaults() throws {
+        try Data(#"{"themeID":"moonlit-lake","gentleVisuals":true,"ambience":{"volume":0.4}}"#.utf8).write(to: settingsURL)
+        let old = SettingsStore(directory: dir).load()
+        XCTAssertEqual(old.themeID, "moonlit-lake")
+        XCTAssertTrue(old.gentleVisuals)
+        XCTAssertEqual(old.holdPedal, .soft)
+        XCTAssertEqual(old.keyboardRange, .keys88)
+        XCTAssertTrue(old.breath.enabled)
+        XCTAssertEqual(old.breath.depth, 1)
+        XCTAssertTrue(old.followReduceMotion)
+        XCTAssertEqual(old.ambience.volume, 0.4, accuracy: 1e-9)
+
+        let bad = #"{"themeID":"moonlit-lake","holdPedal":"kazoo","keyboardRange":"keys12","breath":{"enabled":false,"depth":9},"followReduceMotion":"yes"}"#
+        try Data(bad.utf8).write(to: settingsURL)
+        let fixed = SettingsStore(directory: dir).load()
+        XCTAssertEqual(fixed.themeID, "moonlit-lake", "the rest of the file still loads")
+        XCTAssertEqual(fixed.holdPedal, .soft)
+        XCTAssertEqual(fixed.keyboardRange, .keys88)
+        XCTAssertFalse(fixed.breath.enabled)
+        XCTAssertEqual(fixed.breath.depth, 1.5, "clamped")
+        XCTAssertTrue(fixed.followReduceMotion)
+        try Data(#"{"breath":{"depth":-2}}"#.utf8).write(to: settingsURL)
+        XCTAssertEqual(SettingsStore(directory: dir).load().breath, AmbienceBreathSettings(enabled: true, depth: 0))
+        try Data(#"{"breath":7}"#.utf8).write(to: settingsURL)
+        XCTAssertEqual(SettingsStore(directory: dir).load().breath, AmbienceBreathSettings())
+
+        let store = SettingsStore(directory: dir)
+        for (i, (pedal, range)) in zip(HoldPedal.allCases + [.soft], KeyboardRange.allCases).enumerated() {
+            var s = AppSettings.default
+            s.holdPedal = pedal
+            s.keyboardRange = range
+            s.breath = AmbienceBreathSettings(enabled: i % 2 == 0, depth: Double(i) * 0.5)
+            s.followReduceMotion = i % 2 == 1
+            try store.save(s)
+            XCTAssertEqual(store.load(), s, "\(pedal) \(range)")
+        }
+
+        // The values the rest of Small Wins reads.
+        XCTAssertEqual(HoldPedal.allCases.map(\.controller), [67, 66, nil])
+        XCTAssertEqual(HoldPedal.allCases.map(\.displayName), ["Soft pedal", "Sostenuto pedal", "Off"])
+        XCTAssertEqual(KeyboardRange.allCases.map { [$0.low, $0.high] }, [[21, 108], [28, 103], [36, 96], [36, 84]])
+        XCTAssertEqual(KeyboardRange.allCases.map { Int($0.high) - Int($0.low) + 1 }, [88, 76, 61, 49])
+        XCTAssertEqual(KeyboardRange.keys88.displayName, "88 keys (A0–C8)")
+        var breath = AmbienceBreathSettings()
+        breath.depth = 2
+        XCTAssertEqual(breath.depth, 1.5, "clamped as it's set, too")
+    }
 }
 
 final class LaunchGuardTests: XCTestCase {

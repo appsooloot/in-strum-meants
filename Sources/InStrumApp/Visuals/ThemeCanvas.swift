@@ -42,17 +42,6 @@ final class ThemeCanvas: NSObject, MTKViewDelegate {
         director.sky.reset(settings: model.skySettings)   // launch with the chosen weather, not a blend into it
     }
 
-    /// What the ambience should play for a frame: a world's own soundscape, silence for the other themes.
-    static func ambience(for frame: Any) -> AmbienceScene { (frame as? AmbienceProviding)?.ambience ?? .silent }
-
-    /// The same with the key the player is in (spec §7.1), for the in-key sources. Every theme carries it, so a bell
-    /// heard after a switch to a world already sits in your key.
-    static func ambience(for frame: Any, key: AmbienceKey?) -> AmbienceScene {
-        var scene = ambience(for: frame)
-        scene.key = key
-        return scene
-    }
-
     func mtkView(_ view: MTKView, drawableSizeWillChange size: CGSize) {
         MainActor.assumeIsolated { stack?.resize(width: Int(size.width), height: Int(size.height)) }
     }
@@ -82,7 +71,7 @@ final class ThemeCanvas: NSObject, MTKViewDelegate {
         guard let stack else { return }
         let now = CACurrentMediaTime()
         let frameTime = lastTime == 0 ? 0 : max(0, now - lastTime)
-        let dt = min(0.1, frameTime)
+        let frameDt = min(0.1, frameTime)
         lastTime = now
         level = autoQuality.record(frameTime: frameTime)
         let backing = view.window?.backingScaleFactor ?? 2
@@ -92,6 +81,7 @@ final class ThemeCanvas: NSObject, MTKViewDelegate {
         if view.drawableSize != wanted { view.drawableSize = wanted }
         let size = view.drawableSize
         stack.resize(width: Int(size.width), height: Int(size.height))
+        director.controls = model.sceneControls   // hold, the sleep dim, Reduce Motion and breathing, before the events
         director.handle(model.drainEvents(), at: now)
         let sound = model.soundReading
         let hub = director.hub
@@ -103,57 +93,60 @@ final class ThemeCanvas: NSObject, MTKViewDelegate {
         hub.set(.width, sound.width, at: now)
         for (address, value) in model.drainDialChanges() { hub.set(.dial(address), value, at: now) }
         director.instrumentPulse = model.instrumentPulse   // Blue Depth's arp grid, for the visuals that blink with it
-        let frame = director.step(dt: dt, t: now, quality: level)
-        model.updateAmbience(Self.ambience(for: frame, key: director.key), at: now)
+        let frame = director.step(dt: frameDt, t: now, quality: level)
+        let dt = director.visualDt   // the renderers' clock, as the director's controls shape it
+        model.updateAmbience(director.ambience(for: frame, at: now), at: now)
+        model.noteSceneReport(director.report)
+        let gentle = model.effectiveGentleVisuals
 
         let renderer: ThemeRenderer?
         if let g = frame as? GardenFrame {
             if butterfly == nil { butterfly = ButterflyRenderer(device: device) }
-            butterfly?.update(g, params: director.parameters, quality: level, gentle: model.gentleVisuals, dt: dt, size: size)
+            butterfly?.update(g, params: director.parameters, quality: level, gentle: gentle, dt: dt, size: size)
             renderer = butterfly
         } else if let s = frame as? SteinwayFrame {
             if steinway == nil { steinway = SteinwayRenderer(device: device) }
-            steinway?.update(s, quality: level, gentle: model.gentleVisuals, dt: dt)
+            steinway?.update(s, quality: level, gentle: gentle, dt: dt)
             renderer = steinway
         } else if let l = frame as? LakeFrame {
             if moonlitLake == nil { moonlitLake = MoonlitLakeRenderer(device: device) }
-            moonlitLake?.update(l, params: director.parameters, quality: level, gentle: model.gentleVisuals, dt: dt, size: size)
+            moonlitLake?.update(l, params: director.parameters, quality: level, gentle: gentle, dt: dt, size: size)
             renderer = moonlitLake
         } else if let l = frame as? LoungeFrame {
             if lounge == nil { lounge = SpaceshipLoungeRenderer(device: device) }
-            lounge?.update(l, params: director.parameters, quality: level, gentle: model.gentleVisuals, dt: dt, size: size)
+            lounge?.update(l, params: director.parameters, quality: level, gentle: gentle, dt: dt, size: size)
             renderer = lounge
         } else if let b = frame as? BeachFrame {
             if beach == nil { beach = GoldenHourBeachRenderer(device: device) }
-            beach?.update(b, params: director.parameters, quality: level, gentle: model.gentleVisuals, dt: dt, size: size)
+            beach?.update(b, params: director.parameters, quality: level, gentle: gentle, dt: dt, size: size)
             renderer = beach
         } else if let r = frame as? RoadFrame {
             if road == nil { road = CoastRoadRenderer(device: device) }
-            road?.update(r, params: director.parameters, quality: level, gentle: model.gentleVisuals, dt: dt, size: size)
+            road?.update(r, params: director.parameters, quality: level, gentle: gentle, dt: dt, size: size)
             renderer = road
         } else if let c = frame as? CabinFrame {
             if cabin == nil { cabin = SnowboundCabinRenderer(device: device) }
-            cabin?.update(c, params: director.parameters, quality: level, gentle: model.gentleVisuals, dt: dt, size: size)
+            cabin?.update(c, params: director.parameters, quality: level, gentle: gentle, dt: dt, size: size)
             renderer = cabin
         } else if let b = frame as? BedroomFrame {
             if bedroom == nil { bedroom = BedroomDawnRenderer(device: device) }
-            bedroom?.update(b, params: director.parameters, quality: level, gentle: model.gentleVisuals, dt: dt, size: size)
+            bedroom?.update(b, params: director.parameters, quality: level, gentle: gentle, dt: dt, size: size)
             renderer = bedroom
         } else if let f = frame as? FjordFrame {
             if fjord == nil { fjord = AuroraFjordRenderer(device: device) }
-            fjord?.update(f, params: director.parameters, quality: level, gentle: model.gentleVisuals, dt: dt, size: size)
+            fjord?.update(f, params: director.parameters, quality: level, gentle: gentle, dt: dt, size: size)
             renderer = fjord
         } else if let y = frame as? BayFrame {
             if bay == nil { bay = BioluminescentBayRenderer(device: device) }
-            bay?.update(y, params: director.parameters, quality: level, gentle: model.gentleVisuals, dt: dt, size: size)
+            bay?.update(y, params: director.parameters, quality: level, gentle: gentle, dt: dt, size: size)
             renderer = bay
         } else if let h = frame as? TeaHouseFrame {
             if teaHouse == nil { teaHouse = TeaHouseSnowRenderer(device: device) }
-            teaHouse?.update(h, params: director.parameters, quality: level, gentle: model.gentleVisuals, dt: dt, size: size)
+            teaHouse?.update(h, params: director.parameters, quality: level, gentle: gentle, dt: dt, size: size)
             renderer = teaHouse
         } else if let z = frame as? ZenGardenFrame {
             if zenGarden == nil { zenGarden = ZenRockGardenRenderer(device: device) }
-            zenGarden?.update(z, params: director.parameters, quality: level, gentle: model.gentleVisuals, dt: dt, size: size)
+            zenGarden?.update(z, params: director.parameters, quality: level, gentle: gentle, dt: dt, size: size)
             renderer = zenGarden
         } else {
             renderer = nil
@@ -161,7 +154,9 @@ final class ThemeCanvas: NSObject, MTKViewDelegate {
         guard let renderer, let pass = view.currentRenderPassDescriptor, let drawable = view.currentDrawable,
               let cb = queue.makeCommandBuffer() else { return }
         renderer.render(stack: stack, commandBuffer: cb)
-        stack.post(into: pass, commandBuffer: cb, settings: renderer.post)
+        var post = renderer.post
+        post.exposure *= director.exposureScale   // the sleep dim, up to a stop
+        stack.post(into: pass, commandBuffer: cb, settings: post)
         cb.present(drawable)
         cb.commit()
     }

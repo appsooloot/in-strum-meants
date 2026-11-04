@@ -42,5 +42,6 @@ public struct InStrumMeantsApp: App {
                 .frame(minWidth: 900, minHeight: 560)
                 .preferredColorScheme(.dark)
         }
+        .commands { PlayMenu(model: container.model) }
     }
 }

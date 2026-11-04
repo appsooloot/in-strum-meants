@@ -45,6 +45,14 @@ public struct AppSettings: Codable, Equatable {
     public var ambience = AmbienceSettings()
     /// The Set (world + visual + instrument + ambience) last chosen, if any.
     public var activeSetID: String?
+    /// The pedal that holds the moment (Small Wins spec §4).
+    public var holdPedal: HoldPedal = .soft
+    /// The MIDI keyboard's range, where the keep gesture's three black keys are (spec §2).
+    public var keyboardRange: KeyboardRange = .keys88
+    /// Breathing ambience (spec §5): here rather than in `ambience`, which a set overwrites.
+    public var breath = AmbienceBreathSettings()
+    /// Follow the Mac's Reduce Motion (spec §6).
+    public var followReduceMotion = true
 
     public static let `default` = AppSettings()
 
@@ -53,6 +61,7 @@ public struct AppSettings: Codable, Equatable {
     enum CodingKeys: String, CodingKey {
         case instrument, themeID, masterVolume, touchCurve, bufferFrames, themeStates, quality, gentleVisuals, reaction, reactionName,
              qualityVersion, sky, ambience, activeSetID, outputDeviceUID, midiChannel, disabledMIDISources
+        case holdPedal, keyboardRange, breath, followReduceMotion
     }
 
     public init(from decoder: Decoder) throws {
@@ -76,6 +85,10 @@ public struct AppSettings: Codable, Equatable {
         outputDeviceUID = (try? c.decodeIfPresent(String.self, forKey: .outputDeviceUID)) ?? nil
         midiChannel = ((try? c.decodeIfPresent(Int.self, forKey: .midiChannel)) ?? nil).flatMap { (1...16).contains($0) ? $0 : nil }
         disabledMIDISources = (try? c.decodeIfPresent([String].self, forKey: .disabledMIDISources)) ?? d.disabledMIDISources
+        holdPedal = (try? c.decodeIfPresent(HoldPedal.self, forKey: .holdPedal)) ?? d.holdPedal
+        keyboardRange = (try? c.decodeIfPresent(KeyboardRange.self, forKey: .keyboardRange)) ?? d.keyboardRange
+        breath = (try? c.decodeIfPresent(AmbienceBreathSettings.self, forKey: .breath)) ?? d.breath
+        followReduceMotion = (try? c.decodeIfPresent(Bool.self, forKey: .followReduceMotion)) ?? d.followReduceMotion
     }
 }
 
