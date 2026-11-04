@@ -78,6 +78,23 @@ final class CPUBudgetTests: XCTestCase {
         XCTAssertLessThan(seconds / 10, 0.06, "Polar Choir used \(String(format: "%.1f", seconds * 10))% of real time")
     }
 
+    /// A 12-note chord re-struck every 2 s for 10 s at Sparkle 1 (each strike throws a burst of sparks), the tremolo,
+    /// phaser and reverb at their defaults.
+    func testPlanktonKeysBudget() {
+        var events: [R.Event] = []
+        let chord: [UInt8] = [36, 43, 48, 52, 55, 60, 64, 67, 71, 72, 76, 79]
+        for k in 0..<5 {
+            let t = Double(k) * 2
+            for n in chord {
+                if k > 0 { events.append(R.noteOff(t - 0.01, n)) }
+                events.append(R.noteOn(t, n, 90))
+            }
+        }
+        let p: [Int: Float] = [Int(ISD_P_SPARKLE): 1]
+        let seconds = bestOfThree { _ = R.render(ISD_ENGINE_PLANKTON_KEYS, seconds: 10, params: p, events: events) }
+        XCTAssertLessThan(seconds / 10, 0.06, "Plankton Keys used \(String(format: "%.1f", seconds * 10))% of real time")
+    }
+
     /// The cabin's and the bedroom's soundscapes, each heard through the window.
     func testWindowAmbienceBudget() {
         typealias A = AmbienceTests
