@@ -4,7 +4,14 @@ import InStrumCore
 
 /// A window between a room and its view (spec §7): panes in rows and columns, bars between them, a frame around.
 struct WindowSpec: Equatable {
-    enum Material: Equatable { case logWood, paintedSash }
+    enum Material: Equatable {
+        case logWood, paintedSash
+        /// The porthole's brass ring (with `Shape.round`): 12 bolts and a rubber gasket.
+        case brass
+    }
+    /// Panes in rows and columns, or one round pane inscribed in `rect` (a porthole: a circle when the rect is square
+    /// on screen, as `WindowSpec.porthole` makes it; its columns, rows and bar are ignored).
+    enum Shape: Equatable { case panes, round }
 
     var columns: Int
     var rows: Int
@@ -15,6 +22,8 @@ struct WindowSpec: Equatable {
     var material: Material
     /// The outer frame's width in NDC x (its height on screen matches it).
     var frameWidth: Float
+    /// `.panes` (the default) or `.round`, a porthole drawn in the brass ring whatever the material.
+    var shape: Shape = .panes
 
     /// Columns and rows as the frost field lays them out (it caps them at 12 × 8).
     var layout: (columns: Int, rows: Int) { (min(max(columns, 1), 12), min(max(rows, 1), 8)) }
@@ -45,6 +54,47 @@ struct WindowSpec: Equatable {
     }
 }
 
+/// The porthole's geometry (spec §7.4): one round pane in a thick brass ring with 12 bolts and a rubber gasket.
+extension WindowSpec {
+    /// The ring's bolts, evenly round it with the first at 12 o'clock.
+    static let portholeBolts = 12
+    static let boltPhase: Float = .pi / 2
+    /// Across the ring (fractions of its width, 0 at the glass … 1 at its outside): the bolts' centres, their hex heads'
+    /// radius and the rubber gasket against the glass.
+    static let boltCircle: Float = 0.58, boltHead: Float = 0.16, gasket: Float = 0.1
+
+    /// A round brass porthole centred at `centre` (NDC), `height` tall (NDC), square on a screen of `aspect` (w/h), its
+    /// ring `frameWidth` wide (NDC x, as every Window Kit frame; on screen it is as wide all round).
+    static func porthole(centre: SIMD2<Float>, height: Float, aspect: Float, frameWidth: Float) -> WindowSpec {
+        let a: Float = aspect.isFinite && aspect > 0.1 ? min(aspect, 10) : 16.0 / 9
+        let halfH = height / 2, halfW = height / 2 / a
+        return WindowSpec(columns: 1, rows: 1, bar: 0,
+                          rect: SIMD4(centre.x - halfW, centre.y - halfH, centre.x + halfW, centre.y + halfH),
+                          material: .brass, frameWidth: frameWidth, shape: .round)
+    }
+
+    /// Round glass: its centre (NDC) and radius in NDC-y units (screen x × aspect, y).
+    var circle: (centre: SIMD2<Float>, radius: Float) {
+        (SIMD2((rect.x + rect.z) / 2, (rect.y + rect.w) / 2), (rect.w - rect.y) / 2)
+    }
+
+    /// The brass ring's bolt centres in NDC on a screen of `aspect` (none for pane windows): what the ring draws.
+    func bolts(aspect: Float) -> [SIMD2<Float>] {
+        guard shape == .round else { return [] }
+        let (c, r) = circle
+        let radius = r + Self.boltCircle * frameWidth * aspect
+        return (0..<Self.portholeBolts).map { k in
+            let a = Self.boltPhase + Float(k) * 2 * .pi / Float(Self.portholeBolts)
+            return SIMD2(c.x + radius * cos(a) / aspect, c.y + radius * sin(a))
+        }
+    }
+
+    /// Whether a window point (0…1, y up) is on the glass: inside the circle for round glass, anywhere for panes.
+    func onGlass(_ w: SIMD2<Float>) -> Bool {
+        shape == .panes || simd_length(w - SIMD2<Float>(0.5, 0.5)) <= 0.5
+    }
+}
+
 /// A warm clear patch on the glass, in window coordinates (0…1, y up); the radius is a fraction of the width.
 struct GlassPatch: Equatable { var x, y, radius, warmth: Float }
 
@@ -55,12 +105,21 @@ struct GlassPatch: Equatable { var x, y, radius, warmth: Float }
 final class WindowGlassLayer {
     static let maxFlakes = 40, maxDrips = 12, maxBars = 19, maxPatches = 48
     static func patchCap(_ q: QualityLevel) -> Int { q == .lite ? 24 : 48 }
+    /// Round glass: the thick acrylic's barrel warp, as a share of the radius at the rim.
+    static let portholeWarp: Float = 0.04
 
     /// The share of the glass frosted (an estimate from the field, for tests).
     private(set) var frostCoverage: Float = 0
     private(set) var stuckFlakeCount = 0
     private(set) var dripCount = 0
     private(set) var patchCount = 0
+    /// Round glass: how cold the sea outside is (0…1; the submarine's depth). The colder, the wider the rim's fog.
+    private(set) var cold: Float = 0
+    /// Round glass: the view copy's region and the glass's centre (pixels), the warp, the cold and the bolts (count,
+    /// first angle, circle, head, gasket) the ring draws.
+    private(set) var portU = [SIMD4<Float>](repeating: .zero, count: 4)
+    /// View copies made for round glass so far: kept, and grown only when the porthole needs a bigger one.
+    private(set) var viewAllocations = 0
     /// Instance buffers made so far: a ring of three, grown only when too small (never one per frame).
     private(set) var bufferAllocations = 0
     var hasField: Bool { fieldTexture != nil }
@@ -70,11 +129,13 @@ final class WindowGlassLayer {
 
     private let device: MTLDevice
     private let glassPipeline, dropPipeline, framePipeline, blurPipeline: MTLRenderPipelineState
+    private let portGlassPipeline, portFramePipeline: MTLRenderPipelineState
     private let placeholder: MTLTexture
     private var fieldTexture: MTLTexture?
     /// Field cells inside panes, every sixth each way, for the coverage estimate.
     private var samples: [(x: Float, y: Float, arrival: Float)] = []
     private var blurTexture: MTLTexture?
+    private var viewTexture: MTLTexture?
     private var quality: QualityLevel = .high
     private var spec = WindowSpec(columns: 1, rows: 1, bar: 0, rect: SIMD4(-1, -1, 1, 1), material: .logWood, frameWidth: 0.05)
     private var u = [SIMD4<Float>](repeating: .zero, count: 7 + 19 + 48)
@@ -112,6 +173,8 @@ final class WindowGlassLayer {
               let dr = make("glassdrop_vertex", "glassdrop_fragment", blend: true, depth: true),
               let fr = make("frame_vertex", "frame_fragment", blend: false, depth: true),
               let bl = make("glass_fullscreen_vertex", "blur_down_fragment", blend: false, depth: false) else { return nil }
+        guard let pg = make("glass_vertex", "port_glass_fragment", blend: true, depth: true),
+              let pf = make("frame_vertex", "port_frame_fragment", blend: false, depth: true) else { return nil }
         let pd = MTLTextureDescriptor.texture2DDescriptor(pixelFormat: .rgba16Float, width: 1, height: 1, mipmapped: false)
         pd.usage = [.shaderRead]
         guard let ph = device.makeTexture(descriptor: pd) else { return nil }
@@ -119,6 +182,7 @@ final class WindowGlassLayer {
         ph.replace(region: MTLRegionMake2D(0, 0, 1, 1), mipmapLevel: 0, withBytes: &zero, bytesPerRow: 8)
         self.device = device
         glassPipeline = g; dropPipeline = dr; framePipeline = fr; blurPipeline = bl; placeholder = ph
+        portGlassPipeline = pg; portFramePipeline = pf
     }
 
     /// Uploads the grown field once (16-bit, 0…1). Until then the glass draws a plain radial fallback.
@@ -175,6 +239,7 @@ final class WindowGlassLayer {
             u[26 + i] = i < shown.count ? SIMD4(shown[i].x, shown[i].y, shown[i].radius, clean(shown[i].warmth)) : .zero
         }
         frostCoverage = coverage(level: level, patches: shown)
+        updatePortU()
 
         // Stuck flakes: snow landing on the glass as tiny stars that melt in 5–10 s.
         if snowing > 0.2, !panes.isEmpty {
@@ -184,6 +249,10 @@ final class WindowGlassLayer {
                     let p = panes[min(Int(rng.unit() * Float(panes.count)), panes.count - 1)]
                     flakes.append(Flake(x: rng.range(p.x, p.z), y: rng.range(p.y, p.w), size: rng.range(0.004, 0.009),
                                         life: rng.range(5, 10), age: 0, rot: rng.range(0, 1.05)))
+                    if spec.shape == .round {
+                        let c = Self.onCircle(flakes[flakes.count - 1].x, flakes[flakes.count - 1].y)
+                        flakes[flakes.count - 1].x = c.x; flakes[flakes.count - 1].y = c.y
+                    }
                 }
                 expected -= 1
             }
@@ -202,6 +271,10 @@ final class WindowGlassLayer {
                 let y = top ? p.w - 0.01 : p.y + cond * 0.22 * (p.w - p.y) * 0.6
                 drips.append(Drip(x: rng.range(p.x + 0.01, p.z - 0.01), y: y, bottom: p.y, speed: rng.range(0.08, 0.2),
                                   phase: rng.range(0, 6), trail: 0, size: rng.range(0.0035, 0.006)))
+                if spec.shape == .round {
+                    let c = roundDrip(x: drips[drips.count - 1].x, phase: drips[drips.count - 1].phase, fromTop: top, condensation: cond)
+                    drips[drips.count - 1].x = c.x; drips[drips.count - 1].y = c.y; drips[drips.count - 1].bottom = c.bottom
+                }
             }
         }
         for i in drips.indices {
@@ -272,6 +345,7 @@ final class WindowGlassLayer {
 
     /// The glass, after the outside (and its weather) is drawn. `blur` is `makeBlur`'s copy of the view (High, Ultra).
     func drawGlass(_ e: MTLRenderCommandEncoder, blur: MTLTexture?) {
+        if spec.shape == .round { drawPorthole(e, view: nil); return }
         var uu = u
         let useBlur = blur != nil && quality != .lite
         uu[1].w = useBlur ? 1 : 0
@@ -293,6 +367,7 @@ final class WindowGlassLayer {
 
     /// The frame and bars, over the glass.
     func drawFrame(_ e: MTLRenderCommandEncoder) {
+        if spec.shape == .round { drawPortholeRing(e); return }
         e.setRenderPipelineState(framePipeline)
         u.withUnsafeBytes {
             e.setVertexBytes($0.baseAddress!, length: $0.count, index: 0)
@@ -329,5 +404,130 @@ final class WindowGlassLayer {
             blit.endEncoding()
         }
         return blur
+    }
+}
+
+/// Round glass (spec §7.4): the porthole's update, its view through the acrylic and its brass ring. A world draws:
+///
+///     glass.updatePorthole(spec: .porthole(...), condensation:, cold:, cabinLight:, reflection:, outsideLight:, ...)
+///     // the outside (over the ring too: the warp looks 4% past the glass's edge), then:
+///     e.endEncoding()
+///     let view = glass.makeView(from: stack.hdrTarget!, commandBuffer: cb)    // every quality
+///     e = cb.makeRenderCommandEncoder(descriptor: stack.scenePassContinuing()!)
+///     glass.drawPorthole(e, view: view)
+///     glass.drawFrame(e)                                                      // the ring
+@MainActor
+extension WindowGlassLayer {
+    /// A porthole's update: one pane in the brass ring, its condensation and drips masked to the circle, and never any
+    /// frost. It passes the glass no frost, warm patches or snow (and round glass never draws frost): this is how a
+    /// world under water turns frost off.
+    /// - cold: how cold the sea outside is (0…1; the submarine's depth). The colder, the wider and denser the rim's fog.
+    /// - cabinLight: the cabin's light (rgb): warm highlights on the brass and the fog it lights (red at night).
+    /// - reflection: the cabin faintly mirrored in the acrylic (rgb, strength ≤ 0.3).
+    /// - outsideLight: the sea's average light (rgb): the ring's bevel, and the fog when no view is bound.
+    func updatePorthole(spec: WindowSpec, condensation: Float, cold: Float, wetDrips: Float = 0, cabinLight: SIMD3<Float>,
+                        reflection: SIMD4<Float>, outsideLight: SIMD3<Float>, quality: QualityLevel, dt: Double,
+                        aspect: Float, sparkle: Float = 1) {
+        self.cold = cold.isFinite ? min(max(cold, 0), 1) : 0
+        var round = spec
+        round.shape = .round
+        round.columns = 1; round.rows = 1; round.bar = 0
+        update(spec: round, frost: 0, patches: [], condensation: condensation, wetDrips: wetDrips, snow: 0,
+               reflection: reflection, glint: SIMD4(cabinLight, 0), quality: quality, dt: dt,
+               outsideLight: outsideLight, aspect: aspect, sparkle: sparkle)
+    }
+
+    /// Round glass: copies the view behind the porthole (the glass's square and a margin for the warp) into a kept
+    /// texture, on every quality (nil for pane windows). Encode it between the outside's pass and the glass's.
+    func makeView(from source: MTLTexture, commandBuffer cb: MTLCommandBuffer) -> MTLTexture? {
+        guard spec.shape == .round, source.width > 0, source.height > 0 else { return nil }
+        let w = Float(source.width), h = Float(source.height)
+        let r = spec.rect
+        let px = ((r.x + r.z) / 2 + 1) * 0.5 * w, py = (1 - (r.y + r.w) / 2) * 0.5 * h
+        let reach = (r.w - r.y) * 0.25 * h * (1 + Self.portholeWarp) + 3
+        guard px.isFinite, py.isFinite, reach.isFinite, reach > 3, reach < 4 * max(w, h) else { return nil }
+        let x0 = max(0, Int((px - reach).rounded(.down))), y0 = max(0, Int((py - reach).rounded(.down)))
+        let x1 = min(source.width, Int((px + reach).rounded(.up))), y1 = min(source.height, Int((py + reach).rounded(.up)))
+        guard x1 > x0, y1 > y0 else { return nil }
+        let rw = x1 - x0, rh = y1 - y0
+        if (viewTexture?.width ?? 0) < rw || (viewTexture?.height ?? 0) < rh || viewTexture?.pixelFormat != source.pixelFormat {
+            let d = MTLTextureDescriptor.texture2DDescriptor(pixelFormat: source.pixelFormat, width: max(rw, viewTexture?.width ?? 0),
+                                                             height: max(rh, viewTexture?.height ?? 0), mipmapped: false)
+            d.usage = [.shaderRead]
+            d.storageMode = .private
+            viewTexture = device.makeTexture(descriptor: d)
+            viewAllocations += 1
+        }
+        guard let view = viewTexture, let blit = cb.makeBlitCommandEncoder() else { return nil }
+        blit.copy(from: source, sourceSlice: 0, sourceLevel: 0, sourceOrigin: MTLOrigin(x: x0, y: y0, z: 0),
+                  sourceSize: MTLSize(width: rw, height: rh, depth: 1), to: view, destinationSlice: 0, destinationLevel: 0,
+                  destinationOrigin: MTLOrigin(x: 0, y: 0, z: 0))
+        blit.endEncoding()
+        portU[0] = SIMD4(Float(x0), Float(y0), Float(rw), Float(rh))
+        portU[1] = SIMD4(px, py, Self.portholeWarp, 0)
+        return view
+    }
+
+    /// Round glass: the outside through the acrylic's barrel warp (from `makeView`'s copy; nil leaves the view unwarped
+    /// under the glass), the rim's condensation, drips and the cabin's reflection.
+    func drawPorthole(_ e: MTLRenderCommandEncoder, view: MTLTexture?) {
+        var pu = portU
+        pu[1].w = view == nil ? 0 : 1
+        e.setRenderPipelineState(portGlassPipeline)
+        u.withUnsafeBytes {
+            e.setVertexBytes($0.baseAddress!, length: $0.count, index: 0)
+            e.setFragmentBytes($0.baseAddress!, length: $0.count, index: 0)
+        }
+        pu.withUnsafeBytes { e.setFragmentBytes($0.baseAddress!, length: $0.count, index: 1) }
+        e.setFragmentTexture(view ?? placeholder, index: 0)
+        e.drawPrimitives(type: .triangle, vertexStart: 0, vertexCount: 6)
+        if instanceCount > 0, let buf = ring[slot] {
+            e.setRenderPipelineState(dropPipeline)
+            u.withUnsafeBytes { e.setVertexBytes($0.baseAddress!, length: $0.count, index: 0) }
+            e.setVertexBuffer(buf, offset: 0, index: 1)
+            e.drawPrimitives(type: .triangle, vertexStart: 0, vertexCount: 6, instanceCount: instanceCount)
+        }
+    }
+
+    /// The drips' positions on the glass (window coordinates), for tests.
+    var dripPositions: [SIMD2<Float>] { drips.map { SIMD2($0.x, $0.y) } }
+
+    /// The brass ring, over the glass (`drawFrame` draws it for round glass).
+    private func drawPortholeRing(_ e: MTLRenderCommandEncoder) {
+        e.setRenderPipelineState(portFramePipeline)
+        u.withUnsafeBytes {
+            e.setVertexBytes($0.baseAddress!, length: $0.count, index: 0)
+            e.setFragmentBytes($0.baseAddress!, length: $0.count, index: 0)
+        }
+        portU.withUnsafeBytes { e.setFragmentBytes($0.baseAddress!, length: $0.count, index: 1) }
+        e.drawPrimitives(type: .triangle, vertexStart: 0, vertexCount: 6)
+    }
+
+    /// The ring's and the round glass's rows that don't depend on the target (`makeView` sets the view's region).
+    private func updatePortU() {
+        let round = spec.shape == .round
+        if round { frostCoverage = 0 }   // round glass never frosts, whatever it was passed
+        portU[1].z = Self.portholeWarp
+        portU[2] = SIMD4(cold, round ? Float(WindowSpec.portholeBolts) : 0, WindowSpec.boltPhase, WindowSpec.boltCircle)
+        portU[3] = SIMD4(WindowSpec.boltHead, WindowSpec.gasket, 0, 0)
+    }
+
+    /// Round glass: where a new drip goes on the circle (window coordinates, radius 0.5), given where it was drawn
+    /// across the pane and its phase (0…6): across the circle's middle 84%, starting just under the top edge (after
+    /// rain) or in the fog at the upper rim, and running off at the circle's bottom edge.
+    private func roundDrip(x: Float, phase: Float, fromTop: Bool, condensation: Float) -> (x: Float, y: Float, bottom: Float) {
+        let across: Float = 0.5 + (min(max(x, 0), 1) - 0.5) * 0.84
+        let half: Float = max(0, 0.25 - (across - 0.5) * (across - 0.5)).squareRoot()
+        let band: Float = 0.5 * condensation * (0.1 + 0.16 * cold)
+        let into: Float = band * (0.3 + 0.7 * min(max(phase / 6, 0), 1))
+        // Drips run off 0.02 below their bottom: this one goes as it reaches the gasket, still on the glass.
+        return (across, fromTop ? 0.5 + half - 0.01 : 0.5 + half - into, 0.5 - half + 0.025)
+    }
+
+    /// Round glass: a new flake pulled inside the circle, clear of the rim (window coordinates).
+    private static func onCircle(_ x: Float, _ y: Float) -> SIMD2<Float> {
+        let c = SIMD2<Float>(x - 0.5, y - 0.5)
+        let r = simd_length(c)
+        return r > 0.46 ? SIMD2<Float>(0.5, 0.5) + c * (0.46 / r) : SIMD2(x, y)
     }
 }
