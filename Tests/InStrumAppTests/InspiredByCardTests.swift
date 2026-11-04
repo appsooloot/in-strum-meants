@@ -56,6 +56,25 @@ final class InspiredByCardTests: XCTestCase {
         XCTAssertEqual(art.pulse(for: CreditLibrary.dunno), 60.0 / 82, accuracy: 1e-9)
     }
 
+    /// "Wings" is felt in half time (119 BPM, about 60), so its curtains ripple once a second.
+    func testWingsCardRipplesAtHalfTempo() throws {
+        let art = try XCTUnwrap(CardArt.art(for: CreditLibrary.wings.id))
+        XCTAssertNotEqual(art, CardArt.art(for: CreditLibrary.stay.id))
+        XCTAssertNotEqual(art, CardArt.art(for: CreditLibrary.dunno.id))
+        XCTAssertEqual(art.pulse(for: CreditLibrary.wings), 60.0 / 60, accuracy: 1e-9)
+        XCTAssertEqual(CardArt.wingsStars.count, CreditLibrary.wings.trackNumber, "one bright star per track number")
+    }
+
+    /// The Wings card's bright stars keep off the liner notes (top right).
+    func testWingsStarsKeepOffTheLinerNotes() {
+        let w: CGFloat = 600, h: CGFloat = 360
+        let notes = CGRect(x: 0.6 * w, y: 0, width: 0.4 * w, height: 0.1 * h)
+        for (fx, fy, r) in CardArt.wingsStars {
+            let star = CGRect(x: fx * w - r, y: fy * h - r, width: 2 * r, height: 2 * r)
+            XCTAssertFalse(star.intersects(notes), "star at (\(fx), \(fy)) covers the liner notes")
+        }
+    }
+
     /// The Stay card's frost stars keep off its words: the liner notes (top right), the title block (bottom left) and
     /// the Listen button (final review: a star sat on "TRACK 3").
     func testStayFrostKeepsOffTheWords() {

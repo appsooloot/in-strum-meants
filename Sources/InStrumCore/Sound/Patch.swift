@@ -1,6 +1,6 @@
 /// The app's own instruments (made entirely in the app, no recordings).
 public enum BuiltInEngine: String, Codable, CaseIterable {
-    case feltGlass, orbitPad, honeyTape, hazeBells, cabinFelt, morningBox
+    case feltGlass, orbitPad, honeyTape, hazeBells, cabinFelt, morningBox, polarChoir
 
     public var displayName: String {
         switch self {
@@ -10,6 +10,7 @@ public enum BuiltInEngine: String, Codable, CaseIterable {
         case .hazeBells: return "Haze Bells"
         case .cabinFelt: return "Cabin Felt"
         case .morningBox: return "Morning Box"
+        case .polarChoir: return "Polar Choir"
         }
     }
 }
@@ -55,6 +56,10 @@ public enum PatchLibrary {
         Patch(id: "music-box", name: "Music Box", engine: .morningBox, values: morning(bars: 0.50, box: 1, bloom: 0.10, build: 0.20, haze: 0.25, space: 0.40, width: 0.40), creditID: "dunno"),
         Patch(id: "wall-of-light", name: "Wall of Light", engine: .morningBox, values: morning(bars: 0.45, box: 0.15, bloom: 0.85, build: 0.90, haze: 0.45, space: 0.65, width: 0.80), creditID: "dunno"),
         Patch(id: "snooze", name: "Snooze", engine: .morningBox, values: morning(bars: 0.35, box: 0.30, bloom: 0.55, build: 0.40, haze: 0.70, space: 0.55, width: 0.50), creditID: "dunno"),
+        Patch(id: "polar-choir", name: "Polar Choir", engine: .polarChoir, values: choir(vowel: 0.55, breath: 0.35, glass: 0.30, swell: 0.55, shimmer: 0.25, space: 0.60, width: 0.60), creditID: "wings"),
+        Patch(id: "far-voices", name: "Far Voices", engine: .polarChoir, values: choir(vowel: 0.70, breath: 0.55, glass: 0.10, swell: 0.75, shimmer: 0.40, space: 0.80, width: 0.75), creditID: "wings"),
+        Patch(id: "bowed-glass", name: "Bowed Glass", engine: .polarChoir, values: choir(vowel: 0.40, breath: 0.10, glass: 0.85, swell: 0.45, shimmer: 0.30, space: 0.55, width: 0.50), creditID: "wings"),
+        Patch(id: "hush", name: "Hush", engine: .polarChoir, values: choir(vowel: 0.30, breath: 0.50, glass: 0.20, swell: 0.35, shimmer: 0.10, space: 0.45, width: 0.40), creditID: "wings"),
     ]
 
     public static func defaultPatch(for engine: BuiltInEngine) -> Patch {
@@ -81,6 +86,10 @@ public enum PatchLibrary {
 
     private static func morning(bars: Double, box: Double, bloom: Double, build: Double, haze: Double, space: Double, width: Double) -> [String: Double] {
         ["bars": bars, "box": box, "bloom": bloom, "build": build, "haze": haze, "space": space, "width": width]
+    }
+
+    private static func choir(vowel: Double, breath: Double, glass: Double, swell: Double, shimmer: Double, space: Double, width: Double) -> [String: Double] {
+        ["vowel": vowel, "breath": breath, "glass": glass, "swell": swell, "shimmer": shimmer, "space": space, "width": width]
     }
 
     private static func pad(bloom: Double, drift: Double, motion: Double, shimmer: Double, brightness: Double, space: Double) -> [String: Double] {

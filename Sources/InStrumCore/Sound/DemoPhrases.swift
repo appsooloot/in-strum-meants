@@ -134,6 +134,31 @@ public enum DemoPhrases {
         return m.sorted
     }()
 
+    /// A♭-major colours at a half-time 60 for about 24 s: one long chord to the bar (A♭maj9, D♭maj7, Fm9, E♭sus4,
+    /// D♭maj9, then A♭maj9 left to hang) under a slow top line, so the swell and the breath are heard. Each chord lets go
+    /// just before the next comes in (a shared note would otherwise be released by the old chord's note-off).
+    public static let polarChoir: Phrase = {
+        var m = Builder()
+        let bar = 4.0   // four beats at 60
+        let chords: [[UInt8]] = [[44, 51, 55, 58, 60],   // A♭maj9
+                                 [49, 56, 60, 65],       // D♭maj7
+                                 [41, 51, 55, 56, 60],   // Fm9
+                                 [39, 46, 56, 58, 63],   // E♭sus4
+                                 [49, 56, 60, 63, 65]]   // D♭maj9
+        for (c, chord) in chords.enumerated() {
+            let t = 0.2 + Double(c) * bar
+            for (k, n) in chord.enumerated() { m.note(t + Double(k) * 0.04, n, UInt8(58 + k * 3), bar - 0.1 - Double(k) * 0.04) }
+        }
+        let end = 0.2 + 5 * bar
+        for (k, n) in [44, 51, 55, 58, 60].enumerated() { m.note(end + Double(k) * 0.04, UInt8(n), 60, 5.0) }
+        // The top line, half a beat behind each chord: (beat from the start, note, beats held).
+        let line: [(Double, UInt8, Double)] = [(0.5, 72, 1.9), (2.5, 70, 1.4), (4.5, 68, 2.4), (7.0, 72, 1.1),
+                                               (8.5, 75, 1.9), (10.5, 72, 1.4), (12.5, 68, 1.9), (14.5, 70, 1.4),
+                                               (16.5, 77, 1.9), (18.5, 75, 1.4), (20.5, 72, 4.3)]
+        for (b, n, beats) in line { m.note(0.2 + b, n, 78, beats) }
+        return m.sorted
+    }()
+
     private struct Builder {
         var events: Phrase = []
         mutating func note(_ t: Double, _ n: UInt8, _ v: UInt8, _ length: Double) {

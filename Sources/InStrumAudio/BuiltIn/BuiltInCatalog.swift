@@ -62,6 +62,7 @@ public enum BuiltInCatalog {
         case .hazeBells: return "isHB"
         case .cabinFelt: return "isCF"
         case .morningBox: return "isMB"
+        case .polarChoir: return "isPC"
         }
     }
 
@@ -73,6 +74,7 @@ public enum BuiltInCatalog {
         case .hazeBells: return ISD_ENGINE_HAZE_BELLS
         case .cabinFelt: return ISD_ENGINE_CABIN_FELT
         case .morningBox: return ISD_ENGINE_MORNING_BOX
+        case .polarChoir: return ISD_ENGINE_POLAR_CHOIR
         }
     }
 
