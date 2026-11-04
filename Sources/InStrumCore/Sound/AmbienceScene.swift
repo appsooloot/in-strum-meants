@@ -3,6 +3,7 @@ public enum AmbienceSource: String, Codable, CaseIterable {
     case water, crickets, breeze, owl, rainOnWater, rainOnGlass, dawnChorus, shipHum, airFlow, chime, hullTicks, wind
     case surf, palms, gulls, road, engine, windowWind, passingCar
     case fire, kettle, street, drips, clock
+    case iceGroan, waterfall, lapping, boat
 }
 
 /// What a world wants to hear right now. Levels are 0…1; anything missing is silent.

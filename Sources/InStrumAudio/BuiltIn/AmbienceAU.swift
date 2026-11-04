@@ -107,6 +107,10 @@ public final class AmbienceAU: AUAudioUnit {
         case .street: return ISD_AMB_STREET
         case .drips: return ISD_AMB_DRIPS
         case .clock: return ISD_AMB_CLOCK
+        case .iceGroan: return ISD_AMB_ICE_GROAN
+        case .waterfall: return ISD_AMB_WATERFALL
+        case .lapping: return ISD_AMB_LAPPING
+        case .boat: return ISD_AMB_BOAT
         }
     }
 

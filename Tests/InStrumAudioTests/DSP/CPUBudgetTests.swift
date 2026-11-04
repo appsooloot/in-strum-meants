@@ -104,10 +104,25 @@ final class CPUBudgetTests: XCTestCase {
         }
     }
 
+    /// The fjord's and the bay's soundscapes (spec §4.4).
+    func testNightSkyAmbienceBudget() {
+        typealias A = AmbienceTests
+        let fjord: [A.Action] = [A.level(ISD_AMB_ICE_GROAN, 0.6), A.level(ISD_AMB_WATERFALL, 0.4), A.level(ISD_AMB_WATER, 0.5),
+                                 A.level(ISD_AMB_WIND, 0.4), A.level(ISD_AMB_LAPPING, 0.3)]
+        let bay: [A.Action] = [A.level(ISD_AMB_LAPPING, 0.7), A.level(ISD_AMB_WATER, 0.3), A.level(ISD_AMB_CRICKETS, 0.5),
+                               A.level(ISD_AMB_BOAT, 0.4), A.startBoat(at: 0), A.level(ISD_AMB_BREEZE, 0.4)]
+        for (name, scene) in [("fjord", fjord), ("bay", bay)] {
+            let seconds = bestOfThree { _ = A.render(seconds: 10, actions: scene) }
+            XCTAssertLessThan(seconds / 10, 0.025, "the \(name) ambience used \(String(format: "%.1f", seconds * 10))% of real time")
+        }
+    }
+
+    /// Felt Glass and Orbit Pad with all 28 ambience sources at 0.6.
     func testCombinedBudget() {
         var felt = [R.pedal(0, 127)]
         for n: UInt8 in [36, 43, 48, 52, 55, 60, 64, 67, 71, 72, 76, 79, 83, 84, 88, 91] { felt.append(R.noteOn(0, n, 90)) }
         let pad = [48, 55, 60, 63, 67, 70, 72, 75].map { R.noteOn(0, UInt8($0), 90) }
+        XCTAssertEqual(ISD_AMB_COUNT.rawValue, 28)
         let ambience: [AmbienceTests.Action] = (0..<Int(ISD_AMB_COUNT.rawValue)).map { AmbienceTests.level(ISDAmbienceSource(UInt32($0)), 0.6) }
         let seconds = bestOfThree {
             _ = R.render(seconds: 10, events: felt)

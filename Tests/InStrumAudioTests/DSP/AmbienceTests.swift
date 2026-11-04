@@ -99,6 +99,25 @@ final class AmbienceTests: XCTestCase {
             XCTAssertTrue(out.l.allSatisfy(\.isFinite) && out.r.allSatisfy(\.isFinite), name)
             XCTAssertGreaterThan(Self.windows(body).max() ?? -200, -60, "\(name) is heard")
         }
+        // The night skies: a far waterfall and lapping water at their levels; the ice's creak bed stays faint.
+        let skies: [(ISDAmbienceSource, String, ClosedRange<Double>, ClosedRange<Double>)] = [
+            (ISD_AMB_WATERFALL, "waterfall", 300...2500, -32 ... -18),
+            (ISD_AMB_LAPPING, "lapping", 300...3000, -40 ... -22),
+        ]
+        for (source, name, band, loudness) in skies {
+            let out = Self.render(seconds: 20, actions: [Self.level(source, 1)])
+            let steady = SynthRender.slice(out.l, 3, 20)
+            let centroid = DSPTestKit.averageCentroid(steady, sampleRate: Self.sr), db = DSPTestKit.dBFS(steady)
+            XCTAssertTrue(band.contains(centroid), "\(name): centroid \(Int(centroid)) Hz")
+            XCTAssertTrue(loudness.contains(db), "\(name): \(String(format: "%.1f", db)) dBFS")
+            XCTAssertTrue(out.l.allSatisfy(\.isFinite) && out.r.allSatisfy(\.isFinite), name)
+        }
+        let ice = Self.render(seconds: 20, actions: [Self.level(ISD_AMB_ICE_GROAN, 1)])
+        let bed = Self.windows(SynthRender.slice(ice.l, 3, 20)).sorted()
+        XCTAssertLessThan(bed[bed.count / 2], -30, "the ice's creak bed")
+        XCTAssertGreaterThan(bed[bed.count / 2], -60, "the ice's creak bed is heard")
+        XCTAssertTrue(ice.l.allSatisfy(\.isFinite) && ice.r.allSatisfy(\.isFinite), "ice")
+        XCTAssertLessThanOrEqual(max(ice.l.map(abs).max() ?? 0, ice.r.map(abs).max() ?? 0), 1, "ice")
     }
 
     /// A wave breaks: a low crash first, then the bright wash sliding up the sand.
@@ -409,5 +428,116 @@ extension AmbienceTests {
         let few = drips(0.3), many = drips(1)
         XCTAssertGreaterThanOrEqual(Double(many), 2 * Double(few), "\(few) drips at 0.3, \(many) at 1")
         XCTAssertGreaterThan(few, 0)
+    }
+}
+
+// MARK: - Night skies: ice, a waterfall, lapping water, a boat
+
+extension AmbienceTests {
+    static func startBoat(at t: Double) -> Action { (t, { isd_ambience_debug_start_boat($0) }) }
+
+    /// The runs of frames that rise `db` above the median of the `window` frames around them: (first frame, length).
+    static func swells(_ frames: [Double], above db: Double, window: Int) -> [(start: Int, length: Int)] {
+        var runs: [(start: Int, length: Int)] = [], start = -1
+        for i in frames.indices {
+            let lo = max(0, i - window / 2), hi = min(frames.count, i + window / 2)
+            let sorted = frames[lo..<hi].sorted()
+            let hit = frames[i] - sorted[sorted.count / 2] >= db
+            if hit && start < 0 { start = i }
+            if !hit && start >= 0 { runs.append((start: start, length: i - start)); start = -1 }
+        }
+        if start >= 0 { runs.append((start: start, length: frames.count - start)) }
+        return runs
+    }
+
+    /// Every 8th-sample average (a cheap 6 kHz copy for the low bands).
+    static func decimate8(_ x: [Float]) -> [Float] {
+        var y = [Float](repeating: 0, count: x.count / 8)
+        for i in y.indices {
+            var s: Float = 0
+            for k in 0..<8 { s += x[i * 8 + k] }
+            y[i] = s / 8
+        }
+        return y
+    }
+
+    /// Over two minutes at density 1.5 the ice groans (40–120 Hz swells of 1–4 s, 8 dB over their surroundings) and
+    /// cracks (5 ms broadband transients, 12 dB over the 200 ms around them).
+    func testIceGroansAndCracks() {
+        guard let a = isd_ambience_create(Self.sr, 512, 1) else { return XCTFail("no ambience") }
+        defer { isd_ambience_destroy(a) }
+        isd_ambience_set_density(a, 1.5)
+        isd_ambience_set_level(a, ISD_AMB_ICE_GROAN, 1)
+        let total = Int(120 * Self.sr)
+        var l = [Float](repeating: 0, count: total), r = l
+        for i in stride(from: 0, to: total, by: 512) {
+            l.withUnsafeMutableBufferPointer { lp in r.withUnsafeMutableBufferPointer { rp in isd_ambience_render(a, lp.baseAddress! + i, rp.baseAddress! + i, Int32(min(512, total - i))) } }
+        }
+        let started = isd_ambience_debug_events(a, ISD_AMB_ICE_GROAN)
+        XCTAssertGreaterThanOrEqual(started, 5, "\(started) groans and cracks started")
+        let mid = Self.mid((l: l, r: r))
+        // Cracks: the sample-to-sample difference keeps the click and drops the groans and the bed.
+        var diff = [Float](repeating: 0, count: mid.count)
+        for i in 1..<mid.count { diff[i] = mid[i] - mid[i - 1] }
+        let cracks = Self.events(Self.frameDB(diff, ms: 5), above: 12, window: 40)
+        XCTAssertGreaterThanOrEqual(cracks, 3, "\(cracks) cracks in 120 s")
+        // Groans: the 40–120 Hz band (on a 6 kHz copy) in 250 ms frames, against the 20 s around them.
+        let low = Self.decimate8(mid), lowSR = Self.sr / 8
+        let f0 = (40.0 * 120).squareRoot(), w0 = 2 * Double.pi * f0 / lowSR
+        let alpha = sin(w0) * sinh(log(2) / 2 * log2(120.0 / 40) * w0 / sin(w0)), a0 = 1 + alpha
+        var band = low.map(Double.init)
+        for _ in 0..<2 {
+            var x1 = 0.0, x2 = 0.0, y1 = 0.0, y2 = 0.0
+            for i in band.indices {
+                let xi = band[i], yi = (alpha * xi - alpha * x2 + 2 * cos(w0) * y1 - (1 - alpha) * y2) / a0
+                x2 = x1; x1 = xi; y2 = y1; y1 = yi; band[i] = yi
+            }
+        }
+        let n = Int(0.25 * lowSR)
+        let frames = stride(from: 0, to: band.count - n + 1, by: n).map { s -> Double in
+            let e = band[s..<(s + n)].reduce(0.0) { $0 + $1 * $1 } / Double(n)
+            return e > 0 ? 10 * log10(e) : -200
+        }
+        let groans = Self.swells(frames, above: 8, window: 80).filter { (2...18).contains($0.length) }   // 0.5–4.5 s
+        XCTAssertGreaterThanOrEqual(groans.count, 2, "\(groans.count) groans in 120 s: \(groans.map { Double($0.length) * 0.25 }) s")
+    }
+
+    /// A boat passes: the 60–120 Hz band swells by more than 10 dB over 12–20 s while it crosses from one side to the other.
+    func testBoatPasses() {
+        let out = Self.render(seconds: 26, actions: [Self.level(ISD_AMB_BOAT, 1), Self.startBoat(at: 2)])
+        let left = Self.frameDB(Self.bandpass(out.l, 60, 120), ms: 500), right = Self.frameDB(Self.bandpass(out.r, 60, 120), ms: 500)
+        let both: [Double] = zip(left, right).map { (a: Double, b: Double) -> Double in 10 * log10(0.5 * (pow(10, a / 10) + pow(10, b / 10))) }
+        let peak = both.max() ?? -200
+        XCTAssertGreaterThan(peak, -50, "the boat is heard (\(peak) dB)")
+        XCTAssertGreaterThanOrEqual(peak - both[5], 10, "the engine swells in: \(both[5]) → \(peak) dB")
+        let heard = both.indices.filter { both[$0] >= peak - 20 }
+        let span = Double((heard.last ?? 0) - (heard.first ?? 0) + 1) * 0.5
+        XCTAssertTrue((12...20).contains(span), "the pass lasts \(span) s")
+        let loud = both.indices.filter { both[$0] >= peak - 10 }
+        guard let first = loud.first, let last = loud.last else { return XCTFail("no swell") }
+        let from = left[first] - right[first], to = left[last] - right[last]
+        XCTAssertGreaterThanOrEqual(abs(from), 3, "starts to one side (\(from) dB)")
+        XCTAssertGreaterThanOrEqual(abs(to), 3, "ends to the other (\(to) dB)")
+        XCTAssertLessThan(from * to, 0, "the boat crosses: \(from) dB → \(to) dB")
+        XCTAssertTrue(out.l.allSatisfy(\.isFinite) && out.r.allSatisfy(\.isFinite))
+    }
+
+    /// Lapping water: soft 300–2000 Hz swells of 0.3–0.8 s, 6–40 a minute.
+    func testLappingSloshes() {
+        guard let a = isd_ambience_create(Self.sr, 512, 1) else { return XCTFail("no ambience") }
+        defer { isd_ambience_destroy(a) }
+        isd_ambience_set_level(a, ISD_AMB_LAPPING, 1)
+        let total = Int(63 * Self.sr)
+        var l = [Float](repeating: 0, count: total), r = l
+        for i in stride(from: 0, to: total, by: 512) {
+            l.withUnsafeMutableBufferPointer { lp in r.withUnsafeMutableBufferPointer { rp in isd_ambience_render(a, lp.baseAddress! + i, rp.baseAddress! + i, Int32(min(512, total - i))) } }
+        }
+        let body = SynthRender.slice(Self.mid((l: l, r: r)), 3, 63)
+        let runs = Self.swells(Self.frameDB(Self.bandpass(body, 300, 2000), ms: 50), above: 6, window: 60)
+        let sloshes = runs.filter { (4...20).contains($0.length) }   // 0.2–1.0 s in 50 ms frames
+        XCTAssertTrue((6...40).contains(sloshes.count), "\(sloshes.count) sloshes a minute (of \(runs.count) swells)")
+        XCTAssertGreaterThanOrEqual(2 * sloshes.count, runs.count, "most swells are slosh-length")
+        let started = isd_ambience_debug_events(a, ISD_AMB_LAPPING)
+        XCTAssertTrue((6...45).contains(started), "\(started) sloshes started in 63 s")
     }
 }

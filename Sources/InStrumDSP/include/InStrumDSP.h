@@ -81,6 +81,12 @@ typedef enum {
     ISD_AMB_DAWN_CHORUS, ISD_AMB_SHIP_HUM, ISD_AMB_AIR_FLOW, ISD_AMB_CHIME, ISD_AMB_HULL_TICKS, ISD_AMB_WIND,
     ISD_AMB_SURF, ISD_AMB_PALMS, ISD_AMB_GULLS, ISD_AMB_ROAD, ISD_AMB_ENGINE, ISD_AMB_WINDOW_WIND, ISD_AMB_PASSING_CAR,
     ISD_AMB_FIRE, ISD_AMB_KETTLE, ISD_AMB_STREET, ISD_AMB_DRIPS, ISD_AMB_CLOCK,
+    /// The night skies (all outdoor): ICE_GROAN a faint creak bed under deep groans (40–120 Hz sweeps, every 20–90 s)
+    /// and sharp cracks with a 1–2 kHz ring (every 15–60 s); WATERFALL a far white roar (200 Hz–3 kHz, a slow 0.1 Hz
+    /// flicker, about −26 dBFS at 1) over a 60–120 Hz rumble; LAPPING soft sloshes against a hull (300–2000 Hz,
+    /// 0.3–0.8 s, every 2–6 s) with now and then a hollow 180 Hz knock; BOAT a distant outboard crossing from one
+    /// side to the other every 150–400 s (a 12–20 s swell of a low pulsing buzz), its wake washing in after.
+    ISD_AMB_ICE_GROAN, ISD_AMB_WATERFALL, ISD_AMB_LAPPING, ISD_AMB_BOAT,
     ISD_AMB_COUNT
 } ISDAmbienceSource;
 
@@ -88,7 +94,8 @@ typedef struct ISDAmbience ISDAmbience;
 /// Internal (tests): the frequency the ambience's tone oscillators really run at, measured over the last second
 /// of a run of `seconds` from phase 0.
 float isd_ambience_debug_tone_hz(float hz, float sampleRate, float seconds);
-/// Internal (tests): how many events a source has started so far (the waking street counts its passing cars).
+/// Internal (tests): how many events a source has started so far (the waking street counts its passing cars; the
+/// ice its groans and cracks together; lapping its sloshes; the boat its passes).
 int isd_ambience_debug_events(const ISDAmbience *ambience, ISDAmbienceSource source);
 /// The same seed gives the same ambience.
 ISDAmbience *isd_ambience_create(double sampleRate, int maxFrames, uint64_t seed);
@@ -121,6 +128,8 @@ void isd_ambience_set_wetness(ISDAmbience *ambience, float wetness);
 void isd_ambience_set_snow_on_glass(ISDAmbience *ambience, float snow);
 /// Internal (tests): the kettle starts a heating cycle now.
 void isd_ambience_debug_start_kettle(ISDAmbience *ambience);
+/// Internal (tests): a boat passes now.
+void isd_ambience_debug_start_boat(ISDAmbience *ambience);
 /// Render thread. Overwrites `left`/`right`.
 void isd_ambience_render(ISDAmbience *ambience, float *left, float *right, int frames);
 
