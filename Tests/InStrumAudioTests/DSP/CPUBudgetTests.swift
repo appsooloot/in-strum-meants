@@ -95,6 +95,15 @@ final class CPUBudgetTests: XCTestCase {
         XCTAssertLessThan(seconds / 10, 0.06, "Plankton Keys used \(String(format: "%.1f", seconds * 10))% of real time")
     }
 
+    /// Eight voices held for 10 s with the echo full up (the hard notes bursting with muraiki), breath, yuri, the
+    /// bamboo and the open air at their defaults.
+    func testZenShakuhachiBudget() {
+        let held = [62, 65, 67, 69, 72, 74, 77, 79].map { R.noteOn(0, UInt8($0), $0 % 2 == 0 ? 110 : 120) }
+        let p: [Int: Float] = [Int(ISD_P_ECHO): 1]
+        let seconds = bestOfThree { _ = R.render(ISD_ENGINE_ZEN_SHAKUHACHI, seconds: 10, params: p, events: held) }
+        XCTAssertLessThan(seconds / 10, 0.06, "Zen Shakuhachi used \(String(format: "%.1f", seconds * 10))% of real time")
+    }
+
     /// The cabin's and the bedroom's soundscapes, each heard through the window.
     func testWindowAmbienceBudget() {
         typealias A = AmbienceTests
