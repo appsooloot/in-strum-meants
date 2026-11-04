@@ -31,6 +31,10 @@ public struct LakeRipples {
     public static let cap = 64
     public static let fireflyCap = 40
     static let chordWindow = 0.05
+    /// While time is held (a step of dt 0) a ring born since the last step starts this old, faded in (over its first
+    /// 0.08 s) and spreading, and a chord's fireflies this old, lit (they fade in over 0.6 s): else neither would show.
+    public static let bloomAge: Float = 0.15
+    public static let fireflyBloomAge: Float = 0.6
 
     /// Keyboard position (key centre 0…1) → place across the lake.
     public static func lakeX(keyCentre: Float) -> Float { keyCentre }
@@ -109,6 +113,7 @@ public struct LakeRipples {
     public mutating func step(dt: Double, roles: RoleValues) {
         let fdt = Float(max(0, dt))
         for i in ripples.indices { ripples[i].age += fdt }
+        if fdt == 0 { for i in ripples.indices where ripples[i].age == 0 { ripples[i].age = Self.bloomAge } }
         ripples.removeAll { $0.age >= $0.lifetime }
 
         let target = min(1, Float(held.count) / 4)
@@ -129,6 +134,7 @@ public struct LakeRipples {
         for i in fireflies.indices {
             var f = fireflies[i]
             f.age += fdt
+            if fdt == 0, f.age == 0 { f.age = Self.fireflyBloomAge }
             let phase = f.age * 1.7 + f.hue * 40
             f.position += (f.drift + SIMD3<Float>(0.02 * sin(phase) * (1 + wander), 0.01 * cos(phase * 1.3), 0)) * fdt
             fireflies[i] = f

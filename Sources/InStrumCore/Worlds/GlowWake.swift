@@ -76,6 +76,10 @@ public struct GlowWake {
     static let minRunGap = 0.04
     public static let wakeCap = 16, dartCap = 12
     public static let wakeLife: Float = 1.5, dartLife: Float = 0.6
+    /// While time is held (a step of dt 0) a fish that set off since the last step starts this far into its dart, its
+    /// streak drawn out (over 0.12 s) and clear of the wake; a chord's pool blooms at its full strength. Else neither
+    /// would show.
+    public static let dartBloomAge: Float = 0.25
     /// A fast run: at least `fastRunNotes` notes within `fastRunWindow` seconds.
     static let fastRunNotes = 4, fastRunWindow = 1.0
     /// Darts set off at most this often (seconds of playing), so a long run is a shoal, not a blizzard.
@@ -98,6 +102,8 @@ public struct GlowWake {
     private var dartList: [Dart] = []
     private var poolState = GlowPool.still
     private var poolTarget: Float = 0
+    /// A chord has called for the pool since the last step.
+    private var poolBorn = false
 
     var nextID = 0, nextWakeID = 0, nextDartID = 0
     private var held = Set<UInt8>()
@@ -170,6 +176,7 @@ public struct GlowWake {
             let reaction = reactionScale.isFinite ? min(max(reactionScale, 0), 2) : 1
             poolState.x = chordNotes.map(\.x).reduce(0, +) / n
             poolTarget = max(poolTarget, min(1, (0.6 + 0.4 * meanV) * reaction))
+            poolBorn = true
             switch PlayingAnalyzer.classify(held.union(sustained)) {
             case .major: poolState.warm = 1
             case .minor: poolState.warm = 0
@@ -221,6 +228,7 @@ public struct GlowWake {
             spawnWake(to: patch, v: v, at: t)
         }
         queue.removeFirst(min(queue.count, Self.maxSpawnsPerStep))
+        if step == 0 { for i in dartList.indices where dartList[i].age == 0 { dartList[i].age = Self.dartBloomAge } }
 
         // Held (or pedalled) patches stay lit; released ones fade (twice as slowly when lingering). All drift.
         let sounding = held.union(sustained)
@@ -240,6 +248,8 @@ public struct GlowWake {
         } else {
             poolState.strength = poolTarget
         }
+        if step == 0, poolBorn { poolState.strength = max(poolState.strength, poolTarget) }
+        poolBorn = false
         if poolState.strength < 1e-4 { poolState.strength = 0 }
     }
 
