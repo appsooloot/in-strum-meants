@@ -4,13 +4,18 @@ import InStrumCore
 /// Original living art for each "Inspired by" card, drawn in code from the song's feeling (never artwork,
 /// photos or logos). The song's tempo is hidden in the motion: everything breathes at `pulsePeriod`.
 enum CardArt {
-    case comeBackToEarth, innerbloom, musicToWatchBoysTo, highByTheBeach, stay, dunno
+    case comeBackToEarth, innerbloom, musicToWatchBoysTo, highByTheBeach, stay, dunno, wings
 
     /// The Stay card's six-armed frost stars (x, y as fractions of the card, radius in points at 600 × 360): round the
     /// edges, clear of the liner notes (top right), the title block (bottom left) and the Listen button.
     static let stayFrost: [(CGFloat, CGFloat, CGFloat)] = [(0.05, 0.10, 16), (0.13, 0.05, 9), (0.03, 0.24, 8),
                                                          (0.955, 0.22, 13), (0.90, 0.15, 7), (0.04, 0.55, 10),
                                                          (0.10, 0.60, 6), (0.955, 0.70, 13), (0.88, 0.76, 7)]
+
+    /// The Wings card's six brighter stars (the track number): x, y as fractions of the card, arm length in points at
+    /// 600 × 360. High in the sky, above the curtains and clear of the liner notes (top right).
+    static let wingsStars: [(CGFloat, CGFloat, CGFloat)] = [(0.07, 0.11, 7), (0.25, 0.06, 5), (0.43, 0.16, 6),
+                                                          (0.64, 0.21, 5), (0.80, 0.17, 7), (0.94, 0.30, 5)]
 
     static func art(for creditID: String) -> CardArt? {
         switch creditID {
@@ -20,6 +25,7 @@ enum CardArt {
         case CreditLibrary.highByTheBeach.id: return .highByTheBeach
         case CreditLibrary.stay.id: return .stay
         case CreditLibrary.dunno.id: return .dunno
+        case CreditLibrary.wings.id: return .wings
         default: return nil
         }
     }
@@ -34,6 +40,7 @@ enum CardArt {
         case .highByTheBeach: return .custom("Futura-CondensedMedium", size: 28)
         case .stay: return .system(size: 30, weight: .regular, design: .serif)
         case .dunno: return .system(size: 26, weight: .light, design: .rounded)
+        case .wings: return .system(size: 28, weight: .light, design: .rounded)
         }
     }
 
@@ -45,13 +52,19 @@ enum CardArt {
         case .comeBackToEarth: return 0.5
         case .stay: return 1
         case .dunno: return 2
+        case .wings: return 2
         }
     }
 
-    /// How long one breath of the card lasts: a beat of the song, except "Stay", which is felt in half time
-    /// (134 BPM played as 67), so its snow falls at 60/67 s.
+    /// How long one breath of the card lasts: a beat of the song, except the two felt in half time: "Stay"
+    /// (134 BPM played as 67), so its snow falls at 60/67 s, and "Wings" (119 BPM, felt as about 60), whose curtains
+    /// ripple once a second (60/60 s, the half-time feel rounded, as its demo plays it).
     func pulse(for credit: Credit) -> Double {
-        self == .stay ? 2 * credit.pulsePeriod : credit.pulsePeriod
+        switch self {
+        case .stay: return 2 * credit.pulsePeriod
+        case .wings: return 60.0 / 60
+        default: return credit.pulsePeriod
+        }
     }
     var titleCase: Bool { self == .innerbloom }
 
@@ -63,6 +76,7 @@ enum CardArt {
         case .highByTheBeach: Self.coastLine(ctx, size, t, pulse)
         case .stay: Self.cabinWindow(ctx, size, t, pulse)
         case .dunno: Self.dawnBedroom(ctx, size, t, pulse)
+        case .wings: Self.auroraWater(ctx, size, t, pulse)
         }
     }
 
@@ -445,6 +459,119 @@ enum CardArt {
             let flash: Double = bright ? 0.45 + 0.55 * exp(-phase * 5) : 0.35
             let r: CGFloat = bright ? 2.2 : 1.1
             light.fill(Path(ellipseIn: CGRect(x: x - r, y: y - r, width: 2 * r, height: 2 * r)), with: .color(.white.opacity(flash)))
+        }
+    }
+
+    // MARK: - Wings: two aurora curtains over black water that mirrors them, under six bright stars
+
+    private static func auroraWater(_ ctx: GraphicsContext, _ size: CGSize, _ t: Double, _ pulse: Double) {
+        let w = size.width, h = size.height
+        let horizon: CGFloat = h * 0.64
+        let green = Color(red: 0.30, green: 0.95, blue: 0.62)
+        let teal = Color(red: 0.18, green: 0.72, blue: 0.70)
+        let violet = Color(red: 0.55, green: 0.35, blue: 0.85)
+        // A deep teal-black sky, a little lighter towards the horizon, over still black water.
+        ctx.fill(Path(CGRect(x: 0, y: 0, width: w, height: horizon)), with: .linearGradient(
+            Gradient(colors: [Color(red: 0.01, green: 0.03, blue: 0.05), Color(red: 0.02, green: 0.09, blue: 0.11),
+                              Color(red: 0.04, green: 0.15, blue: 0.16)]),
+            startPoint: .zero, endPoint: CGPoint(x: 0, y: horizon)))
+        ctx.fill(Path(CGRect(x: 0, y: horizon, width: w, height: h - horizon)), with: .linearGradient(
+            Gradient(colors: [Color(red: 0.01, green: 0.04, blue: 0.05), Color(red: 0, green: 0.01, blue: 0.02)]),
+            startPoint: CGPoint(x: 0, y: horizon), endPoint: CGPoint(x: 0, y: h)))
+
+        // A field of faint stars, clear of the liner notes.
+        for i in 0..<60 {
+            let x: CGFloat = w * CGFloat(hash(i, 21)), y: CGFloat = horizon * 0.85 * CGFloat(hash(i, 22))
+            if x > w * 0.6 && y < h * 0.1 { continue }
+            let twinkle: Double = 0.5 + 0.5 * sin(t * (0.9 + hash(i, 23)) + Double(i))
+            let r: CGFloat = 0.5 + 0.6 * CGFloat(hash(i, 24))
+            ctx.fill(Path(ellipseIn: CGRect(x: x - r, y: y - r, width: 2 * r, height: 2 * r)),
+                     with: .color(.white.opacity(0.12 + 0.3 * twinkle)))
+        }
+        // Six brighter six-pointed stars.
+        for (k, star) in Self.wingsStars.enumerated() {
+            let (fx, fy, arm) = star
+            let c = CGPoint(x: w * fx, y: h * fy)
+            let glint: Double = 0.7 + 0.3 * sin(t * 0.8 + Double(k) * 1.9)
+            var spikes = Path()
+            for j in 0..<3 {
+                let a: CGFloat = CGFloat(j) * CGFloat.pi / 3 + 0.26
+                let dx: CGFloat = arm * cos(a), dy: CGFloat = arm * sin(a)
+                spikes.move(to: CGPoint(x: c.x - dx, y: c.y - dy))
+                spikes.addLine(to: CGPoint(x: c.x + dx, y: c.y + dy))
+            }
+            ctx.stroke(spikes, with: .color(Color(red: 0.85, green: 0.95, blue: 1).opacity(0.55 * glint)), lineWidth: 0.8)
+            ctx.fill(Path(ellipseIn: CGRect(x: c.x - 1.6, y: c.y - 1.6, width: 3.2, height: 3.2)), with: .color(.white.opacity(0.9 * glint)))
+        }
+
+        // Two curtains of rays, shaped by noise that drifts slowly; a fold travels along each once a pulse.
+        let wave: Double = 2 * Double.pi * t / pulse
+        let steps = 96
+        let strip: CGFloat = w / CGFloat(steps) * 1.6
+        let curtains: [(base: Double, sweep: Double, height: Double, glow: Double, seed: Double)] = [
+            (0.50, 0.05, 0.30, 0.55, 0), (0.575, 0.035, 0.20, 0.40, 7.3)]
+        var rays: [(x: CGFloat, base: CGFloat, tall: CGFloat, bright: Double, sway: CGFloat)] = []
+        rays.reserveCapacity(curtains.count * steps)
+        for c in curtains {
+            for s in 0..<steps {
+                let u: Double = Double(s) / Double(steps - 1)
+                let fold: Double = sin(u * 9 - wave + c.seed)
+                let n: Double = noise2(u * 6 + t * 0.06 + c.seed, c.seed + t * 0.03)
+                let baseFraction: Double = c.base + c.sweep * sin(u * 3.4 + c.seed + t * 0.05) + 0.012 * fold
+                let bright: Double = c.glow * (0.35 + 0.65 * n) * (0.8 + 0.2 * fold)
+                let sway: CGFloat = CGFloat(3 * sin(Double(s) * 0.7 + t * 1.1))
+                let x: CGFloat = w * CGFloat(u) - strip * 0.3
+                let tall: CGFloat = h * CGFloat(c.height * (0.55 + 0.6 * n))
+                rays.append((x: x, base: h * CGFloat(baseFraction), tall: tall, bright: bright, sway: sway))
+            }
+        }
+        var sky = ctx
+        sky.blendMode = .plusLighter
+        sky.addFilter(.blur(radius: 2))
+        sky.drawLayer { layer in
+            for r in rays {
+                let top: CGFloat = r.base - r.tall
+                layer.fill(Path(CGRect(x: r.x, y: top, width: strip, height: r.tall)), with: .linearGradient(
+                    Gradient(colors: [violet.opacity(0), teal.opacity(0.45 * r.bright), green.opacity(r.bright)]),
+                    startPoint: CGPoint(x: r.x, y: top), endPoint: CGPoint(x: r.x, y: r.base)))
+            }
+        }
+        // The water mirrors them: flipped about the horizon, dimmer, swaying a little.
+        var mirror = ctx
+        mirror.blendMode = .plusLighter
+        mirror.clip(to: Path(CGRect(x: 0, y: horizon, width: w, height: h - horizon)))
+        mirror.addFilter(.blur(radius: 3))
+        mirror.drawLayer { layer in
+            for r in rays {
+                let top: CGFloat = 2 * horizon - r.base
+                layer.fill(Path(CGRect(x: r.x + r.sway, y: top, width: strip, height: r.tall)), with: .linearGradient(
+                    Gradient(colors: [green.opacity(0.35 * r.bright), teal.opacity(0.15 * r.bright), violet.opacity(0)]),
+                    startPoint: CGPoint(x: r.x, y: top), endPoint: CGPoint(x: r.x, y: top + r.tall)))
+            }
+        }
+
+        // A low dark shore along the horizon.
+        var shore = Path()
+        shore.move(to: CGPoint(x: 0, y: horizon))
+        for s in 0...48 {
+            let u: Double = Double(s) / 48
+            let rise: CGFloat = h * CGFloat(0.012 + 0.05 * noise2(u * 5 + 3.1, 0.7) * (0.4 + 0.6 * abs(u - 0.55)))
+            shore.addLine(to: CGPoint(x: w * CGFloat(u), y: horizon - rise))
+        }
+        shore.addLine(to: CGPoint(x: w, y: horizon + 1)); shore.addLine(to: CGPoint(x: 0, y: horizon + 1))
+        shore.closeSubpath()
+        ctx.fill(shore, with: .color(Color(red: 0.0, green: 0.02, blue: 0.03)))
+        // Faint ripples breaking up the reflection.
+        for k in 0..<14 {
+            let d: Double = Double(k) / 13
+            let y0: CGFloat = horizon + 4 + CGFloat(d * d) * (h - horizon - 6)
+            var p = Path()
+            for s in 0...40 {
+                let x: CGFloat = w * CGFloat(s) / 40
+                let y: CGFloat = y0 + CGFloat(1.2 * sin(Double(s) * 0.9 + t * 0.7 + Double(k) * 1.3))
+                if s == 0 { p.move(to: CGPoint(x: x, y: y)) } else { p.addLine(to: CGPoint(x: x, y: y)) }
+            }
+            ctx.stroke(p, with: .color(.black.opacity(0.5)), lineWidth: CGFloat(1 + 2 * d))
         }
     }
 
