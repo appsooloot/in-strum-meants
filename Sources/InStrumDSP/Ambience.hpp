@@ -1,7 +1,7 @@
-// Ambience: thirty-two sources generated live (never loops), each gliding to its level over 2.5 s, through a
+// Ambience: thirty-eight sources generated live (never loops), each gliding to its level over 2.5 s, through a
 // small room whose amount follows "closeness", ducking under the instrument while you play. Outdoor sources can be
 // heard through a window ("indoors"): darker and quieter, while the indoor ones stay close. In-key sources (the
-// temple bell) follow the key the player is in.
+// temple bell, the sonar) follow the key the player is in.
 // Everything is preallocated; the setters are lock-free atomics read at the start of each render.
 #pragma once
 #include "DSPCommon.hpp"
@@ -41,7 +41,7 @@ public:
 };
 
 class Thunder;
-namespace amb { class Surf; class Kettle; class Boat; class TempleBell; class WaterKnocker; class Warbler; }
+namespace amb { class Surf; class Kettle; class Boat; class TempleBell; class WaterKnocker; class Warbler; class Sonar; class Whale; class Bubbles; }
 
 class Ambience {
 public:
@@ -74,6 +74,14 @@ public:
     void startKnocker();
     /// The bush warbler calls now (tests).
     void callWarbler();
+    /// A burst of bubbles (0…1); heard only while the bubbles are up.
+    void triggerBubbles(float strength);
+    /// The sonar pings now (tests).
+    void pingSonar();
+    /// The pitch of the sonar's newest ringing ping (its tail and return included), or 0 while it is silent.
+    float sonarRingingHz() const;
+    /// The whale starts singing now (tests).
+    void startWhale();
     /// Events a source has started (tests; read when not rendering).
     int events(int source) const { return source >= 0 && source < ISD_AMB_COUNT && sources[source] ? sources[source]->events : 0; }
     void render(float *left, float *right, int frames);
@@ -107,6 +115,9 @@ private:
     amb::TempleBell *bell = nullptr;
     amb::WaterKnocker *knocker = nullptr;
     amb::Warbler *warbler = nullptr;
+    amb::Sonar *sonar = nullptr;
+    amb::Whale *whale = nullptr;
+    amb::Bubbles *bubbles = nullptr;
     float speedTarget = 0, indoorsTarget = 0, indoors = 0, indoorsApplied = -1, wetTarget = 0, snowTarget = 0;
     float windowA1 = 1, windowA2 = 0, windowA3 = 0, windowGain = 1;
     Ramp ramps[ISD_AMB_COUNT];

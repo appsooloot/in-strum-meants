@@ -136,6 +136,33 @@ final class AmbienceTests: XCTestCase {
             XCTAssertTrue(out.l.allSatisfy(\.isFinite) && out.r.allSatisfy(\.isFinite), name)
             XCTAssertLessThanOrEqual(max(out.l.map(abs).max() ?? 0, out.r.map(abs).max() ?? 0), 1, name)
         }
+        // Deep water: the hull's groans low (its 60–250 Hz resonances) near −30 dBFS, its metal ticks rare; the sonar on
+        // its tone; the whale, the bubbles, the shrimp and the fish each around their band (each has its own test too).
+        let hull = Self.render(seconds: 30, actions: [Self.level(ISD_AMB_HULL_CREAK, 1), Self.density(1.5)])
+        let hullBody = SynthRender.slice(Self.mid(hull), 3, 30)
+        let hullCentroid = DSPTestKit.averageCentroid(hullBody, sampleRate: Self.sr)
+        XCTAssertTrue((50...300).contains(hullCentroid), "hull creak: centroid \(Int(hullCentroid)) Hz")
+        XCTAssertGreaterThan(Self.bandShare(hullBody, 40, 300), 0.8, "the hull's groans")
+        let groan = Self.stereoFrames(hull, ms: 500, from: 3, to: 30).max() ?? -200
+        XCTAssertTrue((-34 ... -22).contains(groan), "hull creak: its loudest half second at \(groan) dBFS")
+        var deep: [(String, (l: [Float], r: [Float]))] = [("hull creak", hull)]
+        let bands: [(ISDAmbienceSource, String, [Action], ClosedRange<Double>)] = [
+            (ISD_AMB_SONAR, "sonar", [Self.pingSonar(at: 3)], 1200...1450),
+            (ISD_AMB_WHALE, "whale", [Self.startWhale(at: 3)], 100...2000),
+            (ISD_AMB_BUBBLES, "bubbles", [Self.bubbles(0.5, at: 3)], 1200...6000),
+            (ISD_AMB_SHRIMP, "shrimp", [], 3000...12000),
+            (ISD_AMB_FISH_CHORUS, "fish chorus", [], 150...600),
+        ]
+        for (source, name, extra, band) in bands {
+            let out = Self.render(seconds: 8, actions: [Self.level(source, 1)] + extra)
+            let centroid = DSPTestKit.averageCentroid(SynthRender.slice(Self.mid(out), 3, 8), sampleRate: Self.sr)
+            XCTAssertTrue(band.contains(centroid), "\(name): centroid \(Int(centroid)) Hz")
+            deep.append((name, out))
+        }
+        for (name, out) in deep {
+            XCTAssertTrue(out.l.allSatisfy(\.isFinite) && out.r.allSatisfy(\.isFinite), name)
+            XCTAssertLessThanOrEqual(max(out.l.map(abs).max() ?? 0, out.r.map(abs).max() ?? 0), 1, name)
+        }
     }
 
     /// A wave breaks: a low crash first, then the bright wash sliding up the sand.
@@ -773,5 +800,207 @@ extension AmbienceTests {
         let median = cores.sorted()[cores.count / 2]
         XCTAssertTrue((-44 ... -33).contains(median), "a rustle sits near \(median) dBFS")
         XCTAssertTrue(strong.out.l.allSatisfy(\.isFinite) && strong.out.r.allSatisfy(\.isFinite))
+    }
+}
+
+// MARK: - Deep water: a sonar in your key, hull creaks, humpback song, bubbles, snapping shrimp, a reef fish chorus
+
+extension AmbienceTests {
+    static func pingSonar(at t: Double) -> Action { (t, { isd_ambience_debug_ping_sonar($0) }) }
+    static func startWhale(at t: Double) -> Action { (t, { isd_ambience_debug_start_whale($0) }) }
+    static func bubbles(_ strength: Float, at t: Double) -> Action { (t, { isd_ambience_trigger_bubbles($0, strength) }) }
+    static func closeness(_ c: Float, at t: Double = 0) -> Action { (t, { isd_ambience_set_closeness($0, c) }) }
+
+    /// The tonic of a key root (C = 0) in the sonar's octave, A5 (MIDI 81) … G♯6 (MIDI 92): the bell's, four octaves up.
+    static func sonarTonic(_ root: Int) -> Double { 16 * tonic(root) }
+
+    /// Key F♯ minor: the sonar pings F♯6 (1480.0 Hz) within 3 cents as heard, in each ear and in both together, however
+    /// close or far the room (its tail is its own: the room's modulated tail never reaches it); with no key sensed it
+    /// pings E6 (1318.5 Hz), peaking near −26 dBFS. Every root lands in A5–G♯6, silent or pinged; a key that can't be
+    /// sensed keeps the last one.
+    func testSonarSitsOnTheKey() throws {
+        XCTAssertEqual(Self.sonarTonic(6), 1480.0, accuracy: 0.05, "F♯ → F♯6")
+        XCTAssertEqual(Self.sonarTonic(4), 1318.5, accuracy: 0.05, "E → E6")
+        for closeness: Float in [0, 0.5, 1] {
+            let out = Self.render(seconds: 8, actions: [Self.level(ISD_AMB_SONAR, 1), Self.key(6, major: false), Self.closeness(closeness),
+                                                         Self.pingSonar(at: 3)])
+            var heard: [(String, [Float])] = [("both ears", Self.mid(out))]
+            if closeness == 0.5 { heard += [("left", out.l), ("right", out.r)] }
+            for (ear, x) in heard {
+                let f = DSPTestKit.fundamental(SynthRender.slice(x, 3, 8), sampleRate: Self.sr, near: 1480)
+                XCTAssertEqual(DSPTestKit.cents(f, 1480), 0, accuracy: 3, "closeness \(closeness), \(ear): \(f) Hz (F♯6 is 1480.0 Hz)")
+            }
+        }
+        let plain = Self.render(seconds: 8, actions: [Self.level(ISD_AMB_SONAR, 1), Self.pingSonar(at: 3)])
+        let e6 = DSPTestKit.fundamental(SynthRender.slice(Self.mid(plain), 3, 8), sampleRate: Self.sr, near: 1318.5)
+        XCTAssertEqual(DSPTestKit.cents(e6, 1318.5), 0, accuracy: 3, "no key: \(e6) Hz (E6 is 1318.5 Hz)")
+        let peak = Self.peakDB(plain, 2.9, 3.5)
+        XCTAssertTrue((-29 ... -23).contains(peak), "the ping peaks at \(peak) dBFS")
+        XCTAssertTrue(plain.l.allSatisfy(\.isFinite) && plain.r.allSatisfy(\.isFinite))
+        // Every root, straight through the API: the next ping's pitch while the sonar is silent, then the ping's.
+        let a = try XCTUnwrap(isd_ambience_create(Self.sr, 256, 1))
+        defer { isd_ambience_destroy(a) }
+        var l = [Float](repeating: 0, count: 256), r = l
+        XCTAssertEqual(Double(isd_ambience_debug_sonar_hz(a)), Self.sonarTonic(4), accuracy: 1e-2, "E6 until a key is sensed")
+        for root in 0..<12 {
+            isd_ambience_set_key(a, Int32(root), Int32(root % 2))
+            XCTAssertEqual(Double(isd_ambience_debug_sonar_hz(a)), Self.sonarTonic(root), accuracy: 1e-2, "root \(root), before a ping")
+            XCTAssertTrue((880...1760).contains(Self.sonarTonic(root)), "root \(root) in A5–G♯6")
+        }
+        isd_ambience_set_level(a, ISD_AMB_SONAR, 1)
+        for root in [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 5] {
+            isd_ambience_set_key(a, Int32(root), 1)
+            isd_ambience_debug_ping_sonar(a)
+            isd_ambience_render(a, &l, &r, 256)
+            XCTAssertEqual(Double(isd_ambience_debug_sonar_hz(a)), Self.sonarTonic(root), accuracy: 1e-2, "root \(root), pinged")
+        }
+        isd_ambience_set_key(a, -1, 0)
+        isd_ambience_set_key(a, 12, 0)
+        isd_ambience_debug_ping_sonar(a)
+        isd_ambience_render(a, &l, &r, 256)
+        XCTAssertEqual(Double(isd_ambience_debug_sonar_hz(a)), Self.sonarTonic(5), accuracy: 1e-2, "a key that can't be sensed keeps F")
+        XCTAssertTrue(l.allSatisfy(\.isFinite) && r.allSatisfy(\.isFinite))
+    }
+
+    /// The sonar never retunes a ping (spec §13): pinged in C, the key moves to D a second later, and the ping, its tail
+    /// and its return stay on C6 (within 3 cents, nothing at D6) as long as they ring; the next ping is D6.
+    func testSonarNeverJumpsMidPing() {
+        let c6 = Self.sonarTonic(0), d6 = Self.sonarTonic(2)
+        var during: Float = 0, next: Float = 0
+        let out = Self.render(seconds: 19, actions: [
+            Self.level(ISD_AMB_SONAR, 1), Self.key(0, major: true), Self.pingSonar(at: 3), Self.key(2, major: true, at: 4),
+            (6, { during = isd_ambience_debug_sonar_hz($0) }),
+            Self.pingSonar(at: 13), (14, { next = isd_ambience_debug_sonar_hz($0) }),
+        ])
+        let m = Self.mid(out), size = 1 << 18
+        for (from, to) in [(3.4, 6.0), (4.5, 9.0)] {
+            let ring = SynthRender.slice(m, from, to)
+            let f = DSPTestKit.fundamental(ring, sampleRate: Self.sr, near: c6)
+            XCTAssertEqual(DSPTestKit.cents(f, c6), 0, accuracy: 3, "\(from)–\(to) s: \(f) Hz, still C6")
+            let spectrum = DSPTestKit.powerSpectrum(ring, size: size)
+            let atD = 10 * log10(Self.bandPower(spectrum, size: size, 0.99 * d6, 1.01 * d6) / Self.bandPower(spectrum, size: size, 0.99 * c6, 1.01 * c6))
+            XCTAssertLessThan(atD, -40, "\(from)–\(to) s: nothing at D6 (\(atD) dB)")
+        }
+        XCTAssertEqual(Double(during), c6, accuracy: 1e-2, "the ringing ping keeps its pitch")
+        let second = DSPTestKit.fundamental(SynthRender.slice(m, 13, 18), sampleRate: Self.sr, near: d6)
+        XCTAssertEqual(DSPTestKit.cents(second, d6), 0, accuracy: 3, "the next ping: \(second) Hz, D6")
+        XCTAssertEqual(Double(next), d6, accuracy: 1e-2)
+    }
+
+    /// The seabed answers each ping: 1.4–2.6 s later a return at −20 ± 4 dB against the ping (20 ms frames on both
+    /// channels), standing at least 6 dB clear of the tail before it.
+    func testSonarReturnEcho() {
+        let out = Self.render(seconds: 23, actions: [Self.level(ISD_AMB_SONAR, 1), Self.pingSonar(at: 3), Self.pingSonar(at: 10),
+                                                     Self.pingSonar(at: 17)])
+        for at in [3.0, 10.0, 17.0] {
+            let frames = Self.stereoFrames(out, ms: 20, from: at, to: at + 4)
+            guard frames.count >= 150, let ping = frames[0..<25].indices.max(by: { frames[$0] < frames[$1] }),
+                  let back = frames[65..<150].indices.max(by: { frames[$0] < frames[$1] }) else { return XCTFail("no ping at \(at) s") }
+            let delay = Double(back - ping) * 0.02, level = frames[back] - frames[ping]
+            XCTAssertTrue((1.4...2.6).contains(delay), "the return \(delay) s after the ping at \(at) s")
+            XCTAssertEqual(level, -20, accuracy: 4, "the return at \(level) dB against the ping")
+            let tail = frames[(back - 20)..<(back - 10)].max() ?? 0
+            XCTAssertGreaterThanOrEqual(frames[back] - tail, 6, "the return stands \(frames[back] - tail) dB clear of the tail")
+        }
+        XCTAssertTrue(out.l.allSatisfy(\.isFinite) && out.r.allSatisfy(\.isFinite))
+    }
+
+    /// A far-off humpback: once it starts, ≥ 80% of the energy in 100–2000 Hz, unit after unit (moans, whoops, cries
+    /// and grunts), near −30 dBFS while it sings (its songs vary by a few dB).
+    func testWhaleUnitsInBand() {
+        var units: Int32 = 0
+        let out = Self.render(seconds: 23, actions: [Self.level(ISD_AMB_WHALE, 1), Self.startWhale(at: 3),
+                                                     (22.9, { units = isd_ambience_debug_events($0, ISD_AMB_WHALE) })])
+        let share = Self.bandShare(SynthRender.slice(Self.mid(out), 3, 23), 100, 2000)
+        XCTAssertGreaterThanOrEqual(share, 0.8, "\(share) of the song in 100–2000 Hz")
+        XCTAssertGreaterThanOrEqual(units, 6, "\(units) units in 20 s")
+        let db = Self.stereoDB(out, 3, 23)
+        XCTAssertTrue((-38 ... -22).contains(db), "the whale sings at \(db) dBFS")
+        XCTAssertTrue(out.l.allSatisfy(\.isFinite) && out.r.allSatisfy(\.isFinite))
+        XCTAssertLessThanOrEqual(max(out.l.map(abs).max() ?? 0, out.r.map(abs).max() ?? 0), 1)
+    }
+
+    /// Bubbles: a burst triggered at 3 s starts within 20 ms of the trigger; each bubble (its first 12 ms) rings
+    /// strongest inside 1.1–8 kHz, the Minnaert band for radii of 0.4–3 mm; a middling burst peaks near −28 dBFS; and a
+    /// trigger while the bubbles are silent is never heard (a burst never carries into the next world).
+    func testBubblesRingAtMinnaert() {
+        var bursts: [Int32] = []
+        let out = Self.render(seconds: 5, actions: [Self.level(ISD_AMB_BUBBLES, 1), Self.bubbles(0.15, at: 3),
+                                                    (2.99, { bursts.append(isd_ambience_debug_events($0, ISD_AMB_BUBBLES)) }),
+                                                    (3.5, { bursts.append(isd_ambience_debug_events($0, ISD_AMB_BUBBLES)) })])
+        XCTAssertEqual(bursts, [0, 1], "one burst, on the trigger")
+        let m = Self.mid(out), frames = Self.stereoFrames(out, ms: 2, from: 2.98, to: 4.5)
+        let top = frames.max() ?? -200
+        guard let first = frames.firstIndex(where: { $0 >= top - 30 }) else { return XCTFail("no burst") }
+        let onset = 2.98 + Double(first) * 0.002 - 3
+        XCTAssertTrue((-0.006...0.02).contains(onset), "the burst starts \(onset * 1000) ms after the trigger")
+        var rang = 0
+        for i in 1..<frames.count where frames[i] >= top - 30 && frames[i] - frames[i - 1] >= 10 {
+            rang += 1
+            let at = 2.98 + Double(i) * 0.002, size = 4096
+            let hz = Self.strongest(DSPTestKit.powerSpectrum(SynthRender.slice(m, at, at + 0.012), size: size), size: size, 300, 20000).hz
+            XCTAssertTrue((1100...8000).contains(hz), "the bubble at \(at) s rings at \(hz) Hz")
+        }
+        XCTAssertGreaterThanOrEqual(rang, 4, "\(rang) bubbles heard")
+        let middling = Self.render(seconds: 5, actions: [Self.level(ISD_AMB_BUBBLES, 1), Self.bubbles(0.5, at: 3)])
+        let peak = Self.peakDB(middling, 2.9, 5)
+        XCTAssertTrue((-32 ... -24).contains(peak), "a burst peaks at \(peak) dBFS")
+        let silent = Self.render(seconds: 3, actions: [Self.bubbles(1, at: 1)])
+        XCTAssertLessThan(DSPTestKit.dBFS(silent.l), -150, "no bubbles while they are silent")
+        XCTAssertTrue(out.l.allSatisfy(\.isFinite) && middling.l.allSatisfy(\.isFinite))
+    }
+
+    /// Snapping shrimp at level 1: a crackle with ≥ 90% of its energy above 2 kHz, at 400–1,200 transients a second as
+    /// heard (0.25 ms frames rising 6 dB over the bed's median) and as started, near −24 dBFS RMS and clear of the
+    /// limiter; at level 0.5 (a lower hour) about half as many snap.
+    func testShrimpCrackleAbove2kHz() {
+        func shrimp(_ level: Float) -> (out: (l: [Float], r: [Float]), perSecond: Double) {
+            var counts: [Int32] = []
+            let out = Self.render(seconds: 7, actions: [Self.level(ISD_AMB_SHRIMP, level),
+                                                        (3, { counts.append(isd_ambience_debug_events($0, ISD_AMB_SHRIMP)) }),
+                                                        (6.999, { counts.append(isd_ambience_debug_events($0, ISD_AMB_SHRIMP)) })])
+            return (out, counts.count == 2 ? Double(counts[1] - counts[0]) / 4 : 0)
+        }
+        let full = shrimp(1), half = shrimp(0.5)
+        let m = Self.mid(full.out)
+        let share = Self.bandShare(SynthRender.slice(m, 3, 7), 2000, 24000)
+        XCTAssertGreaterThanOrEqual(share, 0.9, "\(share) of the crackle above 2 kHz")
+        XCTAssertTrue((400...1200).contains(full.perSecond), "\(full.perSecond) snaps started a second")
+        let frames = Self.frameDB(SynthRender.slice(m, 3, 5), ms: 0.25)
+        let median = frames.sorted()[frames.count / 2]
+        var heard = 0, on = false
+        for f in frames {
+            let hit = f >= median + 6
+            if hit && !on { heard += 1 }
+            on = hit
+        }
+        XCTAssertTrue((400...1200).contains(heard / 2), "\(heard / 2) transients heard a second")
+        let db = Self.stereoDB(full.out, 3, 7), peak = Self.peakDB(full.out, 3, 7)
+        XCTAssertTrue((-27 ... -21).contains(db), "the bed at \(db) dBFS")
+        XCTAssertLessThan(peak, -1, "its loudest snap at \(peak) dBFS")
+        let ratio = half.perSecond / max(1, full.perSecond)
+        XCTAssertTrue((0.35...0.65).contains(ratio), "at half the level \(half.perSecond) a second (\(ratio))")
+        XCTAssertTrue(full.out.l.allSatisfy(\.isFinite) && full.out.r.allSatisfy(\.isFinite))
+    }
+
+    /// The reef's fish at level 1: pops, knocks, croaks and damselfish trains with ≥ 80% of their energy in 100–800 Hz,
+    /// near −30 dBFS, a chorus of tens of calls a second that thins to a few at level 0.15 (the hours between).
+    func testFishChorusInItsBand() {
+        func fish(_ level: Float) -> (out: (l: [Float], r: [Float]), perSecond: Double) {
+            var counts: [Int32] = []
+            let out = Self.render(seconds: 13, actions: [Self.level(ISD_AMB_FISH_CHORUS, level),
+                                                         (3, { counts.append(isd_ambience_debug_events($0, ISD_AMB_FISH_CHORUS)) }),
+                                                         (12.99, { counts.append(isd_ambience_debug_events($0, ISD_AMB_FISH_CHORUS)) })])
+            return (out, counts.count == 2 ? Double(counts[1] - counts[0]) / 10 : 0)
+        }
+        let chorus = fish(1), few = fish(0.15)
+        let share = Self.bandShare(SynthRender.slice(Self.mid(chorus.out), 3, 13), 100, 800)
+        XCTAssertGreaterThanOrEqual(share, 0.8, "\(share) of the chorus in 100–800 Hz")
+        let db = Self.stereoDB(chorus.out, 3, 13)
+        XCTAssertTrue((-34 ... -26).contains(db), "the chorus at \(db) dBFS")
+        XCTAssertGreaterThanOrEqual(chorus.perSecond, 20, "\(chorus.perSecond) calls a second at 1")
+        XCTAssertGreaterThan(few.perSecond, 0, "a few still call at 0.15")
+        XCTAssertLessThanOrEqual(few.perSecond, 0.25 * chorus.perSecond, "\(few.perSecond) calls a second at 0.15")
+        XCTAssertTrue(chorus.out.l.allSatisfy(\.isFinite) && chorus.out.r.allSatisfy(\.isFinite))
     }
 }

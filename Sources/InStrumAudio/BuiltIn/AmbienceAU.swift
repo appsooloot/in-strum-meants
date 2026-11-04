@@ -46,7 +46,7 @@ public final class AmbienceAU: AUAudioUnit {
 
     public func setScene(_ scene: AmbienceScene) {
         state.withLockUnchecked { $0.scene = scene }
-        apply(thunder: scene.thunder, wave: scene.wave)
+        apply(thunder: scene.thunder, wave: scene.wave, bubbles: scene.bubbleBurst)
     }
 
     /// Off fades every source out (and stops the work); on brings the scene back.
@@ -61,7 +61,7 @@ public final class AmbienceAU: AUAudioUnit {
         if changed { apply(thunder: nil) }
     }
 
-    private func apply(thunder: Double?, wave: Double? = nil) {
+    private func apply(thunder: Double?, wave: Double? = nil, bubbles: Double? = nil) {
         guard let a = box.ambience else { return }
         let s = state.withLockUnchecked { $0 }
         for source in AmbienceSource.allCases {
@@ -77,10 +77,12 @@ public final class AmbienceAU: AUAudioUnit {
         isd_ambience_set_indoors(a, Float(s.scene.indoors))
         isd_ambience_set_wetness(a, Float(s.scene.wetness))
         isd_ambience_set_snow_on_glass(a, Float(s.scene.snowOnGlass))
-        // The temple bell takes a new key at its next strike; while the key can't be sensed it stays where it is.
+        // The temple bell and the sonar take a new key at their next strike or ping; while the key can't be sensed
+        // they stay where they are.
         if let key = s.scene.key { isd_ambience_set_key(a, Int32(clamping: key.root), key.major ? 1 : 0) }
         if let distance = thunder, s.enabled { isd_ambience_trigger_thunder(a, Float(distance)) }
         if let strength = wave, s.enabled { isd_ambience_trigger_wave(a, Float(strength)) }
+        if let strength = bubbles, s.enabled { isd_ambience_trigger_bubbles(a, Float(strength)) }
     }
 
     static func cSource(_ s: AmbienceSource) -> ISDAmbienceSource {
@@ -117,6 +119,12 @@ public final class AmbienceAU: AUAudioUnit {
         case .paperScreens: return ISD_AMB_PAPER_SCREENS
         case .waterKnocker: return ISD_AMB_WATER_KNOCKER
         case .warbler: return ISD_AMB_WARBLER
+        case .sonar: return ISD_AMB_SONAR
+        case .hullCreak: return ISD_AMB_HULL_CREAK
+        case .whaleSong: return ISD_AMB_WHALE
+        case .bubbles: return ISD_AMB_BUBBLES
+        case .snappingShrimp: return ISD_AMB_SHRIMP
+        case .fishChorus: return ISD_AMB_FISH_CHORUS
         }
     }
 

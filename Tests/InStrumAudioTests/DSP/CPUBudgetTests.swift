@@ -187,18 +187,39 @@ final class CPUBudgetTests: XCTestCase {
         }
     }
 
-    /// Felt Glass and Orbit Pad with all 32 ambience sources at 0.6.
+    /// The submarine's and the reef's soundscapes (spec §8.1, §9.1): the submarine at its default depth (0.35) in a storm,
+    /// behind its hull, with the sonar pinging, the whale singing and a burst of bubbles; the reef at dusk in the whale
+    /// season (the shrimp at the hour's height), with rain and the far surf breaking.
+    func testDeepWaterAmbienceBudget() {
+        typealias A = AmbienceTests
+        let submarine: [A.Action] = [A.level(ISD_AMB_SHIP_HUM, 0.35), A.level(ISD_AMB_AIR_FLOW, 0.3), A.level(ISD_AMB_HULL_TICKS, 0.15),
+                                     A.level(ISD_AMB_HULL_CREAK, 0.37), A.level(ISD_AMB_SONAR, 0.5), A.pingSonar(at: 0),
+                                     A.level(ISD_AMB_WHALE, 0.3), A.startWhale(at: 0), A.level(ISD_AMB_BUBBLES, 0.15), A.bubbles(0.8, at: 1),
+                                     A.level(ISD_AMB_SHRIMP, 0.13), A.level(ISD_AMB_RAIN_WATER, 0.2), A.indoors(0.85), A.closeness(0.7)]
+        let reef: [A.Action] = [A.level(ISD_AMB_SHRIMP, 0.88), A.level(ISD_AMB_FISH_CHORUS, 0.4), A.level(ISD_AMB_SURF, 0.3),
+                                A.surfDistance(0.9), A.wave(0.6, at: 1), A.level(ISD_AMB_LAPPING, 0.45), A.level(ISD_AMB_BREEZE, 0.4),
+                                A.level(ISD_AMB_GULLS, 0.15), A.level(ISD_AMB_WHALE, 0.3), A.startWhale(at: 0), A.level(ISD_AMB_BUBBLES, 0.15),
+                                A.bubbles(0.5, at: 2), A.level(ISD_AMB_RAIN_WATER, 0.3), A.closeness(0.55)]
+        for (name, scene) in [("submarine", submarine), ("reef", reef)] {
+            let seconds = bestOfThree { _ = A.render(seconds: 10, actions: scene) }
+            XCTAssertLessThan(seconds / 10, 0.025, "the \(name) ambience used \(String(format: "%.1f", seconds * 10))% of real time")
+        }
+    }
+
+    /// Felt Glass and Orbit Pad with all 38 ambience sources at 0.6 (the sonar pinging, the whale singing, a burst of
+    /// bubbles).
     func testCombinedBudget() {
         var felt = [R.pedal(0, 127)]
         for n: UInt8 in [36, 43, 48, 52, 55, 60, 64, 67, 71, 72, 76, 79, 83, 84, 88, 91] { felt.append(R.noteOn(0, n, 90)) }
         let pad = [48, 55, 60, 63, 67, 70, 72, 75].map { R.noteOn(0, UInt8($0), 90) }
-        XCTAssertEqual(ISD_AMB_COUNT.rawValue, 32)
-        let ambience: [AmbienceTests.Action] = (0..<Int(ISD_AMB_COUNT.rawValue)).map { AmbienceTests.level(ISDAmbienceSource(UInt32($0)), 0.6) }
+        XCTAssertEqual(ISD_AMB_COUNT.rawValue, 38)
+        var ambience: [AmbienceTests.Action] = (0..<Int(ISD_AMB_COUNT.rawValue)).map { AmbienceTests.level(ISDAmbienceSource(UInt32($0)), 0.6) }
+        ambience += [AmbienceTests.pingSonar(at: 0), AmbienceTests.startWhale(at: 0), AmbienceTests.bubbles(0.8, at: 1)]
         let seconds = bestOfThree {
             _ = R.render(seconds: 10, events: felt)
             _ = R.render(ISD_ENGINE_ORBIT_PAD, seconds: 10, events: pad)
             _ = AmbienceTests.render(seconds: 10, actions: ambience)
         }
-        XCTAssertLessThan(seconds / 10, 0.08, "Felt Glass + Orbit Pad + ambience used \(String(format: "%.1f", seconds * 10))% of real time")
+        XCTAssertLessThan(seconds / 10, 0.09, "Felt Glass + Orbit Pad + ambience used \(String(format: "%.1f", seconds * 10))% of real time")
     }
 }
