@@ -434,6 +434,68 @@ final class AppModelTests: XCTestCase {
         XCTAssertFalse(m.isSetModified)
     }
 
+    func testApplyingAuroraFjordLoadsPolarChoir() async {
+        let m = makeModel()
+        await m.launch(skipPluginInSafeMode: false)
+        m.setAmbienceEnabled(false)
+        m.setAmbienceVolume(0.6)
+        await m.applySet("aurora-fjord")
+        XCTAssertEqual(engine.loaded.last.flatMap { BuiltInCatalog.engine(for: $0) }, .polarChoir)
+        XCTAssertEqual(engine.applied.last?.id, "polar-choir")
+        XCTAssertEqual(m.builtInPatch?.id, "polar-choir")
+        XCTAssertEqual(engine.moods.last, .electricAwe)
+        XCTAssertEqual(m.mood, .electricAwe)
+        XCTAssertEqual(m.themeID, AuroraFjordModel.id)
+        XCTAssertEqual(visual(m), "Curtain Lights")
+        XCTAssertTrue(engine.ambienceEnabled)
+        XCTAssertEqual(engine.ambienceVolume, Float(AmbienceSettings().volume), accuracy: 1e-6)
+        XCTAssertEqual(m.activeSetID, "aurora-fjord")
+        XCTAssertFalse(m.isSetModified)
+        m.saveThemeState(ThemeState(values: ["visual": .choice("Galaxy Warp")]), for: AuroraFjordModel.id)
+        XCTAssertTrue(m.isSetModified)
+        await m.restoreSet()
+        XCTAssertFalse(m.isSetModified)
+        XCTAssertEqual(visual(m), "Curtain Lights")
+        m.applyPatch(PatchLibrary.all.first { $0.id == "far-voices" }!)   // another Polar Choir preset
+        XCTAssertTrue(m.isSetModified)
+        await m.restoreSet()
+        XCTAssertEqual(m.builtInPatch?.id, "polar-choir")
+        XCTAssertFalse(m.isSetModified)
+    }
+
+    func testApplyingBioluminescentBayLoadsPlanktonKeys() async {
+        let m = makeModel()
+        await m.launch(skipPluginInSafeMode: false)
+        m.setAmbienceEnabled(false)
+        m.setAmbienceVolume(0.6)
+        await m.applySet("bioluminescent-bay")
+        XCTAssertEqual(engine.loaded.last.flatMap { BuiltInCatalog.engine(for: $0) }, .planktonKeys)
+        XCTAssertEqual(engine.applied.last?.id, "plankton-keys")
+        XCTAssertEqual(m.builtInPatch?.id, "plankton-keys")
+        XCTAssertEqual(engine.moods.last, .secretGlow)
+        XCTAssertEqual(m.mood, .secretGlow)
+        XCTAssertEqual(m.themeID, BioluminescentBayModel.id)
+        XCTAssertEqual(visual(m), "Glow Wake")
+        XCTAssertTrue(engine.ambienceEnabled)
+        XCTAssertEqual(engine.ambienceVolume, Float(AmbienceSettings().volume), accuracy: 1e-6)
+        XCTAssertEqual(m.activeSetID, "bioluminescent-bay")
+        XCTAssertFalse(m.isSetModified)
+        m.saveThemeState(ThemeState(values: ["visual": .choice("Galaxy Warp")]), for: BioluminescentBayModel.id)
+        XCTAssertTrue(m.isSetModified)
+        await m.restoreSet()
+        XCTAssertFalse(m.isSetModified)
+        XCTAssertEqual(visual(m), "Glow Wake")
+        m.applyPatch(PatchLibrary.all.first { $0.id == "glow-wake" }!)   // another Plankton Keys preset
+        XCTAssertTrue(m.isSetModified)
+        await m.restoreSet()
+        XCTAssertEqual(m.builtInPatch?.id, "plankton-keys")
+        XCTAssertFalse(m.isSetModified)
+        // Switching between the two night sets swaps the engine back.
+        await m.applySet("aurora-fjord")
+        XCTAssertEqual(engine.loaded.last.flatMap { BuiltInCatalog.engine(for: $0) }, .polarChoir)
+        XCTAssertEqual(m.themeID, AuroraFjordModel.id)
+    }
+
     func testChangingAPartMarksModifiedAndRestoreReverts() async {
         let m = makeModel()
         await m.launch(skipPluginInSafeMode: false)
