@@ -149,6 +149,10 @@ final class HazeBellsTests: XCTestCase {
         // arrived: 2.0–3.5 s into the chord (the g++ mirror: 1.7 dB over Felt Glass's first 1.5 s).
         let choir = DSPTestKit.dBFS(R.slice(R.render(ISD_ENGINE_POLAR_CHOIR, seconds: 3.5, events: chord).l, 2.0, 3.5))
         XCTAssertEqual(choir, felt, accuracy: 3, "Polar Choir")
+        // Zen Shakuhachi is breath-led (each note rises out of air over 60–350 ms), but at its default Air the tone
+        // has arrived within the first 0.2 s, so the usual window is fair (the g++ mirror: within 0.1 dB of Felt Glass
+        // there, +0.6 dB over 2.0–3.5 s once yuri and the echo are going).
+        XCTAssertEqual(level(ISD_ENGINE_ZEN_SHAKUHACHI), felt, accuracy: 3, "Zen Shakuhachi")
         // Morning Box's presets too (final review: Music Box sat 9 dB over the rest).
         func dials(_ v: [Float]) -> [Int: Float] {
             Dictionary(uniqueKeysWithValues: zip([ISD_P_BARS, ISD_P_BOX, ISD_P_BLOOM, ISD_P_BUILD, ISD_P_HAZE, ISD_P_SPACE, ISD_P_WIDTH].map { Int($0) }, v))
