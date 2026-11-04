@@ -846,6 +846,21 @@ final class AppModelTests: XCTestCase {
         XCTAssertEqual(credit?.trackNumber, 6); XCTAssertEqual(credit?.key, "A♭ major"); XCTAssertEqual(credit?.tempoBPM, 119)
     }
 
+    func testPlanktonKeysPresetsCarryTheirCredit() {
+        let presets = PatchLibrary.patches(for: .planktonKeys)
+        XCTAssertEqual(presets.map(\.id), ["plankton-keys", "glow-wake", "tide-tines", "midnight-bay"])
+        for p in presets { XCTAssertTrue(p.displayName.hasSuffix("· after \"Happiness Is a Butterfly\""), p.displayName) }
+        XCTAssertEqual(PatchLibrary.defaultPatch(for: .planktonKeys).id, "plankton-keys")
+        XCTAssertEqual(PatchLibrary.defaultPatch(for: .planktonKeys).values["tine"], 0.55)
+        XCTAssertEqual(presets.first { $0.id == "glow-wake" }?.values["sparkle"], 0.85)
+        XCTAssertEqual(presets.first { $0.id == "tide-tines" }?.values["bark"], 0.60)
+        XCTAssertEqual(Set(presets.flatMap { $0.values.keys }), ["tine", "bark", "sparkle", "tremolo", "phase", "space", "width"])
+        let credit = CreditLibrary.credit(id: "happiness-is-a-butterfly")
+        XCTAssertEqual(credit?.song, "Happiness Is a Butterfly"); XCTAssertEqual(credit?.artist, "Lana Del Rey")
+        XCTAssertEqual(credit?.album, "Norman Fucking Rockwell!"); XCTAssertEqual(credit?.year, 2019)
+        XCTAssertEqual(credit?.trackNumber, 13); XCTAssertEqual(credit?.key, "D major"); XCTAssertEqual(credit?.tempoBPM, 68)
+    }
+
     func testHazeBellsPresetsCarryTheirCredit() {
         let presets = PatchLibrary.patches(for: .hazeBells)
         XCTAssertEqual(presets.map(\.id), ["haze-bells", "church-keys", "night-drive", "lo-fi"])

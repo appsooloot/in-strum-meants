@@ -63,6 +63,7 @@ public enum BuiltInCatalog {
         case .cabinFelt: return "isCF"
         case .morningBox: return "isMB"
         case .polarChoir: return "isPC"
+        case .planktonKeys: return "isPK"
         }
     }
 
@@ -75,6 +76,7 @@ public enum BuiltInCatalog {
         case .cabinFelt: return ISD_ENGINE_CABIN_FELT
         case .morningBox: return ISD_ENGINE_MORNING_BOX
         case .polarChoir: return ISD_ENGINE_POLAR_CHOIR
+        case .planktonKeys: return ISD_ENGINE_PLANKTON_KEYS
         }
     }
 

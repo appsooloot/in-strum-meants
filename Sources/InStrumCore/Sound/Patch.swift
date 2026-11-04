@@ -1,6 +1,6 @@
 /// The app's own instruments (made entirely in the app, no recordings).
 public enum BuiltInEngine: String, Codable, CaseIterable {
-    case feltGlass, orbitPad, honeyTape, hazeBells, cabinFelt, morningBox, polarChoir
+    case feltGlass, orbitPad, honeyTape, hazeBells, cabinFelt, morningBox, polarChoir, planktonKeys
 
     public var displayName: String {
         switch self {
@@ -11,6 +11,7 @@ public enum BuiltInEngine: String, Codable, CaseIterable {
         case .cabinFelt: return "Cabin Felt"
         case .morningBox: return "Morning Box"
         case .polarChoir: return "Polar Choir"
+        case .planktonKeys: return "Plankton Keys"
         }
     }
 }
@@ -60,6 +61,10 @@ public enum PatchLibrary {
         Patch(id: "far-voices", name: "Far Voices", engine: .polarChoir, values: choir(vowel: 0.70, breath: 0.55, glass: 0.10, swell: 0.75, shimmer: 0.40, space: 0.80, width: 0.75), creditID: "wings"),
         Patch(id: "bowed-glass", name: "Bowed Glass", engine: .polarChoir, values: choir(vowel: 0.40, breath: 0.10, glass: 0.85, swell: 0.45, shimmer: 0.30, space: 0.55, width: 0.50), creditID: "wings"),
         Patch(id: "hush", name: "Hush", engine: .polarChoir, values: choir(vowel: 0.30, breath: 0.50, glass: 0.20, swell: 0.35, shimmer: 0.10, space: 0.45, width: 0.40), creditID: "wings"),
+        Patch(id: "plankton-keys", name: "Plankton Keys", engine: .planktonKeys, values: keys(tine: 0.55, bark: 0.40, sparkle: 0.50, tremolo: 0.35, phase: 0.20, space: 0.50, width: 0.55), creditID: "happiness-is-a-butterfly"),
+        Patch(id: "glow-wake", name: "Glow Wake", engine: .planktonKeys, values: keys(tine: 0.65, bark: 0.30, sparkle: 0.85, tremolo: 0.50, phase: 0.35, space: 0.65, width: 0.70), creditID: "happiness-is-a-butterfly"),
+        Patch(id: "tide-tines", name: "Tide Tines", engine: .planktonKeys, values: keys(tine: 0.85, bark: 0.60, sparkle: 0.25, tremolo: 0.20, phase: 0.10, space: 0.40, width: 0.50), creditID: "happiness-is-a-butterfly"),
+        Patch(id: "midnight-bay", name: "Midnight Bay", engine: .planktonKeys, values: keys(tine: 0.35, bark: 0.20, sparkle: 0.40, tremolo: 0.45, phase: 0.30, space: 0.70, width: 0.60), creditID: "happiness-is-a-butterfly"),
     ]
 
     public static func defaultPatch(for engine: BuiltInEngine) -> Patch {
@@ -90,6 +95,10 @@ public enum PatchLibrary {
 
     private static func choir(vowel: Double, breath: Double, glass: Double, swell: Double, shimmer: Double, space: Double, width: Double) -> [String: Double] {
         ["vowel": vowel, "breath": breath, "glass": glass, "swell": swell, "shimmer": shimmer, "space": space, "width": width]
+    }
+
+    private static func keys(tine: Double, bark: Double, sparkle: Double, tremolo: Double, phase: Double, space: Double, width: Double) -> [String: Double] {
+        ["tine": tine, "bark": bark, "sparkle": sparkle, "tremolo": tremolo, "phase": phase, "space": space, "width": width]
     }
 
     private static func pad(bloom: Double, drift: Double, motion: Double, shimmer: Double, brightness: Double, space: Double) -> [String: Double] {

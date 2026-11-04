@@ -4,7 +4,7 @@ import InStrumCore
 /// Original living art for each "Inspired by" card, drawn in code from the song's feeling (never artwork,
 /// photos or logos). The song's tempo is hidden in the motion: everything breathes at `pulsePeriod`.
 enum CardArt {
-    case comeBackToEarth, innerbloom, musicToWatchBoysTo, highByTheBeach, stay, dunno, wings
+    case comeBackToEarth, innerbloom, musicToWatchBoysTo, highByTheBeach, stay, dunno, wings, happinessIsAButterfly
 
     /// The Stay card's six-armed frost stars (x, y as fractions of the card, radius in points at 600 × 360): round the
     /// edges, clear of the liner notes (top right), the title block (bottom left) and the Listen button.
@@ -17,6 +17,15 @@ enum CardArt {
     static let wingsStars: [(CGFloat, CGFloat, CGFloat)] = [(0.07, 0.11, 7), (0.25, 0.06, 5), (0.43, 0.16, 6),
                                                           (0.64, 0.21, 5), (0.80, 0.17, 7), (0.94, 0.30, 5)]
 
+    /// The Happiness Is a Butterfly card's thirteen glow motes (the track number): x, y as fractions of the card, the
+    /// outer radius of each mote's glow in points at 600 × 360. Strung along the glowing waterline and in the water at the
+    /// right, clear of the liner notes (top right), the title block (bottom left) and the Listen button.
+    static let butterflyMotes: [(CGFloat, CGFloat, CGFloat)] = [(0.06, 0.58, 9), (0.15, 0.62, 7), (0.24, 0.56, 10),
+                                                              (0.33, 0.63, 8), (0.41, 0.58, 7), (0.50, 0.61, 11),
+                                                              (0.58, 0.56, 7), (0.66, 0.62, 9), (0.74, 0.57, 8),
+                                                              (0.80, 0.66, 10), (0.88, 0.60, 8), (0.95, 0.70, 9),
+                                                              (0.86, 0.77, 7)]
+
     static func art(for creditID: String) -> CardArt? {
         switch creditID {
         case CreditLibrary.comeBackToEarth.id: return .comeBackToEarth
@@ -26,6 +35,7 @@ enum CardArt {
         case CreditLibrary.stay.id: return .stay
         case CreditLibrary.dunno.id: return .dunno
         case CreditLibrary.wings.id: return .wings
+        case CreditLibrary.happinessIsAButterfly.id: return .happinessIsAButterfly
         default: return nil
         }
     }
@@ -41,6 +51,7 @@ enum CardArt {
         case .stay: return .system(size: 30, weight: .regular, design: .serif)
         case .dunno: return .system(size: 26, weight: .light, design: .rounded)
         case .wings: return .system(size: 28, weight: .light, design: .rounded)
+        case .happinessIsAButterfly: return .system(size: 26, weight: .regular, design: .serif)
         }
     }
 
@@ -53,6 +64,7 @@ enum CardArt {
         case .stay: return 1
         case .dunno: return 2
         case .wings: return 2
+        case .happinessIsAButterfly: return 1
         }
     }
 
@@ -63,6 +75,7 @@ enum CardArt {
         switch self {
         case .stay: return 2 * credit.pulsePeriod
         case .wings: return 60.0 / 60
+        case .happinessIsAButterfly: return credit.pulsePeriod   // 68 BPM: the motes blink at 60/68 s
         default: return credit.pulsePeriod
         }
     }
@@ -77,6 +90,7 @@ enum CardArt {
         case .stay: Self.cabinWindow(ctx, size, t, pulse)
         case .dunno: Self.dawnBedroom(ctx, size, t, pulse)
         case .wings: Self.auroraWater(ctx, size, t, pulse)
+        case .happinessIsAButterfly: Self.moonlitCove(ctx, size, t, pulse)
         }
     }
 
@@ -572,6 +586,115 @@ enum CardArt {
                 if s == 0 { p.move(to: CGPoint(x: x, y: y)) } else { p.addLine(to: CGPoint(x: x, y: y)) }
             }
             ctx.stroke(p, with: .color(.black.opacity(0.5)), lineWidth: CGFloat(1 + 2 * d))
+        }
+    }
+
+    // MARK: - Happiness Is a Butterfly: a midnight cove, a glowing cyan waterline, thirteen motes and a pale moon
+
+    private static func moonlitCove(_ ctx: GraphicsContext, _ size: CGSize, _ t: Double, _ pulse: Double) {
+        let w = size.width, h = size.height
+        let waterline: CGFloat = h * 0.52
+        let cyan = Color(red: 0.30, green: 0.95, blue: 0.95)
+        // A midnight-blue sky, lighter towards the water, over dark water.
+        ctx.fill(Path(CGRect(x: 0, y: 0, width: w, height: waterline)), with: .linearGradient(
+            Gradient(colors: [Color(red: 0.03, green: 0.06, blue: 0.17), Color(red: 0.07, green: 0.13, blue: 0.30),
+                              Color(red: 0.12, green: 0.22, blue: 0.40)]),
+            startPoint: .zero, endPoint: CGPoint(x: 0, y: waterline)))
+        ctx.fill(Path(CGRect(x: 0, y: waterline, width: w, height: h - waterline)), with: .linearGradient(
+            Gradient(colors: [Color(red: 0.04, green: 0.12, blue: 0.22), Color(red: 0.01, green: 0.04, blue: 0.10)]),
+            startPoint: CGPoint(x: 0, y: waterline), endPoint: CGPoint(x: 0, y: h)))
+
+        // Faint stars, clear of the liner notes and of the moon.
+        let moon = CGPoint(x: w * 0.17, y: h * 0.20)
+        for i in 0..<45 {
+            let x: CGFloat = w * CGFloat(hash(i, 31)), y: CGFloat = waterline * 0.9 * CGFloat(hash(i, 32))
+            if x > w * 0.6 && y < h * 0.12 { continue }
+            let dx: CGFloat = x - moon.x, dy: CGFloat = y - moon.y
+            if dx * dx + dy * dy < 900 { continue }
+            let twinkle: Double = 0.5 + 0.5 * sin(t * (0.7 + hash(i, 33)) + Double(i) * 2.1)
+            let r: CGFloat = 0.5 + 0.5 * CGFloat(hash(i, 34))
+            ctx.fill(Path(ellipseIn: CGRect(x: x - r, y: y - r, width: 2 * r, height: 2 * r)),
+                     with: .color(.white.opacity(0.10 + 0.25 * twinkle)))
+        }
+
+        // The pale moon in a soft halo.
+        var sky = ctx
+        sky.blendMode = .plusLighter
+        sky.fill(Path(ellipseIn: CGRect(x: moon.x - 64, y: moon.y - 64, width: 128, height: 128)),
+                 with: .radialGradient(Gradient(colors: [Color(red: 0.75, green: 0.82, blue: 0.95).opacity(0.30), .clear]),
+                                       center: moon, startRadius: 0, endRadius: 64))
+        ctx.fill(Path(ellipseIn: CGRect(x: moon.x - 15, y: moon.y - 15, width: 30, height: 30)),
+                 with: .color(Color(red: 0.93, green: 0.95, blue: 0.98)))
+        ctx.fill(Path(ellipseIn: CGRect(x: moon.x - 9, y: moon.y - 7, width: 7, height: 6)),
+                 with: .color(Color(red: 0.80, green: 0.84, blue: 0.90).opacity(0.6)))
+
+        // The cove's two dark headlands, low against the sky.
+        let rock = Color(red: 0.01, green: 0.02, blue: 0.06)
+        var left = Path()
+        left.move(to: CGPoint(x: 0, y: waterline + 1))
+        for s in 0...20 {
+            let u: Double = Double(s) / 20
+            let rise: CGFloat = h * CGFloat(0.12 * (1 - u * u) + 0.015 * noise2(u * 6 + 1.3, 0.4))
+            left.addLine(to: CGPoint(x: w * 0.16 * CGFloat(u), y: waterline - rise))
+        }
+        left.addLine(to: CGPoint(x: w * 0.16, y: waterline + 1)); left.closeSubpath()
+        ctx.fill(left, with: .color(rock))
+        var right = Path()
+        right.move(to: CGPoint(x: w, y: waterline + 1))
+        for s in 0...24 {
+            let u: Double = Double(s) / 24
+            let rise: CGFloat = h * CGFloat(0.09 * (1 - u * u) + 0.012 * noise2(u * 7 + 4.1, 0.9))
+            right.addLine(to: CGPoint(x: w - w * 0.24 * CGFloat(u), y: waterline - rise))
+        }
+        right.addLine(to: CGPoint(x: w * 0.76, y: waterline + 1)); right.closeSubpath()
+        ctx.fill(right, with: .color(rock))
+
+        // The moon's broken path on the water, fading before the title.
+        var glints = ctx
+        glints.blendMode = .plusLighter
+        for k in 0..<10 {
+            let d: Double = Double(k) / 9
+            let y: CGFloat = waterline + 4 + CGFloat(d) * h * 0.12
+            let half: CGFloat = CGFloat(10 + 14 * d) * CGFloat(0.6 + 0.4 * noise2(Double(k) * 1.7, t * 0.4))
+            let x: CGFloat = moon.x + CGFloat(3 * sin(t * 0.6 + Double(k) * 1.1))
+            glints.fill(Path(CGRect(x: x - half, y: y, width: 2 * half, height: 1.2)),
+                        with: .color(Color(red: 0.85, green: 0.90, blue: 1).opacity(0.30 * (1 - 0.7 * d))))
+        }
+
+        // The glowing cyan waterline, lapping slowly (once every four beats), with a sheen spilling into the water.
+        let lap: Double = 0.85 + 0.15 * sin(2 * Double.pi * t / (4 * pulse))
+        var line = Path()
+        for s in 0...80 {
+            let u: Double = Double(s) / 80
+            let ripple: Double = 1.5 * sin(u * 23 + t * 0.9)
+            let drift: Double = 1.2 * (noise2(u * 9 + t * 0.15, 2.7) - 0.5)
+            let y: CGFloat = waterline + CGFloat(ripple + drift)
+            if s == 0 { line.move(to: CGPoint(x: 0, y: y)) } else { line.addLine(to: CGPoint(x: w * CGFloat(u), y: y)) }
+        }
+        var glow = ctx
+        glow.blendMode = .plusLighter
+        glow.fill(Path(CGRect(x: 0, y: waterline, width: w, height: h * 0.10)), with: .linearGradient(
+            Gradient(colors: [cyan.opacity(0.28 * lap), cyan.opacity(0)]),
+            startPoint: CGPoint(x: 0, y: waterline), endPoint: CGPoint(x: 0, y: waterline + h * 0.10)))
+        var halo = glow
+        halo.addFilter(.blur(radius: 4))
+        halo.stroke(line, with: .color(cyan.opacity(0.55 * lap)), lineWidth: 5)
+        glow.stroke(line, with: .color(Color(red: 0.75, green: 1, blue: 1).opacity(0.85 * lap)), lineWidth: 1.2)
+
+        // Thirteen glow motes, each blinking on the beat (68 BPM), out of step with its neighbours.
+        let beat: Double = t / pulse
+        for (i, mote) in Self.butterflyMotes.enumerated() {
+            let (fx, fy, r) = mote
+            let c = CGPoint(x: w * fx, y: h * fy + CGFloat(1.5 * sin(t * 0.8 + Double(i) * 1.3)))
+            let phase: Double = (beat + Double(i) * 0.382).truncatingRemainder(dividingBy: 1)
+            let blink: Double = 0.25 + 0.75 * exp(-phase * 4)
+            let glowR: CGFloat = r - 1.5   // the drift above stays inside the mote's radius
+            glow.fill(Path(ellipseIn: CGRect(x: c.x - glowR, y: c.y - glowR, width: 2 * glowR, height: 2 * glowR)),
+                      with: .radialGradient(Gradient(colors: [cyan.opacity(0.6 * blink), cyan.opacity(0)]),
+                                            center: c, startRadius: 0, endRadius: glowR))
+            let core: CGFloat = 1.2 + 0.8 * CGFloat(blink)
+            glow.fill(Path(ellipseIn: CGRect(x: c.x - core, y: c.y - core, width: 2 * core, height: 2 * core)),
+                      with: .color(Color(red: 0.85, green: 1, blue: 1).opacity(0.9 * blink)))
         }
     }
 

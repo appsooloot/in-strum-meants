@@ -38,7 +38,12 @@ public enum CreditLibrary {
     public static let wings = Credit(id: "wings", song: "Wings", artist: "Mac Miller",
                                      album: "Swimming", year: 2018, trackNumber: 6, key: "A♭ major", tempoBPM: 119,
                                      line: "The airy synth pads that lift and keep lifting.")
-    public static let all: [Credit] = [comeBackToEarth, innerbloom, musicToWatchBoysTo, highByTheBeach, stay, dunno, wings]
+    public static let happinessIsAButterfly = Credit(id: "happiness-is-a-butterfly", song: "Happiness Is a Butterfly",
+                                                     artist: "Lana Del Rey", album: "Norman Fucking Rockwell!", year: 2019,
+                                                     trackNumber: 13, key: "D major", tempoBPM: 68,
+                                                     line: "Its soft, bell-like keys and the slow haze they drift in.")
+    public static let all: [Credit] = [comeBackToEarth, innerbloom, musicToWatchBoysTo, highByTheBeach, stay, dunno, wings,
+                                       happinessIsAButterfly]
 
     public static func credit(id: String) -> Credit? { all.first { $0.id == id } }
 }

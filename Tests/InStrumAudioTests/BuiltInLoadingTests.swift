@@ -80,4 +80,14 @@ final class BuiltInLoadingTests: XCTestCase {
         XCTAssertFalse(ids.contains { $0.hasPrefix("debug") })
         XCTAssertNil(au.parameterTree?.parameter(withAddress: AUParameterAddress(ISD_P_DEBUG_VOICES_ONLY)))
     }
+
+    func testJ_PlanktonKeysShowsDialsButNotTestHooks() throws {
+        let au = try BuiltInInstrumentAU(componentDescription: BuiltInCatalog.description(for: .planktonKeys), options: [])
+        let ids = Set(au.parameterTree?.allParameters.map(\.identifier) ?? [])
+        XCTAssertEqual(ids, ["fineTune", "transpose", "tine", "bark", "sparkle", "tremolo", "phase", "space", "width",
+                             "moodEnergy", "moodWarmth", "moodBrightness", "moodSpace", "moodMotion"])
+        XCTAssertFalse(ids.contains { $0.hasPrefix("debug") })
+        XCTAssertNil(au.parameterTree?.parameter(withAddress: AUParameterAddress(ISD_P_DEBUG_NO_SPARKLE)))
+        XCTAssertNil(au.parameterTree?.parameter(withAddress: AUParameterAddress(ISD_P_DEBUG_NO_TREMOLO)))
+    }
 }

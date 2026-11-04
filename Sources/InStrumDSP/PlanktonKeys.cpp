@@ -8,7 +8,7 @@ namespace {
 
 // Level and tone calibration (see docs/superpowers/briefs/plankton-keys.md).
 constexpr float kGain = 0.13f;          // a voice's level at velocity 127
-constexpr float kMaster = 1.0f;
+constexpr float kMaster = 0.70f;        // one loudness with the other built-ins: a mezzo-forte chord within 3 dB of Felt Glass
 constexpr float kBarLevel = 0.85f;      // the tone bar sits a little under the tine's fundamental
 constexpr float kBarMakeUp = 1.25f;     // so at the default Tine (0.55) the bar still sits just under the fundamental
 constexpr float kBarDecay = 3.0f;       // and rings this many times longer
