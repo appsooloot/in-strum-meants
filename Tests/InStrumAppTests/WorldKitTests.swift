@@ -12,6 +12,17 @@ final class WorldKitTests: XCTestCase {
         for name in ["sky_dome_vertex", "sky_dome_fragment", "weather_vertex", "weather_fragment", "ring_vertex", "ring_fragment"] {
             XCTAssertNotNil(lib.makeFunction(name: name), name)
         }
+        // The Swift rows match the MSL SkyU byte for byte, the `still` row last (the pipeline's own reflection says so).
+        let d = MTLRenderPipelineDescriptor()
+        d.vertexFunction = lib.makeFunction(name: "sky_dome_vertex")
+        d.fragmentFunction = lib.makeFunction(name: "sky_dome_fragment")
+        d.colorAttachments[0].pixelFormat = RenderStack.sceneFormat
+        d.colorAttachments[1].pixelFormat = RenderStack.depthFormat
+        var reflection: MTLAutoreleasedRenderPipelineReflection?
+        _ = try device.makeRenderPipelineState(descriptor: d, options: [.bindingInfo, .bufferTypeInfo], reflection: &reflection)
+        let skyU = (reflection?.fragmentBindings ?? []).compactMap { $0 as? MTLBufferBinding }.first { $0.index == 0 }
+        XCTAssertEqual(skyU?.bufferDataSize, SkyLayer.uniformCount * MemoryLayout<SIMD4<Float>>.stride, "SkyU")
+        XCTAssertEqual(SkyLayer.stillRow, SkyLayer.uniformCount - 1)
     }
 
     private func render(_ state: SkyState, quality: QualityLevel = .high, weather: WeatherSurface = .none, frames: Int = 1) throws -> CGImage {
@@ -352,6 +363,64 @@ final class WorldKitTests: XCTestCase {
         XCTAssertEqual(off, 1, accuracy: 0.1, "no pillar: \(off)")
     }
 
+    // MARK: - Iridescent cloud and rime frost (Sets 9 & 10)
+
+    /// Light cloud with the sun 20° up, 30° left of the view's centre, and iridescence forced to 1 (spec §6.3). A
+    /// patch 15° from the sun holding a cloud's edge takes on colour across the sky's own hue (pastel pinks and
+    /// greens; a plain blue sky over white cloud has almost none, its variance is the 8-bit floor) ≥ 1.5× the same
+    /// frame with iridescence 0 (the CPU reference render measured about 35×). 60° from the sun nothing changes.
+    func testIridescenceTintsThinCloudNearTheSun() throws {
+        var s = frozen(13)
+        s.sun = SkyDirection(azimuth: 0, altitude: 20)
+        s.moon = SkyDirection(azimuth: 180, altitude: -30); s.moonLit = 0
+        let c = SkyPalette.colours(sunAltitude: 20, cloud: 0.35, mist: 0.15, moonlight: 0)
+        s.zenith = c.zenith; s.horizon = c.horizon
+        s.cloudCover = 0.35; s.mist = 0.15; s.wind = 0.2
+        s.starVisibility = 0; s.halo = 0; s.rainbow = 0; s.dawnPastel = 0; s.gust = 0
+        s.aurora = 0; s.fireflies = 0; s.diamondDust = 0; s.pillar = 0; s.rime = 0
+        func frame(_ iridescence: Float) throws -> (image: CGImage, sky: SkyLayer) {
+            var st = s; st.iridescence = iridescence
+            return try renderConfigured(st) { r in r.sky.viewAzimuth = 30; r.sky.horizonY = -0.33 }
+        }
+        let on = try frame(1), off = try frame(0)
+        XCTAssertEqual(on.sky.uniforms[SkyLayer.stillRow], SIMD4<Float>(1, 0, 0.2, 0), "iridescence, rime, the wind on screen")
+        // A patch ±4° about the point at the sun's altitude `degrees` from it, toward the view's centre.
+        let alt = 20.0 * Double.pi / 180
+        func patch(_ degrees: Double, _ image: CGImage) -> [SIMD3<Double>] {
+            let r = degrees * Double.pi / 180
+            let dAz = acos(min(1, max(-1, (cos(r) - sin(alt) * sin(alt)) / (cos(alt) * cos(alt))))) * 180 / .pi
+            let centre = screenPoint(SkyDirection(azimuth: dAz, altitude: 20), sky: on.sky, latitude: s.latitude)
+            let side = screenPoint(SkyDirection(azimuth: dAz + 4 / cos(alt), altitude: 20), sky: on.sky, latitude: s.latitude)
+            let above = screenPoint(SkyDirection(azimuth: dAz, altitude: 24), sky: on.sky, latitude: s.latitude)
+            let hx = abs(side.x - centre.x), hy = abs(above.y - centre.y)
+            return FramePatch.pixels(image, x: (centre.x - hx)...(centre.x + hx), y: (centre.y - hy)...(centre.y + hy))
+        }
+        let w = SIMD3<Double>(0.2126, 0.7152, 0.0722)
+        func lum(_ p: SIMD3<Double>) -> Double { simd_dot(p, w) }
+        // Each pixel's colour less its luminance, with the part along the reference patch's mean (the sky's hue) taken
+        // out; the variance of what is left.
+        func crossHueVariance(_ px: [SIMD3<Double>], reference: [SIMD3<Double>]) -> Double {
+            func chroma(_ p: SIMD3<Double>) -> SIMD3<Double> { p - SIMD3(repeating: lum(p)) }
+            let mean = reference.reduce(SIMD3<Double>(repeating: 0)) { $0 + chroma($1) } / Double(max(1, reference.count))
+            let axis = simd_length(mean) > 1e-9 ? simd_normalize(mean) : SIMD3<Double>(0, 0, 1)
+            let rest = px.map { p -> SIMD3<Double> in let q = chroma(p); return q - axis * simd_dot(q, axis) }
+            let m = rest.reduce(SIMD3<Double>(repeating: 0), +) / Double(max(1, rest.count))
+            return rest.reduce(0) { $0 + simd_length_squared($1 - m) } / Double(max(1, rest.count))
+        }
+        let near0 = patch(15, off.image), near1 = patch(15, on.image)
+        let lumas = near0.map(lum)
+        XCTAssertGreaterThan((lumas.max() ?? 0) - (lumas.min() ?? 0), 0.08, "the patch holds a cloud's edge")
+        let v0 = crossHueVariance(near0, reference: near0), v1 = crossHueVariance(near1, reference: near0)
+        XCTAssertGreaterThanOrEqual(v1, 1.5 * v0, "15° from the sun: \(v0) → \(v1)")
+        // 60° away (iridescence is gone by 40°): the same light and the same colour.
+        let far0 = patch(60, off.image), far1 = patch(60, on.image)
+        func meanLuma(_ px: [SIMD3<Double>]) -> Double { px.reduce(0) { $0 + lum($1) } / Double(max(1, px.count)) }
+        XCTAssertFalse(far0.isEmpty)
+        XCTAssertEqual(meanLuma(far1), meanLuma(far0), accuracy: 0.05 * meanLuma(far0), "60° from the sun")
+        let f0 = crossHueVariance(far0, reference: far0), f1 = crossHueVariance(far1, reference: far0)
+        XCTAssertEqual(f1, f0, accuracy: max(0.05 * f0, 1e-6), "60° from the sun: colour")
+    }
+
     func testFirefliesAndCrystalsFollowTheirWeathers() throws {
         guard let device = MTLCreateSystemDefaultDevice() else { throw XCTSkip("No Metal device") }
         let w = try XCTUnwrap(WeatherLayer(device: device))
@@ -391,6 +460,20 @@ final class WorldKitTests: XCTestCase {
         w.update(s, quality: .high, size: size, dt: 1.0 / 30, surface: .glass)
         XCTAssertEqual(w.crystalCount, 0)
 
+        // Rime frost's freezing fog: the same crystals as a fine ice-fog drift, sparse and settling slowly (spec §6.4).
+        var fog = darkNight(); fog.weather = .rime; fog.nextWeather = .rime; fog.weatherBlend = 0
+        for q in QualityLevel.allCases {
+            w.update(fog, quality: q, size: size, dt: 1.0 / 30, surface: .ground(horizonY: -0.3))
+            XCTAssertEqual(w.crystalCount, Int((Float(WeatherLayer.crystalCap(q)) * WeatherLayer.rimeFogDensity).rounded()), "\(q)")
+        }
+        XCTAssertLessThanOrEqual(WeatherLayer.rimeFogDensity, 0.35, "low density")
+        XCTAssertEqual(WeatherLayer.crystalMix(fog).fogShare, 1, accuracy: 1e-6)
+        XCTAssertLessThan(WeatherLayer.rimeFogFall, 0.5, "slower than diamond dust")
+        fog.diamondDust = 1   // dust and fog together: the cap, mostly dust
+        XCTAssertEqual(WeatherLayer.crystalMix(fog).amount, 1, accuracy: 1e-6)
+        XCTAssertLessThan(WeatherLayer.crystalMix(fog).fogShare, 0.3)
+        XCTAssertEqual(WeatherLayer.crystalMix(darkNight()).amount, 0, "no fog, no dust: none")
+
         // Both draw (a frame with them is brighter than one without) and live in the shared ring buffer.
         var both = darkNight(); both.fireflies = 1; both.diamondDust = 1
         let lit = PreviewRenderer.stats(try render(both, weather: .ground(horizonY: -0.33), frames: 10)).meanLuminance
@@ -406,7 +489,7 @@ final class WorldKitTests: XCTestCase {
         defer { cache.withheld = false }
         let r = try XCTUnwrap(SkyOnlyRenderer(device: device))
         XCTAssertEqual(r.sky.uniforms.count, SkyLayer.uniformCount)
-        XCTAssertEqual(SkyLayer.uniformCount, 24)
+        XCTAssertEqual(SkyLayer.uniformCount, 25)
 
         cache.withheld = true
         XCTAssertNil(r.sky.starTexture)
@@ -492,6 +575,64 @@ final class MoonlitLakeRendererTests: XCTestCase {
         let frames = preview.render(themeID: MoonlitLakeModel.id, at: [1.95, 2.35], quality: .high, sky: Self.night, mood: .serene)
         XCTAssertEqual(frames.count, 2)
         XCTAssertGreaterThan(PreviewRenderer.difference(frames[0], frames[1]), 0.005)
+    }
+
+    /// Steps the lake at 60 fps with each frame's sky edited (no notes) and captures the frame at `seconds`.
+    private func renderLake(at seconds: Double, sky: SkySettings, quality: QualityLevel, width: Int, height: Int,
+                            skyEdit: (inout SkyState) -> Void) throws -> (image: CGImage, renderer: MoonlitLakeRenderer) {
+        guard let device = MTLCreateSystemDefaultDevice() else { throw XCTSkip("No Metal device") }
+        let preview = try XCTUnwrap(PreviewRenderer(width: width, height: height))
+        let r = try XCTUnwrap(MoonlitLakeRenderer(device: device))
+        let d = SceneDirector(themeID: MoonlitLakeModel.id, state: ThemeState(), reaction: ReactionPresets.expressivePianist)
+        let start = Date(timeIntervalSince1970: 1_793_000_000)
+        var elapsed = 0.0
+        d.clock = { start.addingTimeInterval(elapsed) }
+        d.sky.reset(settings: sky)
+        d.mood = .serene
+        let size = CGSize(width: width, height: height)
+        for i in 1...Int(seconds * 60) {
+            let t = Double(i) / 60
+            elapsed = t
+            guard var f = d.step(dt: 1.0 / 60, t: t, quality: quality) as? LakeFrame else { continue }
+            skyEdit(&f.sky)
+            r.update(f, params: d.parameters, quality: quality, gentle: false, dt: 1.0 / 60, size: size)
+        }
+        return (try XCTUnwrap(preview.capture(r)), r)
+    }
+
+    /// Rime frost at midday (clear, the sun high and out of view): the far shore's edge — silhouette pixels (darker
+    /// than half the sky) within 3 px of brighter pixels beside or above them — is ≥ 15% brighter with the world fully
+    /// rimed (the CPU reference render measured about 2× at every view azimuth). Smooth (no depth of field) at the
+    /// previews' size, so the fringe spans a few pixels.
+    func testRimeWhitensTheLakePines() throws {
+        let w = 1280, h = 720
+        let noon = GoldenHourBeachRendererTests.midday
+        let bare = try renderLake(at: 1, sky: noon, quality: .lite, width: w, height: h) { $0.rime = 0 }
+        let rimed = try renderLake(at: 1, sky: noon, quality: .lite, width: w, height: h) { $0.rime = 1 }
+        let l0 = FramePatch.luminance(bare.image), l1 = FramePatch.luminance(rimed.image)
+        // The band from the horizon up past the pines, clear of the reeds at the frame's edges.
+        let horizon = Double(bare.renderer.horizonY)
+        var region: [Int] = []
+        for row in 0..<h {
+            let y = 1 - 2 * (Double(row) + 0.5) / Double(h)
+            guard y >= horizon, y <= horizon + 0.25 else { continue }
+            for col in 0..<w where abs(2 * (Double(col) + 0.5) / Double(w) - 1) <= 0.6 { region.append(row * w + col) }
+        }
+        let sorted = region.map { l0[$0] }.sorted()
+        let sky = sorted[Int(Double(sorted.count - 1) * 0.9)]
+        func bright(_ i: Int) -> Bool { l0[i] >= 0.5 * sky }
+        var sum0 = 0.0, sum1 = 0.0, n = 0
+        for i in region where !bright(i) {
+            let row = i / w, col = i % w
+            var edge = false
+            for k in 1...3 where !edge {
+                edge = (col - k >= 0 && bright(i - k)) || (col + k < w && bright(i + k)) || (row - k >= 0 && bright(i - k * w))
+            }
+            if edge { sum0 += l0[i]; sum1 += l1[i]; n += 1 }
+        }
+        XCTAssertGreaterThan(n, 500, "the far shore's edge is in view")
+        let before = sum0 / Double(max(1, n)), after = sum1 / Double(max(1, n))
+        XCTAssertGreaterThanOrEqual(after, 1.15 * before, "the pines' edge: \(before) → \(after)")
     }
 }
 
@@ -1026,12 +1167,23 @@ final class CoastRoadRendererTests: XCTestCase {
             let hits = pattern.numberOfMatches(in: source, range: NSRange(source.startIndex..., in: source))
             XCTAssertEqual(hits, 0, name)
         }
-        // Any pow() in the new sky code takes a base that cannot be negative: none at all in the aurora, the real stars
-        // and the pillars.
-        for fn in ["float3 realStars(", "float3 auroraLight(", "float lightPillar("] {
+        // Any pow() in the new sky code takes a base that cannot be negative: none at all in the aurora, the real stars,
+        // the pillars, iridescent cloud and the rime helpers every world calls.
+        for fn in ["float3 realStars(", "float3 auroraLight(", "float lightPillar(", "float fbm3c(", "float3 iridescentCloud(",
+                   "bool rimeNear(", "float rimeFringe(", "void rimeKeepDeepest(", "float rimeFeather(", "float rimeEdge(",
+                   "float3 rimeColor(", "float3 rimed("] {
             let start = try XCTUnwrap(SkyShaders.common.range(of: fn), fn)
             let tail = SkyShaders.common[start.lowerBound...]
             let end = tail.range(of: "\n}\n")?.upperBound ?? tail.endIndex   // the function's closing brace (column 0)
+            XCTAssertFalse(tail[..<end].contains("pow("), fn)
+        }
+        // And none in the worlds' own rime code (the silhouettes that call it).
+        for (source, fn) in [(MoonlitLakeShaders.source, "float3 ridgeColor("), (MoonlitLakeShaders.source, "float reeds("),
+                             (SnowboundCabinShaders.source, "float pine("), (GoldenHourBeachShaders.source, "float palmTree("),
+                             (GoldenHourBeachShaders.source, "float shoreSilhouettes("), (CoastRoadShaders.source, "float lampPostRime(")] {
+            let start = try XCTUnwrap(source.range(of: fn), fn)
+            let tail = source[start.lowerBound...]
+            let end = tail.range(of: "\n}\n")?.upperBound ?? tail.endIndex
             XCTAssertFalse(tail[..<end].contains("pow("), fn)
         }
     }
@@ -1085,6 +1237,11 @@ final class WorldPreviewTests: XCTestCase {
             let image = try XCTUnwrap(preview.render(themeID: MoonlitLakeModel.id, at: [t], quality: q, sky: s, mood: .serene).first)
             try PreviewRenderer.writePNG(image, to: url.appendingPathComponent("\(name).png"))
         }
+        // A morning in rime frost's freezing fog with the world fully rimed (the sky takes 10–20 minutes to get there).
+        let rime = try XCTUnwrap(preview.render(themeID: MoonlitLakeModel.id, at: [5], quality: .high,
+                                                sky: sky(hour: 8.5, phase: 0.55, weather: .rime), mood: .serene,
+                                                skyEdit: { $0.rime = 1 }).first)
+        try PreviewRenderer.writePNG(rime, to: url.appendingPathComponent("lake-rime.png"))
     }
 
     func testWriteBeachPreviews() throws {
@@ -1295,6 +1452,18 @@ final class SkyPreviewTests: XCTestCase {
             let image = try XCTUnwrap(preview.capture(r))
             try PreviewRenderer.writePNG(image, to: url.appendingPathComponent("\(name).png"))
         }
+
+        // Iridescent cloud: a light-cloud spell's pastel bands with the sun 14° up ahead (low enough for a cap over the
+        // cells), iridescence forced to 1.
+        var iridescent = state(hour: 13, phase: 0.5, weather: .lightCloud)
+        iridescent.sun = SkyDirection(azimuth: ahead, altitude: 14)
+        let iriColours = SkyPalette.colours(sunAltitude: 14, cloud: iridescent.cloudCover, mist: iridescent.mist, moonlight: 0)
+        iridescent.zenith = iriColours.zenith; iridescent.horizon = iriColours.horizon
+        iridescent.iridescence = 1; iridescent.starVisibility = 0
+        let r = try XCTUnwrap(SkyOnlyRenderer(device: device))
+        r.sky.viewAzimuth = ahead + 12; r.sky.horizonY = -0.45
+        for i in 0..<10 { r.update(iridescent, quality: .high, size: CGSize(width: 1280, height: 720), dt: 1.0 / 30, time: Float(i) / 30, surface: .none) }
+        try PreviewRenderer.writePNG(try XCTUnwrap(preview.capture(r)), to: url.appendingPathComponent("sky-iridescent-cloud.png"))
     }
 }
 
@@ -1480,6 +1649,10 @@ extension WorldPreviewTests {
                                                      mood: .hushedWarm).first)
             try PreviewRenderer.writePNG(image, to: url.appendingPathComponent("\(name).png"))
         }
+        // Rime frost: the pines feathered white on their windward side (the world held fully rimed).
+        let rime = try XCTUnwrap(preview.render(themeID: SnowboundCabinModel.id, at: [5], state: follow, quality: .high,
+                                                sky: sky(9, .rime, 0.5), mood: .hushedWarm, skyEdit: { $0.rime = 1 }).first)
+        try PreviewRenderer.writePNG(rime, to: url.appendingPathComponent("cabin-rime.png"))
     }
 }
 

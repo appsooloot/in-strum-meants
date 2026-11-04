@@ -341,7 +341,7 @@ enum AuroraFjordShaders {
     // Clip-space corners (near or left low, far or right low, near high, far high) and info: kind (0 wood, 1 snow),
     // length (m), seed, unused.
     struct RailPart { float4 p0; float4 p1; float4 p2; float4 p3; float4 info; };
-    struct RailOut { float4 pos [[position]]; float2 uv; float4 info; };
+    struct RailOut { float4 pos [[position]]; float2 uv; float4 info; float across; };
 
     vertex RailOut fjord_rail_vertex(uint vid [[vertex_id]], uint iid [[instance_id]], constant RailPart* parts [[buffer(0)]]) {
         int idx[6] = { 0, 1, 2, 1, 3, 2 };
@@ -352,11 +352,14 @@ enum AuroraFjordShaders {
         o.pos = i == 0 ? k.p0 : (i == 1 ? k.p1 : (i == 2 ? k.p2 : k.p3));
         o.uv = uvs[i];
         o.info = k.info;
+        // The part's width on screen at this end (NDC x): a post's, for rime up its windward side.
+        float4 l = i < 2 ? k.p0 : k.p2, r = i < 2 ? k.p1 : k.p3;
+        o.across = length(r.xy / r.w - l.xy / l.w);
         return o;
     }
 
     /// Weathered wood, and the snow lying along the rails and on the posts' tops (catching the aurora's light).
-    fragment ColorDepth fjord_rail_fragment(RailOut in [[stage_in]], constant FjordU& f [[buffer(1)]]) {
+    fragment ColorDepth fjord_rail_fragment(RailOut in [[stage_in]], constant SkyU& u [[buffer(0)]], constant FjordU& f [[buffer(1)]]) {
         float3 amb = f.ambient.rgb;
         float3 sunC = f.sunColor.rgb * f.sun.w, moonC = float3(0.55, 0.63, 0.82) * (0.35 * f.moon.w);
         float3 col;
@@ -365,6 +368,10 @@ enum AuroraFjordShaders {
             float grain = vnoise3(float3(in.uv.x * in.info.y * 6.0, in.uv.y * 3.0, in.info.z));
             float3 wood = mix(float3(0.07, 0.05, 0.04), float3(0.16, 0.11, 0.08), grain);
             col = wood * (amb * 0.8 + sunC * 0.45 + moonC * 0.8 + f.aurora.rgb * 0.5);
+            if (in.info.y < 0.5) {   // a post: rime up its windward (left) side (spec §6.4), the feathers on the post
+                float x = in.uv.x * in.across * (u.right.w / u.up.w);
+                col = rimed(col, u, x, float2(-1.0, 0.0), float2(x, in.uv.y * 0.3));
+            }
         } else {
             float lump = 0.5 + 0.42 * vnoise3(float3(in.uv.x * in.info.y * 2.5, in.info.z, 1.0));
             a = 1.0 - smoothstep(lump - 0.08, lump, in.uv.y);

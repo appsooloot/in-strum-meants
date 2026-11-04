@@ -441,10 +441,14 @@ enum BioluminescentBayShaders {
 
     /// A near palm's coverage at q (screen units: x × aspect, y): a tapered, ringed trunk and a crown of drooping fronds
     /// with serrated leaflets (the beach's palm). Sway comes from the swell's wrapped phases.
-    float bayPalm(float2 q, float2 root, float height, float lean, float scale, float sway, float frondSway, float seed) {
+    float bayPalm(float2 q, float2 root, float height, float lean, float scale, float sway, float frondSway, float seed,
+                  constant SkyU& u, thread float& rime) {
+        rime = 0.0;
         float2 top = root + float2(lean + sway, height);
         if (q.y < root.y - 0.02 || q.y > top.y + 0.42 * scale) return 0.0;
         float cover = 0.0;
+        float deepest = -1.0;                 // rime (spec §6.4): the trunk, knot and midribs offer their depths
+        float2 outward = float2(0.0, 1.0);
         float2 ctrl = root + float2(lean * 0.15 + 0.05 * sign(lean), height * 0.55);
         float2 prev = root;
         if (abs(q.x - mix(root.x, top.x, saturate((q.y - root.y) / height))) < 0.12) {
@@ -455,12 +459,19 @@ enum BioluminescentBayShaders {
                 float tt = (float(k - 1) + dh.y) / 6.0;
                 float w = mix(0.03, 0.014, tt) * scale * (1.0 + 0.12 * abs(sin(tt * 70.0 + seed)));
                 cover = max(cover, 1.0 - smoothstep(w * 0.6, w, dh.x));
+                rimeKeepDeepest(w - dh.x, q - mix(prev, pt, dh.y), deepest, outward);
                 prev = pt;
             }
         }
-        if (length(q - top) > 0.42 * scale) return cover;
+        float bend = saturate((q.y - root.y) / height);     // the feathers ride the palm as it sways
+        float2 riding = q - float2(sway * bend * bend, 0.0);
+        if (length(q - top) > 0.42 * scale) {
+            if (cover > 0.0) rime = rimeEdge(u, deepest, outward, riding);
+            return cover;
+        }
         // A dark knot where the fronds meet.
         cover = max(cover, 1.0 - smoothstep(0.018 * scale, 0.03 * scale, length(q - top - float2(0.0, -0.01))));
+        rimeKeepDeepest(0.03 * scale - length(q - top - float2(0.0, -0.01)), q - top - float2(0.0, -0.01), deepest, outward);
         for (int j = 0; j < 10; j++) {
             float h = hash13(float3(seed, float(j), 4.0));
             float a = -0.25 + float(j) * 0.36 + 0.25 * (h - 0.5) + 0.06 * sin(frondSway + float(j) * 1.7);
@@ -485,20 +496,23 @@ enum BioluminescentBayShaders {
             float leaf = (1.0 - smoothstep(0.16, 0.32, blades)) * (1.0 - smoothstep(0.75, 1.0, across)) * step(0.05, t);
             cover = max(cover, leaf);
             cover = max(cover, 1.0 - smoothstep(0.003 * scale, 0.006 * scale, best.x));   // the midrib
+            rimeKeepDeepest((0.006 * scale - best.x) * 3.0, q - mix(sa, sb, best.y), deepest, outward);   // a spine: a third the fringe
         }
+        if (cover > 0.0) rime = rimeEdge(u, deepest, outward, riding);
         return cover;
     }
 
     /// A tall palm leaning in from the left edge and a smaller one from the right, rooted on the sand behind the keys.
-    float bayNearPalms(float2 p, constant BayU& b, constant OceanU& o) {
+    float bayNearPalms(float2 p, constant BayU& b, constant OceanU& o, constant SkyU& u, thread float& rime) {
+        rime = 0.0;
         if (abs(p.x) < 0.3) return 0.0;
         float aspect = b.a.y, base = b.a.x - 0.02, wind = b.c.z;
         float2 q = float2(p.x * aspect, p.y);
         float sway = 0.01 + 0.03 * wind;
         if (p.x < 0.0) {
-            return bayPalm(q, float2(-0.95 * aspect, base), 1.25, 0.24, 0.95, sway * sin(o.phases.x), o.phases.w, 5.0);
+            return bayPalm(q, float2(-0.95 * aspect, base), 1.25, 0.24, 0.95, sway * sin(o.phases.x), o.phases.w, 5.0, u, rime);
         }
-        return bayPalm(q, float2(0.97 * aspect, base), 0.95, -0.2, 0.75, sway * sin(o.phases.y + 1.3), o.phases.w + 2.5, 6.0);
+        return bayPalm(q, float2(0.97 * aspect, base), 0.95, -0.2, 0.75, sway * sin(o.phases.y + 1.3), o.phases.w + 2.5, 6.0, u, rime);
     }
 
     // ---------------------------------------------------------------- the frame
@@ -520,7 +534,8 @@ enum BioluminescentBayShaders {
         int octaves = int(b.e.w + 0.5);
         float3 horizon = u.horizon.rgb, zenith = u.zenith.rgb;
         float night = b.a.w, haze = b.b.w, day = b.e.x;
-        float palm = bayNearPalms(p, b, o);
+        float palmRime;
+        float palm = bayNearPalms(p, b, o, u, palmRime);
         float3 air = bayAirLight(d, alt, azRel, px, b);
         float3 boatCol = float3(0);
         float boat = bayBoatSeen(d, fwd, rgt, b, u, o, boatCol);
@@ -579,6 +594,7 @@ enum BioluminescentBayShaders {
         col += air;
         float3 palmCol = zenith * 0.04 + horizon * 0.035 + float3(0.02, 0.05, 0.025) * (o.sun.w * day);   // sky-lit green by day
         col = mix(col, palmCol, palm);
+        if (palmRime > 0.0) col = mix(col, rimeColor(u), palmRime * palm);
         if (palm > 0.5) depth = 0.03;
         out.color = float4(col, 1.0);
         out.depth = float4(depth, 0, 0, 1);

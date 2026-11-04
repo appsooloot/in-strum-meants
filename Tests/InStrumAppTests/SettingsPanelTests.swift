@@ -28,4 +28,12 @@ final class SettingsPanelTests: XCTestCase {
         let state = ThemeState(values: ["rays": .number(0.9)], macros: [.glow: 0.4], lookPresetName: "X")
         XCTAssertEqual(VisualSettings.reset(state), ThemeState())
     }
+    /// The Advanced group once called "Night sky" is "Sky extras", and searching finds it by any of its four dials.
+    func testSkyExtrasGroupIsFoundByItsDials() {
+        XCTAssertEqual(SkyExtrasSection.title, "Sky extras")
+        for search in ["", "sky extras", "Constellation", "aurora", "Iridescence", "rime", "Rime speed", "night sky"] {
+            XCTAssertTrue(SkyExtrasSection.matches(search), search)
+        }
+        XCTAssertFalse(SkyExtrasSection.matches("ripples"))
+    }
 }

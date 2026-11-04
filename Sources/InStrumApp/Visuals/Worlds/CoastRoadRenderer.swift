@@ -262,6 +262,7 @@ final class CoastRoadRenderer: ThemeRenderer {
             postInstances.withUnsafeBytes { e.setVertexBytes($0.baseAddress!, length: $0.count, index: 0) }
             roadU.withUnsafeBytes { e.setVertexBytes($0.baseAddress!, length: $0.count, index: 1) }
             e.setFragmentBytes(&postColour, length: MemoryLayout<SIMD4<Float>>.size, index: 0)
+            skyU.withUnsafeBytes { e.setFragmentBytes($0.baseAddress!, length: $0.count, index: 1) }   // their rime
             e.drawPrimitives(type: .triangle, vertexStart: 0, vertexCount: 6, instanceCount: postInstances.count)
         }
 

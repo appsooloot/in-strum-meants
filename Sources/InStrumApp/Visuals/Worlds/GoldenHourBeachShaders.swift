@@ -48,12 +48,18 @@ enum GoldenHourBeachShaders {
     }
 
     /// One palm's coverage at q (screen units: x × aspect, y): a tapered, ringed trunk and a crown of drooping
-    /// fronds with serrated leaflets. Sway comes from the swell's wrapped phases.
-    float palmTree(float2 q, float2 root, float height, float lean, float scale, float sway, float frondSway, float seed) {
+    /// fronds with serrated leaflets. Sway comes from the swell's wrapped phases. `rime` returns the rime fringe on its
+    /// trunk, knot and midribs (spec §6.4; the leaflets' blades have no edge distance to give), following the outline of
+    /// their union: each offers its depth and its direction out from its centre line.
+    float palmTree(float2 q, float2 root, float height, float lean, float scale, float sway, float frondSway, float seed,
+                   constant SkyU& u, thread float& rime) {
+        rime = 0.0;
         float2 top = root + float2(lean + sway, height);
         // Cheap bounds: nothing far from the trunk or the crown.
         if (q.y < root.y - 0.02 || q.y > top.y + 0.42 * scale) return 0.0;
         float cover = 0.0;
+        float deepest = -1.0;
+        float2 outward = float2(0.0, 1.0);
         float2 ctrl = root + float2(lean * 0.15 + 0.05 * sign(lean), height * 0.55);
         float2 prev = root;
         if (abs(q.x - mix(root.x, top.x, saturate((q.y - root.y) / height))) < 0.12) {
@@ -64,12 +70,21 @@ enum GoldenHourBeachShaders {
                 float tt = (float(k - 1) + dh.y) / 6.0;
                 float w = mix(0.03, 0.014, tt) * scale * (1.0 + 0.12 * abs(sin(tt * 70.0 + seed)));
                 cover = max(cover, smoothstep(w, w * 0.6, dh.x));
+                rimeKeepDeepest(w - dh.x, q - mix(prev, pt, dh.y), deepest, outward);
                 prev = pt;
             }
         }
-        if (length(q - top) > 0.42 * scale) return cover;
+        // The feathers ride the palm as it sways (the trunk bends more toward its top).
+        float bend = saturate((q.y - root.y) / height);
+        float2 riding = q - float2(sway * bend * bend, 0.0);
+        if (length(q - top) > 0.42 * scale) {
+            if (cover > 0.0) rime = rimeEdge(u, deepest, outward, riding);
+            return cover;
+        }
         // A dark knot where the fronds meet.
-        cover = max(cover, smoothstep(0.03 * scale, 0.018 * scale, length(q - top - float2(0, -0.01))));
+        float knot = length(q - top - float2(0, -0.01));
+        cover = max(cover, smoothstep(0.03 * scale, 0.018 * scale, knot));
+        rimeKeepDeepest(0.03 * scale - knot, q - top - float2(0, -0.01), deepest, outward);
         for (int f = 0; f < 10; f++) {
             float h = hash13(float3(seed, float(f), 4.0));
             float a = -0.25 + float(f) * 0.36 + 0.25 * (h - 0.5) + 0.06 * sin(frondSway + float(f) * 1.7);
@@ -94,28 +109,36 @@ enum GoldenHourBeachShaders {
             float leaf = smoothstep(0.32, 0.16, blades) * smoothstep(1.0, 0.75, across) * step(0.05, t);
             cover = max(cover, leaf);
             cover = max(cover, smoothstep(0.006 * scale, 0.003 * scale, best.x));   // the midrib
+            rimeKeepDeepest((0.006 * scale - best.x) * 3.0, q - mix(sa, sb, best.y), deepest, outward);   // a spine: a third the fringe
         }
+        if (cover > 0.0) rime = rimeEdge(u, deepest, outward, riding);
         return cover;
     }
 
-    /// Palms at the frame's edges and dune grass along the bottom corners. Returns coverage 0…1.
-    float shoreSilhouettes(float2 p, constant BeachU& b, constant OceanU& o) {
+    /// Palms at the frame's edges and dune grass along the bottom corners. Returns coverage 0…1, and through `rime`
+    /// the rime fringe on the palms' trunks and midribs and the grass blades (spec §6.4).
+    float shoreSilhouettes(float2 p, constant BeachU& b, constant OceanU& o, constant SkyU& u, thread float& rime) {
+        rime = 0.0;
         float amount = b.b.x;
         if (amount < 0.01 || abs(p.x) < 0.25) return 0.0;
         float aspect = b.c.x, wind = b.b.y, base = b.a.x;
         float2 q = float2(p.x * aspect, p.y);
         float sway = (0.01 + 0.035 * wind);
         float cover = 0.0;
-        // Left: a tall palm leaning in and a smaller one behind it; right: one leaning in.
-        cover = max(cover, palmTree(q, float2(-0.93 * aspect, base - 0.02), 1.45, 0.2, 1.0,
-                                    sway * sin(o.phases.x), o.phases.w, 1.0));
+        // Left: a tall palm leaning in and a smaller one behind it; right: one leaning in. Each palm's rime counts
+        // where that palm is the one seen.
+        float pr;
+        float pc = palmTree(q, float2(-0.93 * aspect, base - 0.02), 1.45, 0.2, 1.0, sway * sin(o.phases.x), o.phases.w, 1.0, u, pr);
+        if (pc > cover) { cover = pc; rime = pr; }
         if (amount > 0.35) {
-            cover = max(cover, 0.85 * palmTree(q, float2(-0.68 * aspect, base + 0.03), 0.95, 0.12, 0.72,
-                                               sway * sin(o.phases.y + 1.0), o.phases.w + 2.0, 2.0));
+            pc = 0.85 * palmTree(q, float2(-0.68 * aspect, base + 0.03), 0.95, 0.12, 0.72, sway * sin(o.phases.y + 1.0),
+                                 o.phases.w + 2.0, 2.0, u, pr);
+            if (pc > cover) { cover = pc; rime = pr; }
         }
         if (amount > 0.65) {
-            cover = max(cover, palmTree(q, float2(0.9 * aspect, base - 0.02), 1.3, -0.24, 0.95,
-                                        sway * sin(o.phases.z + 2.0), o.phases.w + 4.0, 3.0));
+            pc = palmTree(q, float2(0.9 * aspect, base - 0.02), 1.3, -0.24, 0.95, sway * sin(o.phases.z + 2.0), o.phases.w + 4.0,
+                          3.0, u, pr);
+            if (pc > cover) { cover = pc; rime = pr; }
         }
         // Dune grass: thin blades in tufts near the bottom corners.
         float edge = smoothstep(0.55, 0.9, abs(p.x));
@@ -129,7 +152,14 @@ enum GoldenHourBeachShaders {
             if (y >= 0.0 && y < 1.0) {
                 float lean = (0.5 * (hb - 0.5) + (0.25 + 0.6 * wind) * sin(o.phases.w + hb * 6.0)) * y * y * 1.6;
                 float width = 0.22 * (1.0 - y * 0.92);
-                cover = max(cover, smoothstep(width, width * 0.5, abs(fx - 0.5 - lean)));
+                float across = fx - 0.5 - lean;
+                float gc = smoothstep(width, width * 0.5, abs(across));
+                if (gc > cover) {
+                    cover = gc;
+                    // The blade's edge (cells are 1/38 of a screen unit), its feathers riding the blade as it sways.
+                    rime = rimeEdge(u, (width - abs(across)) / 38.0, float2(across < 0.0 ? -1.0 : 1.0, 0.1),
+                                    float2((i + 0.5 + across) / 38.0, p.y));
+                }
             }
         }
         return cover;
@@ -177,7 +207,8 @@ enum GoldenHourBeachShaders {
         float haze = b.a.w, night = b.b.w;
         float3 horizon = u.horizon.rgb, zenith = u.zenith.rgb;
         float3 hazeCol = horizon * (1.02 + 0.1 * night);
-        float sil = shoreSilhouettes(p, b, o);
+        float silRime;
+        float sil = shoreSilhouettes(p, b, o, u, silRime);
         float3 silCol = zenith * 0.04 + horizon * 0.035;
 
         // Both lights, each by its own weight (never an either/or switch, so dusk crosses to moonlight smoothly).
@@ -319,6 +350,7 @@ enum GoldenHourBeachShaders {
             col = mix(col, hazeCol, saturate(haze * 0.7 * (1.0 - exp(-f / 120.0))));
         }
         col = mix(col, silCol, sil);
+        if (silRime > 0.0) col = mix(col, rimeColor(u), silRime * sil);
         if (sil > 0.5) depth = 0.03;
         out.color = float4(col, 1.0);
         out.depth = float4(depth, 0, 0, 1);
