@@ -229,6 +229,30 @@ final class WindowKitTests: XCTestCase {
         XCTAssertGreaterThan(luma(c), 0.45, "a painted sash is pale: \(c)")
     }
 
+    /// Paper screens (Tea House Snow): pale wood kumiko and stiles; no glass, so the frost on the paper never shows the
+    /// blurred view or the room's reflection (it looks the same on every quality, with or without a reflection), and
+    /// it reads as ice over the panes.
+    func testPaperScreenIsPaleWoodWithIceOnItsPanes() throws {
+        let (bare, preview) = try harness()
+        bare.spec.material = .paperScreen
+        bare.update(frost: 0)
+        let plain = try XCTUnwrap(preview.capture(bare))
+        let stile = FramePatch.meanRGB(plain, x: (Double(bare.spec.rect.x) - 0.029)...(Double(bare.spec.rect.x) - 0.021), y: 0.25...0.35)
+        XCTAssertGreaterThan(luma(stile), 0.35, "pale wood: \(stile)")
+        XCTAssertGreaterThan(stile.x, stile.z + 0.1, "warm wood: \(stile)")
+        func paperFrost(_ q: QualityLevel, reflection: SIMD4<Float>) throws -> CGImage {
+            let (h, p) = try harness(quality: q)
+            h.spec.material = .paperScreen
+            h.update(frost: 0.6, reflection: reflection)
+            return try XCTUnwrap(p.capture(h))
+        }
+        let high = try paperFrost(.high, reflection: SIMD4(1, 0.5, 0.2, 0.3))
+        let lite = try paperFrost(.lite, reflection: .zero)
+        XCTAssertLessThan(FramePatch.difference(high, lite, x: glassX, y: glassY), 0.004, "no view scattered, no room reflected")
+        let view = try viewLuma()
+        XCTAssertGreaterThan(frostedShare(lite, bare: plain, view: view, x: glassX, y: glassY), 0.3, "ice over the panes")
+    }
+
     func testBlurOnlyOnHighAndUltra() throws {
         guard let device = MTLCreateSystemDefaultDevice(), let queue = device.makeCommandQueue() else { throw XCTSkip("No Metal device") }
         let (h, _) = try harness(quality: .lite)

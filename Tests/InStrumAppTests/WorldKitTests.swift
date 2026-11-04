@@ -1162,7 +1162,8 @@ final class CoastRoadRendererTests: XCTestCase {
         }
         // The worlds built on the sky alone (their reflections call skyRadiance, with the aurora, stars and pillars).
         for (name, full) in [("lake", MoonlitLakeShaders.source), ("cabin", SnowboundCabinShaders.source),
-                             ("bedroom", BedroomDawnShaders.source), ("fjord", AuroraFjordShaders.source)] {
+                             ("bedroom", BedroomDawnShaders.source), ("fjord", AuroraFjordShaders.source),
+                             ("teahouse", TeaHouseSnowShaders.source)] {
             let source = String(full.dropFirst(SkyShaders.common.count))
             let hits = pattern.numberOfMatches(in: source, range: NSRange(source.startIndex..., in: source))
             XCTAssertEqual(hits, 0, name)
@@ -1180,6 +1181,7 @@ final class CoastRoadRendererTests: XCTestCase {
         // And none in the worlds' own rime code (the silhouettes that call it).
         for (source, fn) in [(MoonlitLakeShaders.source, "float3 ridgeColor("), (MoonlitLakeShaders.source, "float reeds("),
                              (SnowboundCabinShaders.source, "float pine("), (GoldenHourBeachShaders.source, "float palmTree("),
+                             (TeaHouseSnowShaders.source, "float teaPine("), (TeaHouseSnowShaders.source, "float teaFence("),
                              (GoldenHourBeachShaders.source, "float shoreSilhouettes("), (CoastRoadShaders.source, "float lampPostRime(")] {
             let start = try XCTUnwrap(source.range(of: fn), fn)
             let tail = source[start.lowerBound...]
@@ -2396,5 +2398,288 @@ extension WorldPreviewTests {
                                                      mood: .secretGlow).first)
             try PreviewRenderer.writePNG(image, to: url.appendingPathComponent("\(name).png"))
         }
+    }
+}
+
+/// Tea House Snow (Set 9's world) with Steam Lines, the paper screens and Frost Grow on them.
+@MainActor
+final class TeaHouseSnowRendererTests: XCTestCase {
+    func testTeaHouseShadersCompile() throws {
+        guard let device = MTLCreateSystemDefaultDevice() else { throw XCTSkip("No Metal device") }
+        let lib = try device.makeLibrary(source: TeaHouseSnowShaders.source, options: nil)
+        for name in ["tea_full_vertex", "tea_rect_vertex", "tea_garden_fragment", "tea_paper_fragment", "tea_room_fragment",
+                     "tea_steam_fragment", "tea_keys_vertex", "tea_keys_fragment"] {
+            XCTAssertNotNil(lib.makeFunction(name: name), name)
+        }
+        let own = String(TeaHouseSnowShaders.source.dropFirst(SkyShaders.common.count))
+        XCTAssertFalse(own.contains("pow("), "squares and powers are written out")
+        // The Swift uniform array matches the MSL struct byte for byte (the pipeline's own reflection says so).
+        let d = MTLRenderPipelineDescriptor()
+        d.vertexFunction = lib.makeFunction(name: "tea_full_vertex")
+        d.fragmentFunction = lib.makeFunction(name: "tea_room_fragment")
+        d.colorAttachments[0].pixelFormat = RenderStack.sceneFormat
+        d.colorAttachments[1].pixelFormat = RenderStack.depthFormat
+        var reflection: MTLAutoreleasedRenderPipelineReflection?
+        _ = try device.makeRenderPipelineState(descriptor: d, options: [.bindingInfo, .bufferTypeInfo], reflection: &reflection)
+        let buffers = (reflection?.fragmentBindings ?? []).compactMap { $0 as? MTLBufferBinding }
+        func size(_ index: Int) -> Int? { buffers.first { $0.index == index }?.bufferDataSize }
+        let row = MemoryLayout<SIMD4<Float>>.stride
+        XCTAssertEqual(size(0), SkyLayer.uniformCount * row, "SkyU")
+        XCTAssertEqual(size(1), TeaHouseSnowRenderer.uniformCount * row, "TeaU")
+        XCTAssertEqual(TeaHouseSnowRenderer.barBase, TeaHouseSnowRenderer.pathBase + 3)
+        XCTAssertEqual(TeaHouseSnowRenderer.wispBase, TeaHouseSnowRenderer.barBase + TeaHouseSnowRenderer.maxBars)
+        XCTAssertEqual(TeaHouseSnowRenderer.wispBBase, TeaHouseSnowRenderer.wispBase + SteamLines.cap)
+        XCTAssertEqual(TeaHouseSnowRenderer.uniformCount, TeaHouseSnowRenderer.wispBBase + SteamLines.cap)
+        let r = try XCTUnwrap(TeaHouseSnowRenderer(device: device))
+        XCTAssertEqual(r.uniforms.count, TeaHouseSnowRenderer.uniformCount)
+        // The panels are the Window Kit's paper screens, and their kumiko fit the uniform block.
+        let panels = TeaHouseSnowRenderer.panels(TeaHouseSnowRenderer.roomLayout(aspect: 16.0 / 9, keyTop: -0.76), open: 0.5)
+        XCTAssertEqual(panels.map(\.material), [.paperScreen, .paperScreen])
+        XCTAssertLessThanOrEqual(panels[0].bars().count, TeaHouseSnowRenderer.maxBars)
+    }
+
+    /// Frozen Melbourne skies (26 October 2026 on the preview clock).
+    nonisolated static func sky(hour: Double, weather: WeatherKind = .clear, phase: Double = 0.5) -> SkySettings {
+        var s = SkySettings(); s.timeMode = .frozen; s.frozenHour = hour; s.frozenPhase = phase; s.cityID = "melbourne"
+        s.weatherMode = .pick; s.weather = weather
+        return s
+    }
+
+    struct TeaShot { var image: CGImage; var renderer: TeaHouseSnowRenderer; var frame: TeaHouseFrame }
+
+    /// Steps the tea house at 60 fps (notes go down at `noteTime` and stay held) and renders the frame at `seconds`.
+    private func renderTea(notes: [UInt8], velocity: Float = 0.9, noteTime: Double = 0.5, at seconds: Double,
+                           state: ThemeState = ThemeState(), sky: SkySettings = TeaHouseSnowRendererTests.sky(hour: 13),
+                           quality: QualityLevel = .high, gentle: Bool = false, width: Int = 640, height: Int = 360,
+                           field: Bool = false, skyEdit: ((inout SkyState) -> Void)? = nil,
+                           each: ((TeaHouseSnowRenderer, TeaHouseFrame) -> Void)? = nil) throws -> TeaShot {
+        guard let device = MTLCreateSystemDefaultDevice() else { throw XCTSkip("No Metal device") }
+        let preview = try XCTUnwrap(PreviewRenderer(width: width, height: height))
+        let r = try XCTUnwrap(TeaHouseSnowRenderer(device: device))
+        if field { XCTAssertTrue(r.awaitField(), "the paper's frost fields grow") }
+        let d = SceneDirector(themeID: TeaHouseSnowModel.id, state: state, reaction: ReactionPresets.expressivePianist)
+        let start = Date(timeIntervalSince1970: 1_793_000_000)
+        var elapsed = 0.0
+        d.clock = { start.addingTimeInterval(elapsed) }
+        d.sky.reset(settings: sky)
+        d.mood = .delicate
+        var frame: TeaHouseFrame?
+        let size = CGSize(width: width, height: height)
+        let noteStep = Int((noteTime * 60).rounded())
+        for i in 1...Int(seconds * 60) {
+            let t = Double(i) / 60
+            elapsed = t
+            if i == max(1, noteStep), !notes.isEmpty { d.handle(notes.map { .noteOn(note: $0, velocity: velocity) }, at: t) }
+            frame = d.step(dt: 1.0 / 60, t: t, quality: quality) as? TeaHouseFrame
+            if let edit = skyEdit, frame != nil { edit(&frame!.sky) }
+            if let frame {
+                r.update(frame, params: d.parameters, quality: quality, gentle: gentle, dt: 1.0 / 60, size: size)
+                each?(r, frame)
+            }
+        }
+        let f = try XCTUnwrap(frame)
+        return TeaShot(image: try XCTUnwrap(preview.capture(r)), renderer: r, frame: f)
+    }
+
+    private func luma(_ c: SIMD3<Double>) -> Double { 0.2126 * c.x + 0.7152 * c.y + 0.0722 * c.z }
+
+    private struct LightCase { let name: String; let state: ThemeState; let sky: SkySettings; let mean: Double; let variance: Double }
+
+    /// Dawn (held at a pastel dawn), noon, dusk and night, on Smooth and High: lit, structured frames; the lantern's
+    /// candle and the brazier light the night, the candle is out by day, and the paper glows with the day's light.
+    func testTeaHousePreviewIsStructured() throws {
+        let pastel = ThemeState(values: ["light.hold": .choice(SkyHold.pastelDawn.rawValue)])
+        // The CPU reference of these frames measured mean / variance: dawn 0.24 / 0.047, noon 0.36 / 0.069,
+        // dusk 0.13 / 0.017, night 0.10 / 0.0075 (thresholds about half that).
+        let cases = [
+            LightCase(name: "dawn", state: pastel, sky: Self.sky(hour: 6.5, weather: .lightCloud), mean: 0.12, variance: 0.015),
+            LightCase(name: "noon", state: ThemeState(), sky: Self.sky(hour: 13), mean: 0.18, variance: 0.025),
+            LightCase(name: "dusk", state: ThemeState(), sky: Self.sky(hour: 20.2), mean: 0.06, variance: 0.006),
+            LightCase(name: "night", state: ThemeState(), sky: Self.sky(hour: 22, phase: 0.25), mean: 0.045, variance: 0.0035),
+        ]
+        for q in [QualityLevel.lite, .high] {
+            var paper: [String: Float] = [:]
+            for c in cases {
+                let shot = try renderTea(notes: [60, 64, 67], at: 1, state: c.state, sky: c.sky, quality: q)
+                let s = PreviewRenderer.stats(shot.image)
+                XCTAssertGreaterThan(s.meanLuminance, c.mean, "\(q) \(c.name)")
+                XCTAssertGreaterThan(s.variance, c.variance, "\(q) \(c.name)")
+                XCTAssertTrue(shot.renderer.drawsGarden, "\(q) \(c.name): the screens stand half open on the garden")
+                XCTAssertGreaterThan(shot.renderer.wispCount, 0, "\(q) \(c.name): the notes curl the steam")
+                paper[c.name] = simd_reduce_add(shot.renderer.paperGlow) / 3
+                if c.name == "night" || c.name == "dusk" {
+                    XCTAssertGreaterThan(shot.renderer.candleOut, 0.5, "\(q) \(c.name): the lantern's candle is lit")
+                }
+                if c.name == "night" { XCTAssertGreaterThan(shot.renderer.fireOut, 0.5, "\(q): the brazier lights the room") }
+                if c.name == "noon" { XCTAssertEqual(shot.renderer.candleOut, 0, "\(q): no candle by day") }
+            }
+            XCTAssertGreaterThan(paper["noon"] ?? 0, 5 * (paper["night"] ?? 1), "\(q): the paper glows by day, blue-grey at night")
+        }
+    }
+
+    /// A note sends a wisp curling off the steam (and, held, brightens it): the steam's patch above the bowl changes by
+    /// at least 10% (night: the room's dark behind it; the CPU reference measured 74%, and 11% at noon).
+    func testNotesSendWispsOffTheSteam() throws {
+        let night = Self.sky(hour: 22, phase: 0.25)
+        let quiet = try renderTea(notes: [], at: 1.2, sky: night)
+        let played = try renderTea(notes: [64], at: 1.2, sky: night)
+        XCTAssertEqual(quiet.renderer.wispCount, 0)
+        XCTAssertEqual(played.renderer.wispCount, 1, "one note, one wisp")
+        XCTAssertGreaterThan(played.renderer.glowOut, 0.2, "the held note brightens the steam")
+        let r = played.renderer.steamRect
+        let x = Double(r.x)...Double(r.z), y = Double(r.y)...Double(r.w)
+        let base = luma(FramePatch.meanRGB(quiet.image, x: x, y: y))
+        let change = FramePatch.difference(quiet.image, played.image, x: x, y: y)
+        XCTAssertGreaterThanOrEqual(change, 0.1 * base, "steam patch \(base) changed by \(change)")
+    }
+
+    /// Screens closed: no garden, sky or snow beyond them; the paper fills the span (where the opening was, the light is
+    /// the paper's, not the sky's), and it lights the room.
+    func testScreensClosedLightTheRoomWithPaper() throws {
+        let closed = try renderTea(notes: [], at: 1, state: ThemeState(values: ["screens": .number(0)]))
+        let open = try renderTea(notes: [], at: 1, state: ThemeState(values: ["screens": .number(0.7)]))
+        XCTAssertFalse(closed.renderer.drawsGarden, "nothing is drawn beyond closed screens")
+        XCTAssertTrue(open.renderer.drawsGarden)
+        XCTAssertEqual(closed.renderer.openingRect.z - closed.renderer.openingRect.x, 0, accuracy: 1e-6)
+        let panels = closed.renderer.panelSpecs
+        XCTAssertEqual(panels[0].rect.z + panels[0].frameWidth, panels[1].rect.x - panels[1].frameWidth, accuracy: 1e-5,
+                       "the panels meet in the middle")
+        // Where the opening would be, the closed screens show paper like the side panel's; open, the sky shows there.
+        let centre = (x: 0.30...0.50, y: 0.10...0.55), side = (x: -0.50 ... -0.33, y: 0.10...0.55)
+        func rgb(_ s: TeaShot, _ b: (x: ClosedRange<Double>, y: ClosedRange<Double>)) -> SIMD3<Double> { FramePatch.meanRGB(s.image, x: b.x, y: b.y) }
+        let cc = rgb(closed, centre), cs = rgb(closed, side), oc = rgb(open, centre), os = rgb(open, side)
+        XCTAssertLessThan(simd_reduce_max(simd_abs(cc - cs)), 0.04, "closed: paper all across (\(cc) vs \(cs))")
+        XCTAssertGreaterThan(luma(cc), 0.4, "the paper glows by day")
+        XCTAssertGreaterThan((oc.z - oc.x) - (os.z - os.x), 0.05, "open: the blue sky beyond (\(oc) vs \(os))")
+        // And the paper lights the room: the tatami in front of it glows.
+        XCTAssertGreaterThan(luma(FramePatch.meanRGB(closed.image, x: -0.3...0.3, y: -0.58 ... -0.40)), 0.08)
+    }
+
+    func testTeaHouseHonoursGentleVisuals() throws {
+        var plain: (glow: Float, puff: Float, wisp: Float) = (0, 0, 0), gentle: (glow: Float, puff: Float, wisp: Float) = (0, 0, 0)
+        func brightestWisp(_ r: TeaHouseSnowRenderer) -> Float {
+            (0..<SteamLines.cap).map { r.uniforms[TeaHouseSnowRenderer.wispBase + $0].w }.max() ?? 0
+        }
+        _ = try renderTea(notes: [60, 64, 67], at: 1, each: { r, _ in
+            plain = (max(plain.glow, r.glowOut), max(plain.puff, r.puffOut), max(plain.wisp, brightestWisp(r)))
+        })
+        _ = try renderTea(notes: [60, 64, 67], at: 1, gentle: true, each: { r, _ in
+            gentle = (max(gentle.glow, r.glowOut), max(gentle.puff, r.puffOut), max(gentle.wisp, brightestWisp(r)))
+        })
+        XCTAssertGreaterThan(plain.glow, 0.3, "held notes brighten the steam")
+        XCTAssertGreaterThan(plain.puff, 0.3, "a chord puffs")
+        XCTAssertGreaterThan(plain.wisp, 0.3, "the notes send wisps")
+        XCTAssertLessThanOrEqual(gentle.glow, plain.glow * 0.55, "gentle visuals calm the steam's glow")
+        XCTAssertLessThanOrEqual(gentle.puff, plain.puff * 0.55, "and the puff")
+        XCTAssertLessThanOrEqual(gentle.wisp, plain.wisp * 0.55, "and the wisps")
+    }
+
+    func testTeaHouseFramesAnyAspect() throws {
+        for (w, h) in [(864, 360), (360, 360)] {
+            let shot = try renderTea(notes: [21, 60, 64, 67, 108], velocity: 0.95, at: 1.5, width: w, height: h)
+            let r = shot.renderer, l = r.layout
+            XCTAssertEqual(r.keyRects.count, 88)
+            for k in r.keyRects {
+                XCTAssertGreaterThanOrEqual(k.x, -1); XCTAssertLessThanOrEqual(k.z, 1)
+                XCTAssertGreaterThanOrEqual(k.y, -1); XCTAssertLessThanOrEqual(k.w, 1)
+            }
+            let keyTop = r.keyRects.map(\.w).max() ?? -1
+            XCTAssertTrue(keyTop <= l.tableFar && l.tableFar < l.sill && l.sill < r.horizonY && r.horizonY < l.lintel && l.lintel < 1,
+                          "\(w)×\(h): keys, table, floor, screens and the horizon in order")
+            XCTAssertGreaterThan(l.alcoveRight / l.aspect, -0.9, "\(w)×\(h): the alcove shows")
+            XCTAssertGreaterThanOrEqual(r.spanRect.x, -1); XCTAssertLessThanOrEqual(r.spanRect.z, 1)
+            XCTAssertTrue(r.openingRect.x >= r.spanRect.x && r.openingRect.z <= r.spanRect.z && r.openingRect.z > r.openingRect.x,
+                          "\(w)×\(h): the opening is inside the screens' span")
+            for (name, b) in [("bowl", r.bowlRect), ("steam", r.steamRect)] {
+                XCTAssertTrue(b.x > -1 && b.z < 1 && b.y > keyTop && b.w < 1, "\(w)×\(h): the \(name) at \(b)")
+            }
+            XCTAssertLessThan((l.brazierX + 0.26) / l.aspect, 1, "\(w)×\(h): the brazier is in view")
+            XCTAssertEqual(shot.frame.wisps.count, 5)
+            XCTAssertNotNil(shot.frame.lanternFlake, "\(w)×\(h): a hard note knocks a flake off the lantern")
+            XCTAssertGreaterThan(PreviewRenderer.stats(shot.image).variance, 0.001, "\(w)×\(h)")
+        }
+    }
+
+    func testTeaHouseBurstStaysInBudget() throws {
+        guard let device = MTLCreateSystemDefaultDevice() else { throw XCTSkip("No Metal device") }
+        let preview = try XCTUnwrap(PreviewRenderer(width: 640, height: 360))
+        let r = try XCTUnwrap(TeaHouseSnowRenderer(device: device))
+        let d = SceneDirector(themeID: TeaHouseSnowModel.id, state: ThemeState(), reaction: ReactionPresets.expressivePianist)
+        d.sky.reset(settings: Self.sky(hour: 22))
+        for q in [QualityLevel.lite, .high] {
+            let start = Date()
+            for i in 0..<60 {
+                let t = Double(i) / 60
+                d.handle((0..<34).map { k in .noteOn(note: UInt8(21 + (i * 34 + k) % 88), velocity: 0.8) }, at: t)   // 2,040 notes in 1 s
+                let f = try XCTUnwrap(d.step(dt: 1.0 / 60, t: t, quality: q) as? TeaHouseFrame)
+                XCTAssertLessThanOrEqual(f.wisps.count, SteamLines.cap)
+                r.update(f, params: d.parameters, quality: q, gentle: false, dt: 1.0 / 60, size: CGSize(width: 640, height: 360))
+                XCTAssertLessThanOrEqual(r.wispCount, TeaHouseSnowRenderer.wispBudget(q))
+                XCTAssertLessThanOrEqual(r.wispCount, SteamLines.cap)
+                XCTAssertNotNil(preview.capture(r))
+            }
+            XCTAssertLessThan(Date().timeIntervalSince(start), 4, "\(q)")
+        }
+        XCTAssertGreaterThan(r.wispCount, 0)
+    }
+
+    /// Frost Grow on the screens' paper (the Window Kit's paper material): holding notes lets the frost creep over the
+    /// panels, the notes melt warm patches in it, and it shows on the paper; Steam Lines sends nothing meanwhile.
+    func testFrostGrowWorksOnThePaper() throws {
+        let frost = ThemeState(values: ["visual": .choice("Frost Grow"), "screens": .number(0.3)])
+        let night = Self.sky(hour: 22, weather: .snow)
+        let held = try renderTea(notes: [48, 52, 55, 59], velocity: 0.5, at: 20, state: frost, sky: night, field: true)
+        let silent = try renderTea(notes: [], at: 20, state: frost, sky: night, field: true)
+        let bare = try renderTea(notes: [48, 52, 55, 59], velocity: 0.5, at: 20, state: ThemeState(values: ["screens": .number(0.3)]),
+                                 sky: night)
+        XCTAssertTrue(held.renderer.glass.allSatisfy(\.hasField), "the paper's frost fields have grown")
+        XCTAssertEqual(held.renderer.panelSpecs.map(\.material), [.paperScreen, .paperScreen])
+        XCTAssertGreaterThan(held.frame.frostLevel, silent.frame.frostLevel)
+        XCTAssertGreaterThanOrEqual(held.renderer.frostCoverage - silent.renderer.frostCoverage, 0.1,
+                                    "held notes grow the frost: \(silent.renderer.frostCoverage) → \(held.renderer.frostCoverage)")
+        XCTAssertGreaterThan(held.renderer.patchCount, 0, "the held notes melt patches in the paper's frost")
+        XCTAssertEqual(held.renderer.wispCount, 0, "Steam Lines rests while Frost Grow plays")
+        XCTAssertEqual(bare.renderer.frostCoverage, 0, "no frost on the paper with Steam Lines")
+        // The frost shows on the paper: much of the left panel's paper (left of the steam) differs from the bare paper.
+        let paper = held.renderer.panelSpecs[0].rect, span = held.renderer.spanRect
+        let x = Double(max(paper.x, span.x) + 0.03)...Double(min(paper.z, -0.25)), y = Double(paper.y + 0.05)...Double(paper.w - 0.05)
+        let a = FramePatch.pixels(held.image, x: x, y: y).map(luma), b = FramePatch.pixels(bare.image, x: x, y: y).map(luma)
+        let frosted = zip(a, b).filter { abs($0 - $1) > 0.04 }.count
+        XCTAssertGreaterThan(Double(frosted) / Double(max(1, a.count)), 0.2, "the paper's panes carry ice")
+    }
+}
+
+extension WorldPreviewTests {
+    func testWriteTeaHousePreviews() throws {
+        guard let dir = ProcessInfo.processInfo.environment["PREVIEW_DIR"] else { throw XCTSkip("PREVIEW_DIR not set") }
+        guard MTLCreateSystemDefaultDevice() != nil else { throw XCTSkip("No Metal device") }
+        let url = URL(fileURLWithPath: dir, isDirectory: true)
+        try FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
+        let preview = try XCTUnwrap(PreviewRenderer(width: 1280, height: 720))
+        let follow = ThemeState()
+        let pastel = ThemeState(values: ["light.hold": .choice(SkyHold.pastelDawn.rawValue)])
+        let closed = ThemeState(values: ["screens": .number(0)])
+        let frost = ThemeState(values: ["visual": .choice("Frost Grow")])
+        let sky = TeaHouseSnowRendererTests.sky
+        // At 3 s the demo's hard notes have just sent their wisps up and knocked flakes off the lantern's cap; at 5 s
+        // its held chord has puffed; Frost Grow has had 20 s on a snowy night.
+        let cases: [(String, SkySettings, ThemeState, QualityLevel, Double)] = [
+            ("teahouse-dawn", sky(6.5, .lightCloud, 0.5), pastel, .high, 5),
+            ("teahouse-snow", sky(14, .snow, 0.5), follow, .high, 5),
+            ("teahouse-night", sky(22, .clear, 0.25), follow, .high, 5),
+            ("teahouse-closed", sky(13, .clear, 0.5), closed, .high, 5),
+            ("teahouse-smooth", sky(13, .clear, 0.5), follow, .lite, 5),
+            ("teahouse-steam-t3", sky(13, .clear, 0.5), follow, .high, 3),
+            ("teahouse-frost-t20", sky(22, .snow, 0.25), frost, .high, 20),
+        ]
+        for (name, s, state, q, t) in cases {
+            let image = try XCTUnwrap(preview.render(themeID: TeaHouseSnowModel.id, at: [t], state: state, quality: q, sky: s,
+                                                     mood: .delicate).first)
+            try PreviewRenderer.writePNG(image, to: url.appendingPathComponent("\(name).png"))
+        }
+        // Rime frost: the pine and the fence feathered white (the world held fully rimed).
+        let rime = try XCTUnwrap(preview.render(themeID: TeaHouseSnowModel.id, at: [5], state: follow, quality: .high,
+                                                sky: sky(9, .rime, 0.5), mood: .delicate, skyEdit: { $0.rime = 1 }).first)
+        try PreviewRenderer.writePNG(rime, to: url.appendingPathComponent("teahouse-rime.png"))
     }
 }
