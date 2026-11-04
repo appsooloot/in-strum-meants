@@ -5,6 +5,9 @@ public enum WeatherAmbience {
         if sky.rain < 0.05, sky.wetness > 0 { levels[.drips] = Double(sky.wetness) }
         // Birds sing up as the sun comes out through a shower, while the rainbow stands.
         if sky.rainbow > 0.05, sky.rain < 0.5 { levels[.dawnChorus] = max(levels[.dawnChorus] ?? 0, 0.4 * Double(sky.rainbow)) }
+        // A humid night is loud with insects; diamond dust is still, cold air (and silent itself).
+        if sky.fireflies > 0.3 { levels[.crickets] = max(levels[.crickets] ?? 0, 0.6 * Double(sky.fireflies)) }
+        if sky.diamondDust > 0.3, let wind = levels[.wind] { levels[.wind] = min(wind, 0.2) }
         if sky.snow >= 0.9 { levels[.wind] = max(levels[.wind] ?? 0, 0.3 + 0.7 * Double(sky.gust)) }
     }
 }

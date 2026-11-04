@@ -655,7 +655,9 @@ enum CardArt {
         for k in 0..<10 {
             let d: Double = Double(k) / 9
             let y: CGFloat = waterline + 4 + CGFloat(d) * h * 0.12
-            let half: CGFloat = CGFloat(10 + 14 * d) * CGFloat(0.6 + 0.4 * noise2(Double(k) * 1.7, t * 0.4))
+            let base: Double = 10 + 14 * d
+            let shimmer: Double = 0.6 + 0.4 * noise2(Double(k) * 1.7, t * 0.4)
+            let half = CGFloat(base * shimmer)
             let x: CGFloat = moon.x + CGFloat(3 * sin(t * 0.6 + Double(k) * 1.1))
             glints.fill(Path(CGRect(x: x - half, y: y, width: 2 * half, height: 1.2)),
                         with: .color(Color(red: 0.85, green: 0.90, blue: 1).opacity(0.30 * (1 - 0.7 * d))))
@@ -685,7 +687,8 @@ enum CardArt {
         let beat: Double = t / pulse
         for (i, mote) in Self.butterflyMotes.enumerated() {
             let (fx, fy, r) = mote
-            let c = CGPoint(x: w * fx, y: h * fy + CGFloat(1.5 * sin(t * 0.8 + Double(i) * 1.3)))
+            let bob: Double = 1.5 * sin(t * 0.8 + Double(i) * 1.3)
+            let c = CGPoint(x: w * fx, y: h * fy + CGFloat(bob))
             let phase: Double = (beat + Double(i) * 0.382).truncatingRemainder(dividingBy: 1)
             let blink: Double = 0.25 + 0.75 * exp(-phase * 4)
             let glowR: CGFloat = r - 1.5   // the drift above stays inside the mote's radius

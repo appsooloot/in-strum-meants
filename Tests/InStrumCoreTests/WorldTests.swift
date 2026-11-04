@@ -456,6 +456,35 @@ final class WorldTests: XCTestCase {
         XCTAssertEqual(levels[.drips] ?? -1, 0.4, accuracy: 1e-6)
         XCTAssertEqual(levels[.wind] ?? -1, 0.65, accuracy: 1e-6)
     }
+
+    /// Sets 7 & 8 spec §5: under a humid night the crickets rise to at least 0.6 × fireflies.
+    func testHumidNightsRaiseTheCrickets() {
+        var levels: [AmbienceSource: Double] = [.crickets: 0.2]
+        var s = SkyState(); s.fireflies = 0.9
+        WeatherAmbience.levels(s, base: &levels)
+        XCTAssertEqual(levels[.crickets] ?? -1, 0.54, accuracy: 1e-6)
+        var loud: [AmbienceSource: Double] = [.crickets: 0.8]
+        WeatherAmbience.levels(s, base: &loud)
+        XCTAssertEqual(loud[.crickets] ?? -1, 0.8, accuracy: 1e-6, "never lowers them")
+        var faint: [AmbienceSource: Double] = [:]
+        s.fireflies = 0.2
+        WeatherAmbience.levels(s, base: &faint)
+        XCTAssertNil(faint[.crickets], "a few fireflies leave the crickets alone")
+    }
+
+    /// Sets 7 & 8 spec §5: diamond dust is still air: the wind is capped at 0.2.
+    func testDiamondDustStillsTheWind() {
+        var levels: [AmbienceSource: Double] = [.wind: 0.6]
+        var s = SkyState(); s.diamondDust = 1
+        WeatherAmbience.levels(s, base: &levels)
+        XCTAssertEqual(levels[.wind] ?? -1, 0.2, accuracy: 1e-6)
+        var calm: [AmbienceSource: Double] = [.wind: 0.1]
+        WeatherAmbience.levels(s, base: &calm)
+        XCTAssertEqual(calm[.wind] ?? -1, 0.1, accuracy: 1e-6)
+        var none: [AmbienceSource: Double] = [:]
+        WeatherAmbience.levels(s, base: &none)
+        XCTAssertNil(none[.wind])
+    }
 }
 
 // MARK: - Snowbound Cabin
