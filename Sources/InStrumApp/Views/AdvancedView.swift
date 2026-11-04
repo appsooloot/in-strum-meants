@@ -73,8 +73,13 @@ struct AllSettingsView: View {
                         }
                     }
                 }
+                if showsNightSky { NightSkySection(model: model) }
             }
         }
+    }
+
+    private var showsNightSky: Bool {
+        search.isEmpty || "Night sky constellation lines aurora stars".localizedCaseInsensitiveContains(search)
     }
 
     private func reset(_ id: String) {
@@ -86,6 +91,45 @@ struct AllSettingsView: View {
         var set = params; set.resetGroup(group)
         var s = state; s.values = set.saved; s.lookPresetName = nil
         model.saveThemeState(s, for: model.themeID)
+    }
+}
+
+/// The Living Sky's night settings (every world with a sky): the constellation lines and the aurora's brightness.
+/// The Gentle / Dramatic / Dreamy looks and Reset Advanced (Visuals → World) set these too.
+struct NightSkySection: View {
+    @ObservedObject var model: AppModel
+
+    private var sky: SkySettings { model.skySettings }
+    private func update(_ change: (inout SkySettings) -> Void) {
+        var s = sky
+        change(&s)
+        model.setSky(s)
+    }
+
+    var body: some View {
+        Section {
+            VStack(alignment: .leading, spacing: 2) {
+                Text("Constellation lines \(Int((sky.constellationLines * 100).rounded()))%").font(.callout)
+                Slider(value: Binding(get: { sky.constellationLines }, set: { v in update { $0.constellationLines = v } }), in: 0...1)
+            }
+            VStack(alignment: .leading, spacing: 2) {
+                Text("Aurora \(String(format: "%.1f", sky.auroraScale))×").font(.callout)
+                Slider(value: Binding(get: { sky.auroraScale }, set: { v in update { $0.auroraScale = v } }), in: 0...2)
+                Text("In Follow-the-sky worlds, how bright a real aurora is").font(.caption).foregroundStyle(.secondary)
+            }
+        } header: {
+            HStack {
+                Text("Night sky")
+                Spacer()
+                Button("Reset group") {
+                    update { s in
+                        let d = SkySettings()
+                        s.constellationLines = d.constellationLines; s.auroraScale = d.auroraScale
+                    }
+                }
+                .buttonStyle(.borderless).font(.caption)
+            }
+        }
     }
 }
 

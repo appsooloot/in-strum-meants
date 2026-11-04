@@ -211,6 +211,7 @@ final class MoonlitLakeRenderer: ThemeRenderer {
         e.setRenderPipelineState(lake)
         skyU.withUnsafeBytes { e.setFragmentBytes($0.baseAddress!, length: $0.count, index: 0) }
         lakeU.withUnsafeBytes { e.setFragmentBytes($0.baseAddress!, length: $0.count, index: 1) }
+        sky.bindStars(e)
         e.drawPrimitives(type: .triangle, vertexStart: 0, vertexCount: 3)
 
         if !fireflies.isEmpty {

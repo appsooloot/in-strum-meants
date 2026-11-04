@@ -75,7 +75,8 @@ enum BedroomDawnShaders {
     }
 
     // ---------------------------------------------------------------- outside the window
-    fragment ColorDepth bed_scene_fragment(BedOut in [[stage_in]], constant SkyU& u [[buffer(0)]], constant BedU& c [[buffer(1)]]) {
+    fragment ColorDepth bed_scene_fragment(BedOut in [[stage_in]], constant SkyU& u [[buffer(0)]], constant BedU& c [[buffer(1)]],
+                                        texture2d<float> stars [[texture(0)]]) {
         float2 ndc = in.ndc;
         float aspect = c.a.y, horizon = c.a.z, time = c.a.w;
         float sx = ndc.x * aspect, sy = ndc.y;
@@ -178,7 +179,7 @@ enum BedroomDawnShaders {
                 if (wet > 0.02 && d.z < 0.0) {
                     float3 r = float3(d.x, d.y, -d.z);
                     float moonMask = 0.0;
-                    float3 mirror = skyRadiance(r, u, moonMask) * 0.55;
+                    float3 mirror = skyRadiance(r, u, moonMask, stars) * 0.55;
                     float ripple = 0.85 + 0.3 * bvn2(float2(sx * 25.0, sy * 90.0));
                     float streak = exp(-abs(sx - lampHead.x) * 30.0) * lamp * 2.0 * (1.0 - t * 0.6);
                     col = mix(col, mirror * ripple, wet * 0.7) + warmLamp * streak * wet;

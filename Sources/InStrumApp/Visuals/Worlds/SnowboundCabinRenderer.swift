@@ -227,6 +227,7 @@ final class SnowboundCabinRenderer: ThemeRenderer {
         let skyU = sky.uniforms
         e.setRenderPipelineState(scene)
         skyU.withUnsafeBytes { e.setFragmentBytes($0.baseAddress!, length: $0.count, index: 0) }
+        sky.bindStars(e)
         cabinU.withUnsafeBytes {
             e.setVertexBytes($0.baseAddress!, length: $0.count, index: 1)
             e.setFragmentBytes($0.baseAddress!, length: $0.count, index: 1)

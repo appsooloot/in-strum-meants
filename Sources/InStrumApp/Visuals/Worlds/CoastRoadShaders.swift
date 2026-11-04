@@ -61,7 +61,7 @@ enum CoastRoadShaders {
     }
 
     fragment ColorDepth road_fragment(RoadOut in [[stage_in]], constant SkyU& sky [[buffer(0)]], constant RoadU& u [[buffer(1)]],
-                                      constant OceanU& o [[buffer(2)]]) {
+                                      constant OceanU& o [[buffer(2)]], texture2d<float> stars [[texture(0)]]) {
         ColorDepth out;
         float2 ndc = in.ndc;
         if (ndc.y < u.a.x) { out.color = float4(0, 0, 0, 1); out.depth = float4(0.05, 0, 0, 1); return out; }
@@ -141,7 +141,7 @@ enum CoastRoadShaders {
             float2 q = float2(s, f);
             float2 slope = oceanSlope(q, o, oceanFootprint(d, f, sky));
             float3 nrm = oceanNormal(slope, fwd, rgt);
-            col = oceanShade(d, nrm, q, f, sky, o);
+            col = oceanShade(d, nrm, q, f, sky, o, stars);
             // White water at the cliff base, surging with each break.
             float above = p.y - scrubY;
             float since = u.d.x, last = u.d.y, base = u.d.z;

@@ -153,7 +153,8 @@ enum SnowboundCabinShaders {
     }
 
     // ---------------------------------------------------------------- outside the window
-    fragment ColorDepth cabin_scene_fragment(CabinOut in [[stage_in]], constant SkyU& u [[buffer(0)]], constant CabinU& c [[buffer(1)]]) {
+    fragment ColorDepth cabin_scene_fragment(CabinOut in [[stage_in]], constant SkyU& u [[buffer(0)]], constant CabinU& c [[buffer(1)]],
+                                          texture2d<float> stars [[texture(0)]]) {
         float2 ndc = in.ndc;
         float aspect = c.a.y, horizon = c.a.z, time = c.a.w;
         float sx = ndc.x * aspect, sy = ndc.y;
@@ -241,7 +242,7 @@ enum SnowboundCabinShaders {
             if (off < hw * 1.6 && d.z < 0.0) {
                 float3 r = float3(d.x, d.y, -d.z);
                 float moonMask = 0.0;
-                float3 ice = skyRadiance(r, u, moonMask) * 0.35 + float3(0.62, 0.72, 0.82) * (skyAmb * 0.8 + sunCol * 0.25 + moonCol * 0.5);
+                float3 ice = skyRadiance(r, u, moonMask, stars) * 0.35 + float3(0.62, 0.72, 0.82) * (skyAmb * 0.8 + sunCol * 0.25 + moonCol * 0.5);
                 float crack = 1.0 - smoothstep(0.0, 0.035, abs(cvn2(float2(sx * 38.0, sy * 140.0)) - 0.5));
                 ice *= 1.0 - 0.25 * crack;
                 float snowed = smoothstep(0.55, 0.7, cvn2(float2(sx * 16.0, sy * 50.0 / persp) + 4.4));
