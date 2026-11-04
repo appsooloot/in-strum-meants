@@ -371,6 +371,21 @@ extension LivingSkyTests {
         XCTAssertEqual([d.windScale, d.mistScale, d.haloScale, d.frostScale, d.dryingMinutes, d.rainbowStrength], [1, 1, 1, 1, 8, 1])
     }
 
+    /// Scales above 1 boost (they used to be clamped to 1 along with the value, so Dramatic and Dreamy changed nothing).
+    func testAdvancedScalesAboveOneBoost() {
+        var s = SkySettings(); s.timeMode = .frozen; s.frozenHour = 13; s.cityID = "melbourne"; s.weatherMode = .pick; s.weather = .lightCloud
+        let base = LivingSky(settings: s, homeZone: melbourneZone).step(now: start, dt: 0)
+        XCTAssertGreaterThan(base.wind, 0.05)
+        XCTAssertLessThan(base.wind, 0.5)
+        s.windScale = 2; s.cloudScale = 1.3; s.mistScale = 1.5
+        let boosted = LivingSky(settings: s, homeZone: melbourneZone).step(now: start, dt: 0)
+        XCTAssertEqual(boosted.wind, min(1, base.wind * 2), accuracy: 1e-4)
+        XCTAssertEqual(boosted.cloudCover, min(1, base.cloudCover * 1.3), accuracy: 1e-4)
+        XCTAssertEqual(boosted.mist, min(1, base.mist * 1.5), accuracy: 1e-4)
+        s.windScale = 50
+        XCTAssertLessThanOrEqual(LivingSky(settings: s, homeZone: melbourneZone).step(now: start, dt: 0).wind, 1)
+    }
+
     func testCalmRandomWeatherNeverGetsRough() {
         for seed in 1...6 as ClosedRange<UInt64> {
             var s = SkySettings(); s.timeMode = .frozen; s.weatherMode = .randomBeautiful; s.calmRandom = true
