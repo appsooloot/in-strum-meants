@@ -96,6 +96,16 @@ typedef enum {
     /// 0.3–0.8 s, every 2–6 s) with now and then a hollow 180 Hz knock; BOAT a distant outboard crossing from one
     /// side to the other every 150–400 s (a 12–20 s swell of a low pulsing buzz), its wake washing in after.
     ISD_AMB_ICE_GROAN, ISD_AMB_WATERFALL, ISD_AMB_LAPPING, ISD_AMB_BOAT,
+    /// The still places: TEMPLE_BELL a far bonshō (outdoor) struck every 120–300 s: hum partials at about 1, 1.6, 2.3
+    /// and 3.0 × the tonic of the player's key in A1–G♯2 (isd_ambience_set_key), ringing 6–12 s with a slow 0.3 Hz
+    /// beat after a 1 ms clapper click, its first 2 s near −30 dBFS RMS at 1; PAPER_SCREENS shoji in a draught
+    /// (indoor): 1–4 kHz rustles of 0.2–0.6 s (every 6–20 s at level 0.5, more often the higher the level), now and
+    /// then a wooden creak, a rustle near −38 dBFS RMS at 1; WATER_KNOCKER a bamboo shishi-odoshi (outdoor): a thin
+    /// 2–4 kHz trickle fills it for 15–40 s, it tips with a slosh and clacks on its stone (a bright 2 ms knock with a
+    /// 60 ms ring near 1.8 kHz, peaking near −18 dBFS at 1), then fills again; WARBLER a bush warbler (outdoor): a long
+    /// whistle rising from about 2.5 to 3.2 kHz over 0.6 s, then two quick notes, every 40–120 s (the world decides
+    /// in which seasons and hours it sings), peaking near −20 dBFS at 1.
+    ISD_AMB_TEMPLE_BELL, ISD_AMB_PAPER_SCREENS, ISD_AMB_WATER_KNOCKER, ISD_AMB_WARBLER,
     ISD_AMB_COUNT
 } ISDAmbienceSource;
 
@@ -104,7 +114,8 @@ typedef struct ISDAmbience ISDAmbience;
 /// of a run of `seconds` from phase 0.
 float isd_ambience_debug_tone_hz(float hz, float sampleRate, float seconds);
 /// Internal (tests): how many events a source has started so far (the waking street counts its passing cars; the
-/// ice its groans and cracks together; lapping its sloshes; the boat its passes).
+/// ice its groans and cracks together; lapping its sloshes; the boat its passes; the temple bell its strikes; the
+/// paper screens their rustles; the water-knocker its clacks; the warbler its calls).
 int isd_ambience_debug_events(const ISDAmbience *ambience, ISDAmbienceSource source);
 /// The same seed gives the same ambience.
 ISDAmbience *isd_ambience_create(double sampleRate, int maxFrames, uint64_t seed);
@@ -139,6 +150,19 @@ void isd_ambience_set_snow_on_glass(ISDAmbience *ambience, float snow);
 void isd_ambience_debug_start_kettle(ISDAmbience *ambience);
 /// Internal (tests): a boat passes now.
 void isd_ambience_debug_start_boat(ISDAmbience *ambience);
+/// Any thread. The key the player is in: root 0…11 (C = 0), major 1 or minor 0. The temple bell sounds its tonic
+/// (in A1–G♯2, in either mode) from its next strike on and never retunes a strike that is ringing. A root outside
+/// 0…11 (−1: the key can't be sensed) keeps the last key; E major until one is set.
+void isd_ambience_set_key(ISDAmbience *ambience, int root, int major);
+/// Internal (tests): the temple bell strikes now.
+void isd_ambience_debug_strike_bell(ISDAmbience *ambience);
+/// Internal (tests): the fundamental (Hz) of the temple bell's ringing strike, or of its next strike while it is
+/// silent. Any thread.
+float isd_ambience_debug_bell_hz(const ISDAmbience *ambience);
+/// Internal (tests): the water-knocker starts filling now, empty.
+void isd_ambience_debug_start_knocker(ISDAmbience *ambience);
+/// Internal (tests): the bush warbler calls now.
+void isd_ambience_debug_call_warbler(ISDAmbience *ambience);
 /// Render thread. Overwrites `left`/`right`.
 void isd_ambience_render(ISDAmbience *ambience, float *left, float *right, int frames);
 

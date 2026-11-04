@@ -77,6 +77,8 @@ public final class AmbienceAU: AUAudioUnit {
         isd_ambience_set_indoors(a, Float(s.scene.indoors))
         isd_ambience_set_wetness(a, Float(s.scene.wetness))
         isd_ambience_set_snow_on_glass(a, Float(s.scene.snowOnGlass))
+        // The temple bell takes a new key at its next strike; while the key can't be sensed it stays where it is.
+        if let key = s.scene.key { isd_ambience_set_key(a, Int32(clamping: key.root), key.major ? 1 : 0) }
         if let distance = thunder, s.enabled { isd_ambience_trigger_thunder(a, Float(distance)) }
         if let strength = wave, s.enabled { isd_ambience_trigger_wave(a, Float(strength)) }
     }
@@ -111,6 +113,10 @@ public final class AmbienceAU: AUAudioUnit {
         case .waterfall: return ISD_AMB_WATERFALL
         case .lapping: return ISD_AMB_LAPPING
         case .boat: return ISD_AMB_BOAT
+        case .templeBell: return ISD_AMB_TEMPLE_BELL
+        case .paperScreens: return ISD_AMB_PAPER_SCREENS
+        case .waterKnocker: return ISD_AMB_WATER_KNOCKER
+        case .warbler: return ISD_AMB_WARBLER
         }
     }
 

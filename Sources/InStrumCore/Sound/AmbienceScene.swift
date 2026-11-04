@@ -4,6 +4,18 @@ public enum AmbienceSource: String, Codable, CaseIterable {
     case surf, palms, gulls, road, engine, windowWind, passingCar
     case fire, kettle, street, drips, clock
     case iceGroan, waterfall, lapping, boat
+    case templeBell, paperScreens, waterKnocker, warbler
+}
+
+/// The key the player is in (spec §7.1): root 0…11 (C = 0), major or minor.
+public struct AmbienceKey: Equatable, Codable {
+    public var root: Int
+    public var major: Bool
+
+    public init(root: Int, major: Bool) {
+        self.root = root
+        self.major = major
+    }
 }
 
 /// What a world wants to hear right now. Levels are 0…1; anything missing is silent.
@@ -31,10 +43,13 @@ public struct AmbienceScene: Equatable {
     public var wetness: Double
     /// 0…1: snow on the glass turns rain on the glass into soft ticks.
     public var snowOnGlass: Double
+    /// The key the player is in, once it can be sensed: in-key sources (the temple bell) take it at their next
+    /// strike. Nil leaves them where they are.
+    public var key: AmbienceKey?
 
     public init(levels: [AmbienceSource: Double] = [:], nightCool: Double = 0, activity: Double = 0, thunder: Double? = nil,
                 closeness: Double = 0.5, density: Double = 1, wave: Double? = nil, speed: Double = 0, surfDistance: Double = 0,
-                indoors: Double = 0, wetness: Double = 0, snowOnGlass: Double = 0) {
+                indoors: Double = 0, wetness: Double = 0, snowOnGlass: Double = 0, key: AmbienceKey? = nil) {
         self.levels = levels
         self.nightCool = nightCool
         self.activity = activity
@@ -47,6 +62,7 @@ public struct AmbienceScene: Equatable {
         self.indoors = indoors
         self.wetness = wetness
         self.snowOnGlass = snowOnGlass
+        self.key = key
     }
 
     public static let silent = AmbienceScene()

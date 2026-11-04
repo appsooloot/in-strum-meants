@@ -134,12 +134,29 @@ final class CPUBudgetTests: XCTestCase {
         }
     }
 
-    /// Felt Glass and Orbit Pad with all 28 ambience sources at 0.6.
+    /// The tea house's and the garden's soundscapes (spec §8.1, §9.1), with the bell struck, the kettle on, the
+    /// knocker filling and the warbler calling.
+    func testStillPlacesAmbienceBudget() {
+        typealias A = AmbienceTests
+        let teaHouse: [A.Action] = [A.level(ISD_AMB_KETTLE, 0.35), A.startKettle(at: 0), A.level(ISD_AMB_PAPER_SCREENS, 0.4),
+                                    A.level(ISD_AMB_TEMPLE_BELL, 0.5), A.strikeBell(at: 0), A.level(ISD_AMB_WIND, 0.15),
+                                    A.level(ISD_AMB_RAIN_GLASS, 0.3), A.snowOnGlass(1), A.indoors(0.55)]
+        let garden: [A.Action] = [A.level(ISD_AMB_WATER_KNOCKER, 0.6), A.startKnocker(at: 0), A.level(ISD_AMB_WARBLER, 0.5),
+                                  A.callWarbler(at: 1), A.level(ISD_AMB_BREEZE, 0.3), A.level(ISD_AMB_CRICKETS, 0.4),
+                                  A.level(ISD_AMB_DAWN_CHORUS, 0.3), A.level(ISD_AMB_TEMPLE_BELL, 0.3), A.strikeBell(at: 0),
+                                  A.level(ISD_AMB_RAIN_WATER, 0.2)]
+        for (name, scene) in [("tea house", teaHouse), ("garden", garden)] {
+            let seconds = bestOfThree { _ = A.render(seconds: 10, actions: scene) }
+            XCTAssertLessThan(seconds / 10, 0.025, "the \(name) ambience used \(String(format: "%.1f", seconds * 10))% of real time")
+        }
+    }
+
+    /// Felt Glass and Orbit Pad with all 32 ambience sources at 0.6.
     func testCombinedBudget() {
         var felt = [R.pedal(0, 127)]
         for n: UInt8 in [36, 43, 48, 52, 55, 60, 64, 67, 71, 72, 76, 79, 83, 84, 88, 91] { felt.append(R.noteOn(0, n, 90)) }
         let pad = [48, 55, 60, 63, 67, 70, 72, 75].map { R.noteOn(0, UInt8($0), 90) }
-        XCTAssertEqual(ISD_AMB_COUNT.rawValue, 28)
+        XCTAssertEqual(ISD_AMB_COUNT.rawValue, 32)
         let ambience: [AmbienceTests.Action] = (0..<Int(ISD_AMB_COUNT.rawValue)).map { AmbienceTests.level(ISDAmbienceSource(UInt32($0)), 0.6) }
         let seconds = bestOfThree {
             _ = R.render(seconds: 10, events: felt)
