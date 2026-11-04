@@ -37,9 +37,87 @@ final class InspiredByCardTests: XCTestCase {
 
     /// Renders a card at a fixed moment (600×360, the card's 5:3).
     static func render(_ c: Credit, at t: Double) -> CGImage? {
-        let renderer = ImageRenderer(content: InspiredByCard(credit: c, fixedTime: t).frame(width: 600, height: 360))
+        render(InspiredByCard(credit: c, fixedTime: t))
+    }
+
+    /// Renders a set's place card at a fixed moment.
+    static func render(place set: InStrumSet, at t: Double) -> CGImage? {
+        render(InspiredByCard(place: set, fixedTime: t))
+    }
+
+    private static func render(_ card: InspiredByCard) -> CGImage? {
+        let renderer = ImageRenderer(content: card.frame(width: 600, height: 360))
         renderer.scale = 1
         return renderer.cgImage
+    }
+
+    /// Tea House Snow as Sets 9 & 10 will add it to `SetLibrary` (spec §2, §8.1, §10): born from its place, so no credit.
+    static var teaHouse: InStrumSet {
+        InStrumSet(id: "tea-house-snow", name: "Tea House Snow", moodName: "Delicate, hushed",
+                   mood: Mood(energy: 0.2, warmth: 0.55, brightness: 0.5, space: 0.3, motion: 0.2),
+                   worldID: "tea-house-snow", visual: "Steam Lines", patchID: "tea-house-koto",
+                   ambience: AmbienceSettings(), creditID: nil)
+    }
+
+    /// Every set shows one card: its song's, or (born from its place, no credit) its place card.
+    func testEverySetHasACardOrPlaceArt() {
+        for set in SetLibrary.all + [Self.teaHouse] {
+            if let credit = set.creditID {
+                XCTAssertNotNil(CardArt.art(for: credit), "\(set.id) has no song card")
+                XCTAssertNil(CardArt.place(for: set.id), "\(set.id) has a song card and a place card")
+            } else {
+                XCTAssertNotNil(CardArt.place(for: set.id), "\(set.id) has no credit and no place card")
+            }
+        }
+        for c in CreditLibrary.all { XCTAssertFalse(CardArt.art(for: c.id)?.isPlace ?? true, c.id) }
+    }
+
+    /// The tea house is born from its place: its card (steam curling over a snow garden seen through a lattice, the koto's
+    /// thirteen strings faint along the lower edge) breathes at a slow fixed 60/48 s whatever any song's tempo, names the
+    /// set and its mood instead of a song, artist and album, has no liner notes or Listen button, and looks like none of
+    /// the song cards.
+    func testPlaceCardForTheTeaHouse() throws {
+        let art = try XCTUnwrap(CardArt.place(for: "tea-house-snow"))
+        XCTAssertTrue(art.isPlace)
+        XCTAssertEqual(CardArt.placePulse, 60.0 / 48, accuracy: 1e-12)
+        XCTAssertEqual(art.pulse(for: CreditLibrary.stay), 60.0 / 48, accuracy: 1e-12, "a place card follows no song")
+        XCTAssertEqual(CardArt.teaHouseStrings.count, 13, "the koto's thirteen strings")
+        XCTAssertTrue(CardArt.teaHouseStrings.allSatisfy { $0 > 0.85 && $0 < 1 }, "along the lower edge")
+        XCTAssertNil(CardArt.place(for: SetLibrary.moonlitLake.id), "a song's set has no place card")
+        XCTAssertNil(CardArt.place(for: "no-such-set"))
+        for c in CreditLibrary.all { XCTAssertNotEqual(CardArt.art(for: c.id), art, c.id) }
+
+        let card = InspiredByCard(place: Self.teaHouse)
+        XCTAssertEqual(card.subject, .place(Self.teaHouse))
+        XCTAssertEqual(card.art, .teaHouseSnow)
+        XCTAssertEqual(card.pulse, 60.0 / 48, accuracy: 1e-12)
+        XCTAssertEqual(card.words.title, "Tea House Snow")
+        XCTAssertEqual(card.words.subtitle, "Delicate, hushed")
+        XCTAssertNil(card.words.listen, "no Listen button")
+        XCTAssertNil(card.words.linerNotes)
+        XCTAssertNil(card.words.line)
+        // A song card still names its song and links to it.
+        let song = InspiredByCard(credit: CreditLibrary.dunno)
+        XCTAssertEqual(song.words.title, "Dunno")
+        XCTAssertEqual(song.words.subtitle, "Mac Miller · Swimming · 2018")
+        XCTAssertEqual(song.words.listen, CreditLibrary.dunno)
+        XCTAssertEqual(song.words.linerNotes, "C♯ major · TRACK 10 · 82 BPM")
+        XCTAssertEqual(song.pulse, 60.0 / 82, accuracy: 1e-12)
+
+        // The picture: it draws, it breathes, and it looks like no song card.
+        let a = try XCTUnwrap(Self.render(place: Self.teaHouse, at: 0.2))
+        let s = PreviewRenderer.stats(a)
+        XCTAssertGreaterThan(s.meanLuminance, 0.05)
+        XCTAssertGreaterThan(s.variance, 0.001)
+        let b = try XCTUnwrap(Self.render(place: Self.teaHouse, at: 2.2))
+        let moved = PreviewRenderer.difference(a, b)
+        if moved <= 0.001 { XCTFail("the tea house card moved only \(moved)") }
+        let place = try XCTUnwrap(Self.render(place: Self.teaHouse, at: 1.0))
+        for c in CreditLibrary.all {
+            let other = try XCTUnwrap(Self.render(c, at: 1.0), c.id)
+            let d = PreviewRenderer.difference(place, other)
+            if d <= 0.02 { XCTFail("the tea house card and \(c.id) differ by only \(d)") }
+        }
     }
 
     /// "Stay" is felt in half time, so its card breathes at 67, not 134.
