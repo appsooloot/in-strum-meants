@@ -118,6 +118,24 @@ final class AmbienceTests: XCTestCase {
         XCTAssertGreaterThan(bed[bed.count / 2], -60, "the ice's creak bed is heard")
         XCTAssertTrue(ice.l.allSatisfy(\.isFinite) && ice.r.allSatisfy(\.isFinite), "ice")
         XCTAssertLessThanOrEqual(max(ice.l.map(abs).max() ?? 0, ice.r.map(abs).max() ?? 0), 1, "ice")
+        // The still places: the temple bell low, its strike's first 2 s near −30 dBFS; the water-knocker's trickle in
+        // 2–4.5 kHz (its clack: testWaterKnockerCycle); the warbler in 2–4.5 kHz, peaking near −20 dBFS (the paper
+        // screens: testPaperScreensRustle). Levels on both channels: these sources are panned.
+        let bell = Self.render(seconds: 8, actions: [Self.level(ISD_AMB_TEMPLE_BELL, 1), Self.strikeBell(at: 3)])
+        let bellCentroid = DSPTestKit.averageCentroid(SynthRender.slice(bell.l, 3, 8), sampleRate: Self.sr), bellDB = Self.stereoDB(bell, 3, 5)
+        XCTAssertTrue((60...400).contains(bellCentroid), "temple bell: centroid \(Int(bellCentroid)) Hz")
+        XCTAssertTrue((-34 ... -26).contains(bellDB), "temple bell: \(String(format: "%.1f", bellDB)) dBFS over the strike's first 2 s")
+        let trickle = Self.render(seconds: 14, actions: [Self.level(ISD_AMB_WATER_KNOCKER, 1), Self.startKnocker(at: 3)])
+        XCTAssertGreaterThan(Self.bandShare(SynthRender.slice(trickle.l, 4, 14), 2000, 4500), 0.6, "the knocker's trickle")
+        XCTAssertGreaterThan(Self.windows(SynthRender.slice(trickle.l, 4, 14)).max() ?? -200, -65, "the trickle is heard")
+        let call = Self.render(seconds: 5, actions: [Self.level(ISD_AMB_WARBLER, 1), Self.callWarbler(at: 3.2)])
+        let callPeak = Self.peakDB(call, 0, 5)
+        XCTAssertGreaterThan(Self.bandShare(SynthRender.slice(call.l, 3.2, 4.4), 2000, 4500), 0.9, "warbler")
+        XCTAssertTrue((-26 ... -14).contains(callPeak), "warbler: peak \(String(format: "%.1f", callPeak)) dBFS")
+        for (name, out) in [("temple bell", bell), ("water-knocker", trickle), ("warbler", call)] {
+            XCTAssertTrue(out.l.allSatisfy(\.isFinite) && out.r.allSatisfy(\.isFinite), name)
+            XCTAssertLessThanOrEqual(max(out.l.map(abs).max() ?? 0, out.r.map(abs).max() ?? 0), 1, name)
+        }
     }
 
     /// A wave breaks: a low crash first, then the bright wash sliding up the sand.
@@ -539,5 +557,216 @@ extension AmbienceTests {
         XCTAssertGreaterThanOrEqual(2 * sloshes.count, runs.count, "most swells are slosh-length")
         let started = isd_ambience_debug_events(a, ISD_AMB_LAPPING)
         XCTAssertTrue((6...45).contains(started), "\(started) sloshes started in 63 s")
+    }
+}
+
+// MARK: - Still places: a temple bell in your key, paper screens, a water-knocker, a bush warbler
+
+extension AmbienceTests {
+    static func key(_ root: Int32, major: Bool, at t: Double = 0) -> Action { (t, { isd_ambience_set_key($0, root, major ? 1 : 0) }) }
+    static func strikeBell(at t: Double) -> Action { (t, { isd_ambience_debug_strike_bell($0) }) }
+    static func startKnocker(at t: Double) -> Action { (t, { isd_ambience_debug_start_knocker($0) }) }
+    static func callWarbler(at t: Double) -> Action { (t, { isd_ambience_debug_call_warbler($0) }) }
+
+    /// The tonic of a key root (C = 0) in the bell's octave: A1 (MIDI 33) … G♯2 (MIDI 44).
+    static func tonic(_ root: Int) -> Double { 440 * pow(2, Double(33 + (root + 3) % 12 - 69) / 12) }
+
+    /// RMS over both channels (their power averaged) between two times, in dBFS: a panned source reads the same
+    /// wherever it sits.
+    static func stereoDB(_ out: (l: [Float], r: [Float]), _ a: Double, _ b: Double) -> Double {
+        let l = SynthRender.slice(out.l, a, b), r = SynthRender.slice(out.r, a, b)
+        guard !l.isEmpty else { return -200 }
+        var sum = 0.0
+        for i in l.indices { sum += 0.5 * (Double(l[i]) * Double(l[i]) + Double(r[i]) * Double(r[i])) }
+        let meanSquare = sum / Double(l.count)
+        return meanSquare > 0 ? 10 * log10(meanSquare) : -200
+    }
+
+    /// RMS of consecutive `ms` frames over both channels between two times, in dBFS.
+    static func stereoFrames(_ out: (l: [Float], r: [Float]), ms: Double, from a: Double, to b: Double) -> [Double] {
+        let n = Int(ms / 1000 * sr), start = Int(a * sr), end = min(out.l.count, Int(b * sr))
+        return stride(from: start, to: end - n + 1, by: n).map { s -> Double in
+            var sum = 0.0
+            for i in s..<(s + n) { sum += 0.5 * (Double(out.l[i]) * Double(out.l[i]) + Double(out.r[i]) * Double(out.r[i])) }
+            return sum > 0 ? 10 * log10(sum / Double(n)) : -200
+        }
+    }
+
+    /// The louder channel's peak between two times, in dBFS.
+    static func peakDB(_ out: (l: [Float], r: [Float]), _ a: Double, _ b: Double) -> Double {
+        let p = max(SynthRender.slice(out.l, a, b).map(abs).max() ?? 0, SynthRender.slice(out.r, a, b).map(abs).max() ?? 0)
+        return p > 0 ? 20 * log10(Double(p)) : -200
+    }
+
+    /// The strongest bin between `lo` and `hi` Hz of a `DSPTestKit.powerSpectrum(_:size:)`: its frequency and power.
+    static func strongest(_ spectrum: [Double], size: Int, _ lo: Double, _ hi: Double) -> (hz: Double, power: Double) {
+        let binHz = sr / Double(size)
+        var best = (hz: 0.0, power: -1.0)
+        for i in 1..<spectrum.count {
+            let f = Double(i) * binHz
+            if f >= lo, f <= hi, spectrum[i] > best.power { best = (hz: f, power: spectrum[i]) }
+        }
+        return best
+    }
+
+    /// The power between `lo` and `hi` Hz of a `DSPTestKit.powerSpectrum(_:size:)`.
+    static func bandPower(_ spectrum: [Double], size: Int, _ lo: Double, _ hi: Double) -> Double {
+        let binHz = sr / Double(size)
+        var sum = 0.0
+        for i in 1..<spectrum.count where Double(i) * binHz >= lo && Double(i) * binHz <= hi { sum += spectrum[i] }
+        return sum
+    }
+
+    /// Key D major: the bell sounds D2 (the D in its octave, A1–G♯2) within 3 cents, with its hum partials near 1.6, 2.3
+    /// and 3.0 × the fundamental (within 3%). Every root lands in that octave, silent or struck; a key that can't be
+    /// sensed (−1) or is out of range keeps the last one.
+    func testTempleBellSitsOnTheKey() throws {
+        XCTAssertEqual(Self.tonic(9), 55, accuracy: 1e-9, "A → A1")
+        XCTAssertEqual(Self.tonic(8), 103.826, accuracy: 1e-3, "G♯ → G♯2")
+        let d2 = Self.tonic(2)
+        let out = Self.render(seconds: 9, actions: [Self.level(ISD_AMB_TEMPLE_BELL, 1), Self.key(2, major: true), Self.strikeBell(at: 3)])
+        let ring = SynthRender.slice(Self.mid(out), 4, 9)
+        let f0 = DSPTestKit.fundamental(ring, sampleRate: Self.sr, near: d2)
+        XCTAssertEqual(DSPTestKit.cents(f0, d2), 0, accuracy: 3, "the bell rings at \(f0) Hz (D2 is \(d2) Hz)")
+        let size = 1 << 18, spectrum = DSPTestKit.powerSpectrum(ring, size: size)
+        let hum = Self.strongest(spectrum, size: size, 0.9 * f0, 1.1 * f0)
+        for ratio in [1.6, 2.3, 3.0] {
+            let partial = Self.strongest(spectrum, size: size, 0.9 * ratio * f0, 1.1 * ratio * f0)
+            XCTAssertEqual(partial.hz / f0, ratio, accuracy: 0.03 * ratio, "the \(ratio) partial at \(partial.hz) Hz")
+            XCTAssertGreaterThan(10 * log10(partial.power / hum.power), -30, "the \(ratio) partial is heard")
+        }
+        // Every root, straight through the API: the next strike's pitch while the bell is silent, then the strike's.
+        let a = try XCTUnwrap(isd_ambience_create(Self.sr, 256, 1))
+        defer { isd_ambience_destroy(a) }
+        var l = [Float](repeating: 0, count: 256), r = l
+        XCTAssertEqual(Double(isd_ambience_debug_bell_hz(a)), Self.tonic(4), accuracy: 1e-3, "E until a key is sensed")
+        for root in 0..<12 {
+            isd_ambience_set_key(a, Int32(root), Int32(root % 2))
+            XCTAssertEqual(Double(isd_ambience_debug_bell_hz(a)), Self.tonic(root), accuracy: 1e-3, "root \(root), before a strike")
+            XCTAssertTrue((55...104).contains(Self.tonic(root)), "root \(root) in A1–G♯2")
+        }
+        isd_ambience_set_level(a, ISD_AMB_TEMPLE_BELL, 1)
+        for root in [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 5] {
+            isd_ambience_set_key(a, Int32(root), 1)
+            isd_ambience_debug_strike_bell(a)
+            isd_ambience_render(a, &l, &r, 256)
+            XCTAssertEqual(Double(isd_ambience_debug_bell_hz(a)), Self.tonic(root), accuracy: 1e-3, "root \(root), struck")
+        }
+        isd_ambience_set_key(a, -1, 0)
+        isd_ambience_set_key(a, 12, 0)
+        isd_ambience_debug_strike_bell(a)
+        isd_ambience_render(a, &l, &r, 256)
+        XCTAssertEqual(Double(isd_ambience_debug_bell_hz(a)), Self.tonic(5), accuracy: 1e-3, "a key that can't be sensed keeps F")
+        XCTAssertTrue(l.allSatisfy(\.isFinite) && r.allSatisfy(\.isFinite))
+    }
+
+    /// Review focus 2: a key change while the bell rings waits for the next strike. Struck in C, the key moves to D a
+    /// second later: the ring stays on C2 (within 3 cents, nothing at D2) as long as it rings, and the next strike is D2.
+    func testTheBellNeverJumpsMidRing() {
+        let c2 = Self.tonic(0), d2 = Self.tonic(2)
+        var during: Float = 0, next: Float = 0
+        let out = Self.render(seconds: 35, actions: [
+            Self.level(ISD_AMB_TEMPLE_BELL, 1), Self.key(0, major: true), Self.strikeBell(at: 3), Self.key(2, major: true, at: 4),
+            (6, { during = isd_ambience_debug_bell_hz($0) }),
+            Self.strikeBell(at: 28), (30, { next = isd_ambience_debug_bell_hz($0) }),
+        ])
+        let m = Self.mid(out), size = 1 << 18
+        for (from, to) in [(4.0, 9.0), (9.0, 14.0)] {
+            let ring = SynthRender.slice(m, from, to)
+            let f = DSPTestKit.fundamental(ring, sampleRate: Self.sr, near: c2)
+            XCTAssertEqual(DSPTestKit.cents(f, c2), 0, accuracy: 3, "\(from)–\(to) s: \(f) Hz, still C2")
+            let spectrum = DSPTestKit.powerSpectrum(ring, size: size)
+            let atD = 10 * log10(Self.bandPower(spectrum, size: size, 0.99 * d2, 1.01 * d2) / Self.bandPower(spectrum, size: size, 0.99 * c2, 1.01 * c2))
+            XCTAssertLessThan(atD, -40, "\(from)–\(to) s: nothing at D2 (\(atD) dB)")
+        }
+        XCTAssertEqual(Double(during), c2, accuracy: 1e-3, "the ringing strike keeps its pitch")
+        let second = DSPTestKit.fundamental(SynthRender.slice(m, 29, 34), sampleRate: Self.sr, near: d2)
+        XCTAssertEqual(DSPTestKit.cents(second, d2), 0, accuracy: 3, "the next strike: \(second) Hz, D2")
+        XCTAssertEqual(Double(next), d2, accuracy: 1e-3)
+    }
+
+    /// After start_knocker: a trickle, then a clack (a 2 ms transient at least 15 dB above the trickle, peaking near
+    /// −18 dBFS) with its ring near 1.8 kHz, then the trickle again. At density 1.5 the tube fills in 10–27 s.
+    func testWaterKnockerCycle() throws {
+        var clacks: [Int32] = []
+        var actions: [Action] = [Self.level(ISD_AMB_WATER_KNOCKER, 1), Self.density(1.5), Self.startKnocker(at: 3)]
+        for i in 0..<900 { actions.append((Double(i) * 0.05, { clacks.append(isd_ambience_debug_events($0, ISD_AMB_WATER_KNOCKER)) })) }
+        let out = Self.render(seconds: 45, actions: actions)
+        let first = try XCTUnwrap(clacks.firstIndex(where: { $0 > 0 }), "no clack in 45 s")
+        let heard = Double(first) * 0.05
+        guard (13...30.5).contains(heard) else { return XCTFail("the first clack by \(heard) s, not 13–30.5 s") }
+        // The clack: the loudest 2 ms frame just before the count went up.
+        let m = Self.mid(out), frames = Self.frameDB(m, ms: 2)
+        let at = (Int((heard - 0.06) / 0.002)...Int((heard + 0.01) / 0.002)).max { frames[$0] < frames[$1] } ?? 0
+        let clack = Double(at) * 0.002
+        let trickleFrames = frames[Int((clack - 4) / 0.002)..<Int((clack - 1.5) / 0.002)].sorted()
+        let rise = frames[at] - trickleFrames[trickleFrames.count / 2]
+        XCTAssertGreaterThanOrEqual(rise, 15, "the clack stands \(rise) dB over the trickle")
+        let peak = Self.peakDB(out, clack - 0.01, clack + 0.01)
+        XCTAssertTrue((-24 ... -12).contains(peak), "the clack peaks at \(peak) dBFS")
+        // Its ring: the 30 ms after the knock carry a component near 1.8 kHz, well above that band in the trickle.
+        let size = 1 << 18
+        let ring = SynthRender.slice(m, clack + 0.004, clack + 0.034), before = SynthRender.slice(m, clack - 4, clack - 1.5)
+        let ringSpectrum = DSPTestKit.powerSpectrum(ring, size: size), beforeSpectrum = DSPTestKit.powerSpectrum(before, size: size)
+        let ringHz = Self.strongest(ringSpectrum, size: size, 1200, 3000).hz
+        XCTAssertEqual(ringHz, 1800, accuracy: 100, "the ring at \(ringHz) Hz")
+        let lift = 10 * log10((Self.bandPower(ringSpectrum, size: size, 1600, 2000) / Double(ring.count))
+                              / (Self.bandPower(beforeSpectrum, size: size, 1600, 2000) / Double(before.count)))
+        XCTAssertGreaterThanOrEqual(lift, 10, "the ring is \(lift) dB over the trickle in its band")
+        // The trickle before and after: in 2–4 kHz, heard, and back within 6 dB once the tube is up again.
+        let fill = Self.bandDB(before, 2000, 4000), refill = Self.bandDB(SynthRender.slice(m, clack + 1.5, clack + 4), 2000, 4000)
+        XCTAssertGreaterThan(fill, -65, "the trickle is heard (\(fill) dBFS)")
+        XCTAssertEqual(refill, fill, accuracy: 6, "the trickle again: \(fill) → \(refill) dBFS")
+        XCTAssertGreaterThan(Self.bandShare(before, 2000, 4500), 0.6, "the trickle sits in 2–4.5 kHz")
+        XCTAssertTrue(out.l.allSatisfy(\.isFinite) && out.r.allSatisfy(\.isFinite))
+    }
+
+    /// The call's long whistle rises from about 2.5 to 3.2 kHz over its first 0.6 s, step by step; then come the two
+    /// quick notes, higher than the whistle ever goes.
+    func testWarblerCallRises() {
+        let out = Self.render(seconds: 5, actions: [Self.level(ISD_AMB_WARBLER, 1), Self.callWarbler(at: 3.2)])
+        let m = Self.mid(out), size = 8192
+        let track = stride(from: 3.225, to: 3.78, by: 0.05).map { t -> Double in
+            Self.strongest(DSPTestKit.powerSpectrum(SynthRender.slice(m, t, t + 0.05), size: size), size: size, 2000, 4500).hz
+        }
+        XCTAssertEqual(track.count, 12)
+        XCTAssertEqual(track.first ?? 0, 2550, accuracy: 200, "the whistle starts at \(track.first ?? 0) Hz")
+        XCTAssertEqual(track[10], 3150, accuracy: 200, "and reaches \(track[10]) Hz by 0.55 s")
+        for i in 1..<track.count { XCTAssertGreaterThan(track[i], track[i - 1] - 25, "it keeps rising: \(track)") }
+        let big = 1 << 15
+        let notes = SynthRender.slice(m, 3.88, 4.35), whistle = SynthRender.slice(m, 3.5, 3.8)
+        let lift = 10 * log10((Self.bandPower(DSPTestKit.powerSpectrum(notes, size: big), size: big, 3450, 4600) / Double(notes.count))
+                              / (Self.bandPower(DSPTestKit.powerSpectrum(whistle, size: big), size: big, 3450, 4600) / Double(whistle.count)))
+        XCTAssertGreaterThan(lift, 20, "the quick notes, above the whistle: \(lift) dB")
+    }
+
+    /// Paper screens: soft 1–4 kHz rustles (each below −30 dBFS, near −38 typically), several a minute in a strong
+    /// draught (level 1) and far fewer in a light one (0.15).
+    func testPaperScreensRustle() {
+        func screens(_ level: Float) -> (out: (l: [Float], r: [Float]), rustles: Int32) {
+            var count: Int32 = 0
+            let out = Self.render(seconds: 63, actions: [Self.level(ISD_AMB_PAPER_SCREENS, level),
+                                                         (62.9, { count = isd_ambience_debug_events($0, ISD_AMB_PAPER_SCREENS) })])
+            return (out, count)
+        }
+        let strong = screens(1), light = screens(0.15)
+        XCTAssertTrue((4...15).contains(strong.rustles), "\(strong.rustles) rustles a minute in a strong draught")
+        XCTAssertGreaterThanOrEqual(strong.rustles, 2 * light.rustles, "\(light.rustles) in a light one")
+        XCTAssertGreaterThan(Self.bandShare(SynthRender.slice(Self.mid(strong.out), 3, 63), 1000, 4000), 0.6, "in 1–4 kHz")
+        // Each rustle's level: its 50 ms frames within 15 dB of its loudest, on both channels.
+        let frames = Self.stereoFrames(strong.out, ms: 50, from: 3, to: 63)
+        var cores: [Double] = [], loudest = -200.0
+        for run in Self.swells(frames, above: 10, window: 60) {
+            let own = frames[run.start..<(run.start + run.length)]
+            guard let top = own.max(), top > -80 else { continue }
+            let core = own.filter { $0 >= top - 15 }
+            cores.append(10 * log10(core.reduce(0) { $0 + pow(10, $1 / 10) } / Double(core.count)))
+            loudest = max(loudest, top)
+        }
+        guard cores.count >= 3 else { return XCTFail("\(cores.count) rustles heard") }
+        XCTAssertLessThan(loudest, -30, "the loudest rustle frame is \(loudest) dBFS")
+        let median = cores.sorted()[cores.count / 2]
+        XCTAssertTrue((-44 ... -33).contains(median), "a rustle sits near \(median) dBFS")
+        XCTAssertTrue(strong.out.l.allSatisfy(\.isFinite) && strong.out.r.allSatisfy(\.isFinite))
     }
 }

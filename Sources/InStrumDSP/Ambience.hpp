@@ -1,6 +1,7 @@
-// Ambience: twenty-eight sources generated live (never loops), each gliding to its level over 2.5 s, through a
+// Ambience: thirty-two sources generated live (never loops), each gliding to its level over 2.5 s, through a
 // small room whose amount follows "closeness", ducking under the instrument while you play. Outdoor sources can be
-// heard through a window ("indoors"): darker and quieter, while the indoor ones stay close.
+// heard through a window ("indoors"): darker and quieter, while the indoor ones stay close. In-key sources (the
+// temple bell) follow the key the player is in.
 // Everything is preallocated; the setters are lock-free atomics read at the start of each render.
 #pragma once
 #include "DSPCommon.hpp"
@@ -19,6 +20,8 @@ struct AmbienceContext {
     float surfDistance = 0.f;// 0 close surf … 1 a far, low roar
     float wetness = 0.f;     // a wet road hisses
     float snowOnGlass = 0.f; // rain on the glass becomes soft snow ticks
+    int keyRoot = 4;         // the key the player is in (C = 0; E until one is sensed), for in-key sources
+    bool keyMajor = true;
 };
 
 /// One generator. `render` adds its sound (calibrated for level 1) into `l`/`r`.
@@ -38,7 +41,7 @@ public:
 };
 
 class Thunder;
-namespace amb { class Surf; class Kettle; class Boat; }
+namespace amb { class Surf; class Kettle; class Boat; class TempleBell; class WaterKnocker; class Warbler; }
 
 class Ambience {
 public:
@@ -60,6 +63,17 @@ public:
     void startKettle();
     /// A boat passes now (tests).
     void startBoat();
+    /// The key the player is in (root 0…11, C = 0; anything else keeps the last): in-key sources take it at their
+    /// next event (the bell at its next strike, never mid-ring).
+    void setKey(int root, bool major) { if (root >= 0 && root < 12) { ctx.keyRoot = root; ctx.keyMajor = major; } }
+    /// The temple bell strikes now (tests).
+    void strikeBell();
+    /// The fundamental of the temple bell's newest ringing strike, or 0 while it is silent.
+    float bellRingingHz() const;
+    /// The water-knocker starts filling now (tests).
+    void startKnocker();
+    /// The bush warbler calls now (tests).
+    void callWarbler();
     /// Events a source has started (tests; read when not rendering).
     int events(int source) const { return source >= 0 && source < ISD_AMB_COUNT && sources[source] ? sources[source]->events : 0; }
     void render(float *left, float *right, int frames);
@@ -90,6 +104,9 @@ private:
     amb::Surf *surf = nullptr;
     amb::Kettle *kettle = nullptr;
     amb::Boat *boat = nullptr;
+    amb::TempleBell *bell = nullptr;
+    amb::WaterKnocker *knocker = nullptr;
+    amb::Warbler *warbler = nullptr;
     float speedTarget = 0, indoorsTarget = 0, indoors = 0, indoorsApplied = -1, wetTarget = 0, snowTarget = 0;
     float windowA1 = 1, windowA2 = 0, windowA3 = 0, windowGain = 1;
     Ramp ramps[ISD_AMB_COUNT];

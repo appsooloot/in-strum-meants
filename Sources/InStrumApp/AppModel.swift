@@ -530,10 +530,10 @@ public final class AppModel: ObservableObject {
     public var ambienceSettings: AmbienceSettings { settings.ambience }
 
     /// From the render loop (any thread): hands the world's soundscape to the engine at most ten times a second,
-    /// and only when it has really changed (a level by > 0.01, the activity by > 0.05, the speed by > 0.02) or
-    /// thunder or a wave is due. The user's closeness leans the world's own closeness; a thunderclap or a wave held
-    /// back by the throttle goes next time (two waves inside one tenth of a second go as the bigger one), unless the
-    /// next scene has no surf (a new world): a beach's wave never crashes in the next world.
+    /// and only when it has really changed (a level by > 0.01, the activity by > 0.05, the speed by > 0.02, the key
+    /// the player is in) or thunder or a wave is due. The user's closeness leans the world's own closeness; a
+    /// thunderclap or a wave held back by the throttle goes next time (two waves inside one tenth of a second go as
+    /// the bigger one), unless the next scene has no surf (a new world): a beach's wave never crashes in the next world.
     public nonisolated func updateAmbience(_ s: AmbienceScene, at t: Double = ProcessInfo.processInfo.systemUptime) {
         let out: AmbienceScene? = ambienceLive.withLockUnchecked { a in
             var scene = s
@@ -560,6 +560,7 @@ public final class AppModel: ObservableObject {
         if abs(a.activity - b.activity) > 0.05 { return true }
         if abs(a.speed - b.speed) > 0.02 || abs(a.surfDistance - b.surfDistance) > 0.01 { return true }
         if abs(a.indoors - b.indoors) > 0.01 || abs(a.wetness - b.wetness) > 0.01 || abs(a.snowOnGlass - b.snowOnGlass) > 0.01 { return true }
+        if a.key != b.key { return true }   // the temple bell retunes at its next strike
         return abs(a.nightCool - b.nightCool) > 0.01 || abs(a.closeness - b.closeness) > 0.01 || abs(a.density - b.density) > 0.01
     }
 

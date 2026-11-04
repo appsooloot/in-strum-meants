@@ -215,6 +215,33 @@ final class AppModelTests: XCTestCase {
         XCTAssertFalse(AppModel.ambienceChanged(base, AmbienceScene(levels: [.fire: 0.7], indoors: 0.005)))
     }
 
+    /// The key the player is in counts as a change (the temple bell retunes at its next strike), and the canvas puts
+    /// the director's key on every frame's scene.
+    func testKeyCountsAsAChange() {
+        let base = AmbienceScene(levels: [.templeBell: 0.5])
+        let inD = AmbienceScene(levels: [.templeBell: 0.5], key: AmbienceKey(root: 2, major: true))
+        var inDMinor = inD
+        inDMinor.key?.major = false
+        XCTAssertTrue(AppModel.ambienceChanged(base, inD), "a key is sensed")
+        XCTAssertTrue(AppModel.ambienceChanged(inD, inDMinor), "the mode changes")
+        XCTAssertTrue(AppModel.ambienceChanged(inD, base), "the key can't be sensed any more")
+        XCTAssertFalse(AppModel.ambienceChanged(inD, inD))
+        let m = makeModel()
+        m.updateAmbience(base, at: 0)
+        m.updateAmbience(inD, at: 1)
+        m.updateAmbience(inD, at: 2)
+        XCTAssertEqual(engine.scenes.count, 2, "the new key goes through, once")
+        XCTAssertEqual(engine.scenes.last?.key, AmbienceKey(root: 2, major: true))
+        let lake = SceneDirector(themeID: MoonlitLakeModel.id, state: ThemeState(), reaction: ReactionPresets.expressivePianist)
+        let key = AmbienceKey(root: 7, major: false)
+        let scene = ThemeCanvas.ambience(for: lake.step(dt: 1.0 / 30, t: 0, quality: .lite), key: key)
+        XCTAssertEqual(scene.key, key, "the frame's scene carries the key")
+        XCTAssertGreaterThan(scene.level(.water), 0.5, "and the world's own soundscape")
+        let steinway = SceneDirector(themeID: MidnightSteinwayModel.id, state: ThemeState(), reaction: ReactionPresets.expressivePianist)
+        XCTAssertEqual(ThemeCanvas.ambience(for: steinway.step(dt: 1.0 / 30, t: 0, quality: .lite), key: key).key, key, "every theme carries it")
+        XCTAssertNil(ThemeCanvas.ambience(for: steinway.step(dt: 1.0 / 30, t: 0.1, quality: .lite), key: nil).key)
+    }
+
     func testLeavingTheCabinUnmufflesTheBeach() {
         let m = makeModel()
         m.updateAmbience(AmbienceScene(levels: [.fire: 0.7, .wind: 0.5], indoors: 1, snowOnGlass: 1), at: 0)

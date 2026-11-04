@@ -16,6 +16,7 @@ const float kGain[ISD_AMB_COUNT] = {
     /* surf */ 0.54f, /* palms */ 0.92f, /* gulls */ 0.06f, /* road */ 0.19f, /* engine */ 0.36f, /* window wind */ 0.61f, /* passing car */ 0.30f,
     /* fire */ 0.45f, /* kettle */ 0.095f, /* street */ 0.067f, /* drips */ 0.30f, /* clock */ 0.30f,
     /* ice groan */ 0.10f, /* waterfall */ 0.134f, /* lapping */ 0.72f, /* boat */ 0.24f,
+    /* temple bell */ 0.143f, /* paper screens */ 0.216f, /* water-knocker */ 0.055f, /* warbler */ 0.107f,
 };
 
 /// sin(2πx) for x in cycles (any value). 9th-order odd polynomial after folding: error ≈ 2e-6.
@@ -77,6 +78,8 @@ struct Partial {
         float r = t60 > 0 ? std::pow(10.f, -3.f / (t60 * sr)) : 1.f, w = kTwoPi * hz / sr;
         cr = r * std::cos(w); ci = r * std::sin(w); re = 0; im = amp; mag = amp;
     }
+    /// As `start`, but from sine phase, as a struck resonator rings: silent at the onset, so the strike has no step.
+    void startSine(float hz, float t60, float amp, float sr) { start(hz, t60, amp, sr); re = amp; im = 0; }
     inline float next() { float nr = re * cr - im * ci, ni = re * ci + im * cr; re = nr; im = ni; return ni; }
     float energy() const { return re * re + im * im; }
     /// For undamped partials: pull rounding drift back to the starting amplitude.
@@ -791,7 +794,7 @@ class Road final : public AmbienceSource {
     Pink pinkL, pinkR;
     Brown brown;
     SVF lpL, lpR, rumble, thumpLP, hissL, hissR;
-    float toJoint = 12, thumpT = 10, thumpGap = 0.1f, thumpPh = 0, thumpAmp = 0;
+    float toJoint = 12, thumpT = 10, thumpGap = 0.1f, thumpAmp = 0;
 
 public:
     explicit Road(uint64_t seed) : rng(seed) { direct = 1.f; send = 0.2f; }
@@ -1438,6 +1441,308 @@ public:
     }
 };
 
+// ---------------------------------------------------------------- Temple bell: a far bonshō in the player's key
+/// The tonic of a key (root 0…11, C = 0) in the bell's octave, A1–G♯2 (55–104 Hz).
+inline float bellTonicHz(int root) {
+    const int r = ((root % 12) + 12) % 12;
+    return 440.f * std::exp2((float)(33 + (r + 3) % 12 - 69) / 12.f);   // A → MIDI 33 (A1) … G♯ → MIDI 44 (G♯2)
+}
+
+class TempleBell final : public AmbienceSource {
+    FastRandom rng;
+    static constexpr int kModes = 6;
+    // The hum partials (about 1, 1.6, 2.3 and 3.0 × f0, ringing 11 down to 6 s) and two short strike partials above.
+    static constexpr float kRatio[kModes] = {1.f, 1.6f, 2.3f, 3.f, 4.15f, 5.4f};
+    static constexpr float kAmp[kModes] = {1.f, 0.6f, 0.42f, 0.3f, 0.12f, 0.07f};
+    static constexpr float kT60[kModes] = {11.f, 9.f, 7.5f, 6.2f, 2.f, 1.2f};
+    struct Strike {
+        bool on = false;
+        uint32_t serial = 0;
+        int check = 0;
+        float hz = 0;
+        Partial p[kModes];
+        // The beat: each partial swells and fades (a doublet's slow 0.2–0.45 Hz beating, 0.3 Hz on the hum).
+        float am[kModes] = {}, beat[kModes] = {}, beatInc[kModes] = {}, depth[kModes] = {};
+        Burst click;
+    } strikes[3];
+    float untilNext = 60, gl = 0.7f, gr = 0.7f;
+    uint32_t serial = 0;
+
+    float interval(const AmbienceContext &c) { return (120.f + 180.f * rng.uniform()) / c.density; }
+
+    /// The pitch is the key's tonic at the moment of the strike: a strike never changes once it rings.
+    void strike(const AmbienceContext &c) {
+        Strike *s = nullptr;
+        for (auto &x : strikes) if (!x.on) { s = &x; break; }
+        if (!s) { s = &strikes[0]; for (auto &x : strikes) if (x.serial < s->serial) s = &x; }   // the oldest ring makes room
+        const float v = 0.85f + 0.15f * rng.uniform();   // how hard the beam swings
+        s->hz = bellTonicHz(c.keyRoot);
+        for (int k = 0; k < kModes; ++k) {
+            const float spread = k == 0 ? 1.f : 1.f + 0.006f * rng.bipolar();   // a cast bell's upper partials are never exact
+            s->p[k].startSine(s->hz * kRatio[k] * spread, kT60[k] * (0.92f + 0.16f * rng.uniform()), v * kAmp[k], c.sr);
+            s->beatInc[k] = (k == 0 ? 0.3f : 0.2f + 0.25f * rng.uniform()) / c.sr;
+            s->depth[k] = k == 0 ? 0.45f : 0.2f + 0.3f * rng.uniform();
+            s->beat[k] = 0; s->am[k] = 1.f;
+        }
+        s->click.start(1200.f, 0.7f, 0.001f, 4.f * v, 0.f, c.sr);   // the wooden beam meeting the bronze
+        s->on = true; s->check = 0; s->serial = ++serial;
+        ++events;
+    }
+
+public:
+    explicit TempleBell(uint64_t seed) : rng(seed) {
+        // Mostly direct: snow and open gardens are acoustically dead, and the room's slowly modulated tail would blur
+        // the bell's tuning (a send of 0.45 pulls the measured pitch up to 9 cents off; 0.3 stays within 1.5).
+        direct = 1.f; send = 0.3f;
+        panGains(0.35f * rng.bipolar(), gl, gr);   // the bell hangs where it hangs
+    }
+    void wake(const AmbienceContext &c) override {
+        for (auto &s : strikes) s.on = false;
+        untilNext = interval(c) * (0.15f + 0.35f * rng.uniform());
+    }
+    void strikeNow(const AmbienceContext &c) { strike(c); untilNext = interval(c); }
+    float ringingHz() const {
+        const Strike *newest = nullptr;
+        for (auto &s : strikes) if (s.on && (!newest || s.serial > newest->serial)) newest = &s;
+        return newest ? newest->hz : 0.f;
+    }
+    void render(float *l, float *r, int n, const AmbienceContext &c) override {
+        if ((untilNext -= (float)n / c.sr) <= 0) { strike(c); untilNext = interval(c); }
+        const int m = std::min(n, 64);
+        for (auto &s : strikes) {
+            if (!s.on) continue;
+            float y[64] = {};
+            for (int k = 0; k < kModes; ++k) {
+                Partial &p = s.p[k];
+                const float b1 = s.beat[k] + s.beatInc[k] * (float)m;
+                const float a1 = 1.f - s.depth[k] * (0.5f - 0.5f * sin2pi(b1 + 0.25f)), da = (a1 - s.am[k]) / (float)m;
+                float a = s.am[k];
+                for (int t = 0; t < m; ++t) { a += da; y[t] += a * p.next(); }
+                s.am[k] = a1; s.beat[k] = b1 - std::floor(b1);
+            }
+            if (s.click.on()) for (int t = 0; t < m; ++t) y[t] += s.click.next(rng);
+            for (int t = 0; t < m; ++t) { l[t] += y[t] * gl; r[t] += y[t] * gr; }
+            if (++s.check >= 16) {
+                s.check = 0;
+                float e = 0;
+                for (auto &p : s.p) e += p.energy();
+                if (e < 1e-10f) s.on = false;
+            }
+        }
+    }
+};
+
+// ---------------------------------------------------------------- Paper screens: shoji in a draught (indoor)
+class PaperScreens final : public AmbienceSource {
+    FastRandom rng;
+    SVF hpL, hpR, lpL, lpR;   // the paper's band, 1–4 kHz
+    // A rustle: the paper flexing in the draught, a soft noise swell fluttering at 9–16 Hz with dry crinkles in it.
+    struct Rustle { float t = -1, dur = 0.4f, amp = 1, rate = 12, ph = 0, gl = 0.7f, gr = 0.7f; } rustle;
+    Burst ticks[2];   // the frame tapping in its track
+    float tickAt[2] = {-1, -1};
+    // A creak: the wooden frame's stick-slip, a slow pulse train through a 450–800 Hz resonance.
+    struct Creak { float t = -1, dur = 0.5f, f0 = 30, f1 = 40, ph = 0, amp = 1, gl = 0.7f, gr = 0.7f; SVF wood, top; } creak;
+    float toRustle = 10, toCreak = 100;
+    int tail = 0;
+
+    /// The draught: the higher the level (the world's wind), the more often the paper stirs.
+    float rustleInterval(const AmbienceContext &c, float busy) { return (6.f + 14.f * rng.uniform()) / (c.density * busy); }
+    float creakInterval(const AmbienceContext &c) { return (70.f + 130.f * rng.uniform()) / c.density; }
+
+public:
+    PaperScreens(uint64_t seed, float sr) : rng(seed) {
+        direct = 1.f; send = 0.4f; indoor = true;
+        hpL.set(1000.f, 0.7f, sr); hpR.set(1060.f, 0.7f, sr); lpL.set(4000.f, 0.7f, sr); lpR.set(3800.f, 0.7f, sr);
+    }
+    void wake(const AmbienceContext &c) override {
+        rustle.t = -1; creak.t = -1; tickAt[0] = tickAt[1] = -1;
+        toRustle = rustleInterval(c, 1.f) * (0.2f + 0.6f * rng.uniform());
+        toCreak = creakInterval(c) * (0.3f + 0.7f * rng.uniform());
+    }
+    void render(float *l, float *r, int n, const AmbienceContext &c) override {
+        const float fsr = c.sr, dt = (float)n / fsr, invSr = 1.f / fsr;
+        if (rustle.t < 0 && (toRustle -= dt) <= 0) {
+            rustle.t = 0; rustle.dur = 0.2f + 0.4f * rng.uniform(); rustle.amp = 0.8f + 0.2f * rng.uniform();
+            rustle.rate = 9.f + 7.f * rng.uniform(); rustle.ph = rng.uniform();
+            const float pan = 0.7f * rng.bipolar();
+            panGains(pan, rustle.gl, rustle.gr);
+            tickAt[0] = rustle.dur * (0.1f + 0.5f * rng.uniform());
+            tickAt[1] = rng.uniform() < 0.5f ? tickAt[0] + 0.04f + 0.12f * rng.uniform() : -1.f;
+            toRustle = rustleInterval(c, std::clamp(level / 0.5f, 0.25f, 1.5f));
+            ++events;
+        }
+        if (creak.t < 0 && (toCreak -= dt) <= 0) {
+            creak.t = 0; creak.dur = 0.3f + 0.5f * rng.uniform(); creak.f0 = 20.f + 25.f * rng.uniform();
+            creak.f1 = creak.f0 * (0.7f + 0.6f * rng.uniform()); creak.amp = 0.6f + 0.4f * rng.uniform(); creak.ph = 0;
+            creak.wood.set(450.f + 350.f * rng.uniform(), 6.f, fsr); creak.top.set(2000.f, 0.7f, fsr);
+            panGains(0.8f * rng.bipolar(), creak.gl, creak.gr);
+            toCreak = creakInterval(c);
+        }
+        const bool busy = rustle.t >= 0 || creak.t >= 0 || ticks[0].on() || ticks[1].on();
+        if (busy) tail = (int)(0.05f * fsr); else if (tail <= 0) return; else tail -= n;   // let the band ring out, then rest
+        const float pCrinkle = 180.f * invSr;
+        for (int i = 0; i < n; ++i) {
+            float xl = 0, xr = 0;
+            if (rustle.t >= 0) {
+                const float u = rustle.t / rustle.dur;
+                const float a = u < 0.3f ? u / 0.3f : (u < 0.5f ? 1.f : 2.f - 2.f * u), env = rustle.amp * a * a * (3.f - 2.f * a);
+                const float flap = 0.55f + 0.45f * (0.5f + 0.5f * sin2pi(rustle.ph));
+                rustle.ph += rustle.rate * invSr;
+                if (rustle.ph >= 1.f) rustle.ph -= 1.f;
+                const float crinkle = rng.uniform() < pCrinkle ? 1.2f * rng.bipolar() : 0.f;
+                xl = env * (flap * rng.bipolar() + crinkle) * rustle.gl;
+                xr = env * (flap * rng.bipolar() + crinkle) * rustle.gr;
+                for (int k = 0; k < 2; ++k)
+                    if (tickAt[k] >= 0 && rustle.t >= tickAt[k]) {
+                        ticks[k].start(3000.f + 2000.f * rng.uniform(), 3.f, 0.0005f + 0.0005f * rng.uniform(), 2.f + 2.f * rng.uniform(), 0.f, fsr);
+                        tickAt[k] = -1;
+                    }
+                rustle.t += invSr;
+                if (rustle.t > rustle.dur) rustle.t = -1;
+            }
+            for (auto &k : ticks) if (k.on()) { const float y = k.next(rng); xl += y * rustle.gl; xr += y * rustle.gr; }
+            float yl = lpL.low(hpL.high(xl)), yr = lpR.low(hpR.high(xr));
+            if (creak.t >= 0) {
+                const float u = creak.t / creak.dur;
+                creak.ph += (creak.f0 + (creak.f1 - creak.f0) * u) * invSr;
+                float pulse = 0;
+                if (creak.ph >= 1.f) { creak.ph -= 1.f; pulse = creak.amp * (0.6f + 0.4f * rng.uniform()) * 6.f; }
+                const float y = std::sin(kPi * std::min(1.f, u)) * creak.top.low(creak.wood.band(pulse));
+                yl += y * creak.gl; yr += y * creak.gr;
+                creak.t += invSr;
+                if (creak.t > creak.dur) creak.t = -1;
+            }
+            l[i] += yl; r[i] += yr;
+        }
+    }
+};
+
+// ---------------------------------------------------------------- Water-knocker (shishi-odoshi): fill, tip, clack
+class WaterKnocker final : public AmbienceSource {
+    FastRandom rng;
+    SVF streamL, streamR, sloshBand, sloshTop;
+    Wander gurgle;
+    Ping bubbles[6];
+    int nextBubble = 0;
+    Burst knock;
+    Partial ring[3];
+    double t = 0;   // seconds into this fill (double: a float drifts over 40 s of samples)
+    float fillDur = 25, flow = 1, sloshT = -1, clackIn = -1, resumeIn = -1, pan = 0, gl = 0.7f, gr = 0.7f;
+    bool tipping = false;
+
+    float fillTime(const AmbienceContext &c) { return (15.f + 25.f * rng.uniform()) / c.density; }
+
+public:
+    explicit WaterKnocker(uint64_t seed) : rng(seed) {
+        direct = 1.f; send = 0.5f;
+        pan = 0.5f * rng.bipolar();   // by its basin, in one place: the trickle, the slosh and the clack all come from there
+        panGains(pan, gl, gr);
+    }
+    void wake(const AmbienceContext &c) override {
+        fillDur = fillTime(c); t = fillDur * rng.uniform();   // part-full when you arrive
+        flow = 1; sloshT = -1; clackIn = -1; resumeIn = -1; tipping = false;
+    }
+    void start(const AmbienceContext &c) { fillDur = fillTime(c); t = 0; flow = 1; sloshT = -1; clackIn = -1; resumeIn = -1; tipping = false; }
+    void render(float *l, float *r, int n, const AmbienceContext &c) override {
+        const float fsr = c.sr, dt = (float)n / fsr, invSr = 1.f / fsr;
+        if (!tipping && t >= (double)fillDur) {
+            // Full: the tube tips and pours (a slosh), then swings back and its end clacks on the stone.
+            tipping = true; sloshT = 0; clackIn = 0.45f + 0.1f * rng.uniform();
+        }
+        // As the tube fills, the air column above the water shortens: the trickle's ring rises from 2 to 4 kHz.
+        const float fill = tipping ? 1.f : std::min(1.f, (float)(t / (double)fillDur)), fc = 2000.f * std::exp2(fill);
+        streamL.set(fc, 2.5f, fsr); streamR.set(fc * 1.04f, 2.5f, fsr);
+        sloshBand.set(800.f, 0.8f, fsr); sloshTop.set(2500.f, 0.7f, fsr);
+        // The stream runs into the tube while it fills; it spills past while the tube is down and settling.
+        const bool filling = !tipping && resumeIn < 0;
+        const float g = gurgle.next(rng, dt, 0.12f), pb = filling ? (14.f + 16.f * g) * invSr : 0.f;
+        const float flowTarget = filling ? 1.f : 0.f, flowStep = 1.f - std::exp(-invSr / 0.04f);
+        for (int i = 0; i < n; ++i) {
+            flow += (flowTarget - flow) * flowStep;
+            const float a = flow * (0.6f + 0.4f * g);
+            float yl = a * 0.85f * gl * streamL.band(rng.bipolar()), yr = a * 0.85f * gr * streamR.band(rng.bipolar());
+            if (rng.uniform() < pb) {
+                Ping &b = bubbles[nextBubble]; nextBubble = (nextBubble + 1) % 6;
+                b.start(fc * (0.8f + 0.45f * rng.uniform()), 0.02f + 0.02f * rng.uniform(), (0.09f + 0.15f * rng.uniform()) * flow,
+                        pan + 0.15f * rng.bipolar(), fsr, 0.12f, 0.008f);
+            }
+            for (auto &b : bubbles) { if (!b.on()) continue; const float s = b.next(); yl += s * b.gl; yr += s * b.gr; }
+            float y = 0;
+            if (sloshT >= 0) {
+                const float u = sloshT / 0.45f, env = u < 0.08f ? u / 0.08f : std::exp(-(u - 0.08f) * 4.f);
+                y += 4.8f * env * sloshTop.low(sloshBand.band(rng.bipolar()));
+                sloshT += invSr;
+                if (sloshT > 0.7f) sloshT = -1;
+            }
+            if (clackIn >= 0 && (clackIn -= invSr) < 0) {
+                // A bright knock and the hollow bamboo's short ring (with the stone's lower thud under it).
+                knock.start(4000.f, 0.5f, 0.002f, 5.f, 0.f, fsr);
+                const float f = 1800.f * (0.98f + 0.04f * rng.uniform());
+                ring[0].startSine(f, 0.06f, 1.f, fsr); ring[1].startSine(f * 2.62f, 0.03f, 0.35f, fsr); ring[2].startSine(640.f, 0.04f, 0.3f, fsr);
+                tipping = false; t = 0; fillDur = fillTime(c); resumeIn = 0.2f + 0.1f * rng.uniform();   // it settles, then fills again
+                ++events;
+            }
+            if (knock.on()) y += knock.next(rng);
+            for (auto &p : ring) if (p.mag > 0) { y += p.next(); if (p.energy() < 1e-12f) p.mag = 0; }
+            l[i] += yl + y * gl; r[i] += yr + y * gr;
+        }
+        if (resumeIn >= 0 && (resumeIn -= dt) < 0) resumeIn = -1;
+        if (filling) t += (double)n / (double)fsr;
+    }
+};
+
+// ---------------------------------------------------------------- Bush warbler (uguisu): a long rising whistle, two quick notes
+class Warbler final : public AmbienceSource {
+    FastRandom rng;
+    struct Note { float start = 0, dur = 0.1f, f0 = 3000, f1 = 3000, amp = 1, attack = 0.01f, release = 0.02f, octaves = 0; } notes[3];
+    float t = -1, next = 30, ph = 0, gl = 0.7f, gr = 0.7f;
+
+    float interval(const AmbienceContext &c) { return (40.f + 80.f * rng.uniform()) / c.density; }
+    void call() {
+        const float k = 0.97f + 0.06f * rng.uniform(), hold = 0.06f + 0.06f * rng.uniform();   // each bird a little higher or lower
+        // The long whistle swells and rises over 0.6 s (equal steps in pitch), holds a moment; then the two quick notes.
+        notes[0] = {0.f, 0.6f + hold, 2500.f * k, 3200.f * k, 0.8f, 0.1f, 0.05f};
+        const float s1 = notes[0].dur + 0.07f + 0.03f * rng.uniform();
+        notes[1] = {s1, 0.06f + 0.02f * rng.uniform(), 3900.f * k, 3550.f * k, 1.f, 0.008f, 0.015f};
+        const float s2 = s1 + notes[1].dur + 0.04f + 0.03f * rng.uniform();
+        notes[2] = {s2, 0.16f + 0.05f * rng.uniform(), 4300.f * k, 2900.f * k, 0.95f, 0.008f, 0.03f};
+        for (auto &q : notes) q.octaves = std::log2(q.f1 / q.f0);
+        t = 0; ph = 0;
+        panGains(0.6f * rng.bipolar(), gl, gr);
+        ++events;
+    }
+
+public:
+    // Mostly direct, as in an open garden: the room's smear would blur the rise and fill the gaps between the notes.
+    explicit Warbler(uint64_t seed) : rng(seed) { direct = 0.9f; send = 0.25f; }
+    void wake(const AmbienceContext &c) override { t = -1; next = interval(c) * (0.15f + 0.35f * rng.uniform()); }
+    void callNow(const AmbienceContext &c) { call(); next = interval(c); }
+    void render(float *l, float *r, int n, const AmbienceContext &c) override {
+        const float invSr = 1.f / c.sr;
+        if (t < 0 && (next -= (float)n * invSr) <= 0) { call(); next = interval(c); }
+        if (t < 0) return;
+        const float end = notes[2].start + notes[2].dur;
+        for (int i = 0; i < n && t >= 0; ++i) {
+            for (int k = 0; k < 3; ++k) {
+                const Note &q = notes[k];
+                const float tn = t - q.start;
+                if (tn < 0.f || tn >= q.dur) continue;
+                const float glide = k == 0 ? std::min(1.f, tn / 0.6f) : tn / q.dur;
+                const float f = q.f0 * std::exp2(q.octaves * glide);
+                const float ea = std::min(1.f, tn / q.attack), er = std::min(1.f, (q.dur - tn) / q.release);
+                float env = q.amp * ea * ea * (3.f - 2.f * ea) * er * er * (3.f - 2.f * er);
+                if (k == 2) env *= 0.75f + 0.25f * sin2pi(32.f * tn);   // the last note's quick warble
+                ph += f * invSr;
+                if (ph >= 1.f) ph -= 1.f;
+                const float x = env * (sin2pi(ph) + 0.06f * sin2pi(2.f * ph));
+                l[i] += x * gl; r[i] += x * gr;
+            }
+            t += invSr;
+            if (t > end + 0.02f) t = -1;
+        }
+    }
+};
+
 } // namespace amb
 
 using namespace amb;
@@ -1543,6 +1848,16 @@ Ambience::Ambience(double sampleRate, uint64_t seed) : sr(sampleRate), room(samp
     auto boatSource = std::make_unique<Boat>(s(28));
     boat = boatSource.get();
     sources[ISD_AMB_BOAT] = std::move(boatSource);
+    auto bellSource = std::make_unique<TempleBell>(s(29));
+    bell = bellSource.get();
+    sources[ISD_AMB_TEMPLE_BELL] = std::move(bellSource);
+    sources[ISD_AMB_PAPER_SCREENS] = std::make_unique<PaperScreens>(s(30), fsr);
+    auto knockerSource = std::make_unique<WaterKnocker>(s(31));
+    knocker = knockerSource.get();
+    sources[ISD_AMB_WATER_KNOCKER] = std::move(knockerSource);
+    auto warblerSource = std::make_unique<Warbler>(s(32));
+    warbler = warblerSource.get();
+    sources[ISD_AMB_WARBLER] = std::move(warblerSource);
     for (int i : {ISD_AMB_SHIP_HUM, ISD_AMB_AIR_FLOW, ISD_AMB_CHIME, ISD_AMB_HULL_TICKS}) sources[i]->indoor = true;
     closeness.init(sampleRate, 300.0);
     closeness.snap(0.5f);
@@ -1568,6 +1883,23 @@ void Ambience::startKettle() {
 void Ambience::startBoat() {
     if (ramps[ISD_AMB_BOAT].silent()) boat->wake(ctx);
     boat->start(ctx);
+}
+
+void Ambience::strikeBell() {
+    if (ramps[ISD_AMB_TEMPLE_BELL].silent()) bell->wake(ctx);
+    bell->strikeNow(ctx);
+}
+
+float Ambience::bellRingingHz() const { return ramps[ISD_AMB_TEMPLE_BELL].silent() ? 0.f : bell->ringingHz(); }
+
+void Ambience::startKnocker() {
+    if (ramps[ISD_AMB_WATER_KNOCKER].silent()) knocker->wake(ctx);
+    knocker->start(ctx);
+}
+
+void Ambience::callWarbler() {
+    if (ramps[ISD_AMB_WARBLER].silent()) warbler->wake(ctx);
+    warbler->callNow(ctx);
 }
 
 void Ambience::triggerWave(float strength) {
@@ -1716,6 +2048,10 @@ struct ISDAmbience {
     std::atomic<float> indoors{0.f}, wetness{0.f}, snowOnGlass{0.f};
     std::atomic<int> kettleSeq{0}, boatSeq{0};
     int kettleSeen = 0, boatSeen = 0;
+    std::atomic<int> key{4 | 16};   // root | (major << 4): E major until the player's key is sensed
+    std::atomic<int> bellSeq{0}, knockerSeq{0}, warblerSeq{0};
+    int bellSeen = 0, knockerSeen = 0, warblerSeen = 0;
+    std::atomic<float> bellHz{0.f};   // after each render: the bell's ringing fundamental, 0 while it is silent
     ISDAmbience(double sr, uint64_t seed) : engine(sr, seed) {
         for (int i = 0; i < ISD_AMB_COUNT; ++i) { levels[i].store(0.f); applied[i] = 0.f; }
     }
@@ -1761,6 +2097,21 @@ void isd_ambience_set_wetness(ISDAmbience *a, float v) { if (a && std::isfinite(
 void isd_ambience_set_snow_on_glass(ISDAmbience *a, float v) { if (a && std::isfinite(v)) a->snowOnGlass.store(isd::clamp01(v), std::memory_order_relaxed); }
 void isd_ambience_debug_start_kettle(ISDAmbience *a) { if (a) a->kettleSeq.fetch_add(1, std::memory_order_release); }
 void isd_ambience_debug_start_boat(ISDAmbience *a) { if (a) a->boatSeq.fetch_add(1, std::memory_order_release); }
+
+void isd_ambience_set_key(ISDAmbience *a, int root, int major) {
+    if (!a || root < 0 || root > 11) return;   // the key can't be sensed: the bell stays where it is
+    a->key.store(root | (major ? 16 : 0), std::memory_order_relaxed);
+}
+
+void isd_ambience_debug_strike_bell(ISDAmbience *a) { if (a) a->bellSeq.fetch_add(1, std::memory_order_release); }
+void isd_ambience_debug_start_knocker(ISDAmbience *a) { if (a) a->knockerSeq.fetch_add(1, std::memory_order_release); }
+void isd_ambience_debug_call_warbler(ISDAmbience *a) { if (a) a->warblerSeq.fetch_add(1, std::memory_order_release); }
+
+float isd_ambience_debug_bell_hz(const ISDAmbience *a) {
+    if (!a) return 0.f;
+    const float ringing = a->bellHz.load(std::memory_order_acquire);
+    return ringing > 0.f ? ringing : isd::amb::bellTonicHz(a->key.load(std::memory_order_relaxed) & 15);
+}
 int isd_ambience_debug_events(const ISDAmbience *a, ISDAmbienceSource source) { return a ? a->engine.events((int)source) : 0; }
 
 void isd_ambience_render(ISDAmbience *a, float *left, float *right, int frames) {
@@ -1787,7 +2138,16 @@ void isd_ambience_render(ISDAmbience *a, float *left, float *right, int frames) 
     if (kettles != a->kettleSeen) { a->kettleSeen = kettles; a->engine.startKettle(); }
     const int boats = a->boatSeq.load(std::memory_order_acquire);
     if (boats != a->boatSeen) { a->boatSeen = boats; a->engine.startBoat(); }
+    const int key = a->key.load(std::memory_order_relaxed);
+    a->engine.setKey(key & 15, (key & 16) != 0);   // before any strike this render: a new key waits for the next strike
+    const int bells = a->bellSeq.load(std::memory_order_acquire);
+    if (bells != a->bellSeen) { a->bellSeen = bells; a->engine.strikeBell(); }
+    const int knockers = a->knockerSeq.load(std::memory_order_acquire);
+    if (knockers != a->knockerSeen) { a->knockerSeen = knockers; a->engine.startKnocker(); }
+    const int calls = a->warblerSeq.load(std::memory_order_acquire);
+    if (calls != a->warblerSeen) { a->warblerSeen = calls; a->engine.callWarbler(); }
     a->engine.render(left, right, frames);
+    a->bellHz.store(a->engine.bellRingingHz(), std::memory_order_release);
 }
 
 float isd_ambience_debug_tone_hz(float hz, float sampleRate, float seconds) {
