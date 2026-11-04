@@ -401,7 +401,9 @@ final class WeatherLayer {
             var t = (clock + f.phase).truncatingRemainder(dividingBy: period)
             if t < 0 { t += period }
             let edge: Float = 0.08
-            let on = min(1, max(0, t / edge)) * min(1, max(0, (f.onTime - t) / edge))
+            let rise: Float = min(1, max(0, t / edge))
+            let fall: Float = min(1, max(0, (f.onTime - t) / edge))
+            let on = rise * fall
             guard on > 0.001 else { continue }
             let alpha = on * (gentle ? 0.55 : 0.9)
             fireflyInstances.append(SIMD4(f.x, f.y, f.size * pixelNDC, alpha))

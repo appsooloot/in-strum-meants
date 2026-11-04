@@ -7,6 +7,9 @@ public enum WeatherAmbience {
         if sky.rainbow > 0.05, sky.rain < 0.5 { levels[.dawnChorus] = max(levels[.dawnChorus] ?? 0, 0.4 * Double(sky.rainbow)) }
         // Rime frost is still, freezing fog: the wind drops (a blizzard's howl, below, still comes through).
         if inRime(sky), let wind = levels[.wind] { levels[.wind] = min(wind, 0.15) }
+        // A humid night is loud with insects; diamond dust is still, cold air (and silent itself).
+        if sky.fireflies > 0.3 { levels[.crickets] = max(levels[.crickets] ?? 0, 0.6 * Double(sky.fireflies)) }
+        if sky.diamondDust > 0.3, let wind = levels[.wind] { levels[.wind] = min(wind, 0.2) }
         if sky.snow >= 0.9 { levels[.wind] = max(levels[.wind] ?? 0, 0.3 + 0.7 * Double(sky.gust)) }
     }
 

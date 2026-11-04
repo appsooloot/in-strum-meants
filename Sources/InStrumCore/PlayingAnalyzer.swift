@@ -13,6 +13,9 @@ public struct PlayingAnalyzer {
     public private(set) var chord: ChordQuality = .none
     public private(set) var keyRoot: Int?
     public private(set) var keyIsMinor = false
+    /// How sure the key estimate is: its correlation minus the best one on any other root (the parallel mode on the
+    /// same root doesn't count against it: the tonic is the same). 0 before 8 notes.
+    public private(set) var keyConfidence = 0.0
 
     private var held: Set<UInt8> = []
     private var strikes: [(t: Double, v: Double)] = []
@@ -132,15 +135,19 @@ public struct PlayingAnalyzer {
 
     private mutating func estimateKey() {
         var best = (score: -Double.infinity, root: 0, minor: false)
+        var bestPerRoot = [Double](repeating: -Double.infinity, count: 12)
         for root in 0..<12 {
             for (minor, profile) in [(false, Self.majorProfile), (true, Self.minorProfile)] {
                 let rotated = (0..<12).map { profile[($0 - root + 12) % 12] }
                 let score = Self.correlation(histogram, rotated)
                 if score > best.score { best = (score, root, minor) }
+                bestPerRoot[root] = max(bestPerRoot[root], score)
             }
         }
         keyRoot = best.root
         keyIsMinor = best.minor
+        let rival = bestPerRoot.indices.filter { $0 != best.root }.map { bestPerRoot[$0] }.max() ?? best.score
+        keyConfidence = best.score - rival
     }
 
     private static func correlation(_ a: [Double], _ b: [Double]) -> Double {

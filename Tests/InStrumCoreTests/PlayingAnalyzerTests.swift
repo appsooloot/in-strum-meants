@@ -72,4 +72,40 @@ final class PlayingAnalyzerTests: XCTestCase {
         var a = PlayingAnalyzer(); on(&a, [60, 64, 67], at: 0); a.handle(.allNotesOff, at: 0.1)
         XCTAssertEqual(a.chord, ChordQuality.none)
     }
+
+    /// The key reaches the ambience only when the analyzer is sure of it (spec §7.1: a lead of 0.05 over every other
+    /// root): a C-major scale and a V7–I cadence → C major; an A-minor phrase → A minor; three notes → nil (it needs 8);
+    /// an even chromatic run (C4 up to D5 and back down to B3) → nil, its best guess a near tie.
+    func testKeyIsPublishedOnlyWhenSure() {
+        let cMajor: [UInt8] = [60, 62, 64, 65, 67, 69, 71, 72] + [55, 59, 62, 65] + [48, 52, 55, 60]
+        let aMinor: [UInt8] = [57, 59, 60, 62, 64, 65, 68, 69] + [52, 56, 59] + [45, 57, 60, 64]
+        let chromatic: [UInt8] = (60...74).map { UInt8($0) } + (59...73).reversed().map { UInt8($0) }
+        func director(playing notes: [UInt8]) -> SceneDirector {
+            let d = SceneDirector(themeID: MidnightSteinwayModel.id, state: ThemeState(), reaction: ReactionPresets.expressivePianist)
+            for (i, n) in notes.enumerated() {
+                d.handle([.noteOn(note: n, velocity: 0.7)], at: Double(i) * 0.25)
+                d.handle([.noteOff(note: n)], at: Double(i) * 0.25 + 0.2)
+            }
+            return d
+        }
+        func analyzer(playing notes: [UInt8]) -> PlayingAnalyzer {
+            var a = PlayingAnalyzer()
+            for (i, n) in notes.enumerated() { on(&a, [n], at: Double(i) * 0.25); off(&a, [n], at: Double(i) * 0.25 + 0.2) }
+            return a
+        }
+        XCTAssertEqual(director(playing: cMajor).key, AmbienceKey(root: 0, major: true), "C major")
+        XCTAssertEqual(director(playing: aMinor).key, AmbienceKey(root: 9, major: false), "A minor")
+        XCTAssertNil(director(playing: [60, 64, 67]).key, "three notes are not enough")
+        XCTAssertNil(director(playing: chromatic).key, "an even chromatic run has no key")
+        XCTAssertGreaterThan(analyzer(playing: cMajor).keyConfidence, 0.15)
+        XCTAssertGreaterThan(analyzer(playing: aMinor).keyConfidence, 0.15)
+        XCTAssertEqual(analyzer(playing: [60, 64, 67]).keyConfidence, 0, "0 before 8 notes")
+        let run = analyzer(playing: chromatic)
+        XCTAssertNotNil(run.keyRoot, "it still guesses")
+        XCTAssertLessThan(run.keyConfidence, 0.01, "but it can't tell")
+        // The key is about the playing, not the world: it carries over a switch.
+        let d = director(playing: cMajor)
+        d.switchTheme(to: ButterflyGardenModel.id, state: ThemeState())
+        XCTAssertEqual(d.key, AmbienceKey(root: 0, major: true))
+    }
 }

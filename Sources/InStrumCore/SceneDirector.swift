@@ -122,6 +122,16 @@ public final class SceneDirector {
     /// Wall clock for the sky (previews and tests freeze it).
     public var clock: () -> Date = { Date() }
 
+    /// How far the key estimate must lead the best one on any other root before it is published.
+    public static let keyMargin = 0.05
+
+    /// The key the player is in (spec §7.1), once the analyzer is sure of it (8 notes or more, and a lead of at least
+    /// `keyMargin`); nil while it can't tell. It carries over a world switch: it is about the playing, not the world.
+    public var key: AmbienceKey? {
+        guard let root = analyzer.keyRoot, analyzer.keyConfidence >= Self.keyMargin else { return nil }
+        return AmbienceKey(root: root, major: !analyzer.keyIsMinor)
+    }
+
     private var box: AnyThemeBoxProtocol
     private var analyzer = PlayingAnalyzer()
     private var held: Set<UInt8> = []
