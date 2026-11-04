@@ -46,6 +46,7 @@ public struct SpaceshipLoungeModel: ThemeModel, MoodAware, SkyAware {
         s.weather = .clear; s.nextWeather = .clear; s.weatherBlend = 0
         s.cloudCover = 0; s.rain = 0; s.snow = 0; s.mist = 0; s.wind = 0; s.lightning = 0
         s.halo = 0; s.frost = 0; s.wetness = 0; s.gust = 0
+        s.aurora = 0; s.auroraStorm = 0; s.fireflies = 0; s.diamondDust = 0; s.pillar = 0
         s.starVisibility = 1
         return s
     }

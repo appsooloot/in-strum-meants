@@ -237,7 +237,7 @@ extension LivingSkyTests {
     }
 
     func testNewWeatherValues() {
-        XCTAssertEqual(WeatherKind.allCases, [.clear, .lightCloud, .overcast, .mist, .drizzle, .rain, .storm, .snow, .blizzard, .afterRain, .sunShower, .fogBank, .sleet, .monsoon, .hail, .smokeHaze, .iceFog, .thunderheads, .dustStorm, .flurries, .freezingDrizzle, .squall, .dryLightning])
+        XCTAssertEqual(WeatherKind.allCases, [.clear, .lightCloud, .overcast, .mist, .drizzle, .rain, .storm, .snow, .blizzard, .afterRain, .sunShower, .fogBank, .sleet, .monsoon, .hail, .smokeHaze, .iceFog, .thunderheads, .dustStorm, .flurries, .freezingDrizzle, .squall, .dryLightning, .humid, .diamondDust])
         // cloud, rain, snow, mist, wind, halo, frost, gust (spec §6.1)
         let table: [WeatherKind: [Float]] = [
             .clear: [0, 0, 0, 0.1, 0.1, 0, 0.15, 0],
@@ -263,6 +263,8 @@ extension LivingSkyTests {
             .freezingDrizzle: [0.85, 0.25, 0, 0.5, 0.15, 0, 0.5, 0],
             .squall: [1, 0.9, 0, 0.3, 1, 0, 0, 1],
             .dryLightning: [0.85, 0, 0, 0.1, 0.5, 0, 0, 0.4],
+            .humid: [0.15, 0, 0, 0.35, 0.05, 0, 0, 0],
+            .diamondDust: [0.05, 0, 0, 0.2, 0.02, 1, 0.9, 0],
         ]
         for k in WeatherKind.allCases {
             let v = k.values
@@ -270,6 +272,22 @@ extension LivingSkyTests {
         }
         XCTAssertEqual(WeatherKind.blizzard.beautyWeight, 0.3)
         XCTAssertEqual(WeatherKind.afterRain.beautyWeight, 1.5)
+        // Sets 7 & 8 (spec §6.1): fireflies and pillars, the two new kinds' weights and flags.
+        for k in WeatherKind.allCases where k != .humid && k != .diamondDust {
+            XCTAssertEqual([k.values.fireflies, k.values.pillar], [0, 0], "\(k)")
+        }
+        XCTAssertEqual([WeatherKind.humid.values.fireflies, WeatherKind.humid.values.pillar], [1, 0])
+        XCTAssertEqual([WeatherKind.diamondDust.values.fireflies, WeatherKind.diamondDust.values.pillar], [0, 1])
+        XCTAssertEqual(WeatherKind.humid.beautyWeight, 1.2)
+        XCTAssertEqual(WeatherKind.diamondDust.beautyWeight, 0.5)
+        for k in [WeatherKind.humid, .diamondDust] {
+            XCTAssertFalse(k.isWet, "\(k)"); XCTAssertFalse(k.isRough, "\(k)"); XCTAssertFalse(k.flashes, "\(k)")
+        }
+        XCTAssertTrue(WeatherKind.humid.frostFormsOnlyAtNight)
+        XCTAssertFalse(WeatherKind.diamondDust.frostFormsOnlyAtNight)
+        let half = WeatherValues.mix(WeatherKind.humid.values, WeatherKind.diamondDust.values, 0.5)
+        XCTAssertEqual(half.fireflies, 0.5, accuracy: 1e-6)
+        XCTAssertEqual(half.pillar, 0.5, accuracy: 1e-6)
     }
 
     func testFrostOnlyAtNightForClearSkies() {
@@ -635,11 +653,120 @@ extension LivingSkyTests {
         let unknown = try JSONDecoder().decode(SkySettings.self, from: Data(#"{"weather":"aurora","cityID":"tokyo"}"#.utf8))
         XCTAssertEqual(unknown.weather, .clear)
         XCTAssertEqual(unknown.cityID, "tokyo")
+        // Sets 7 & 8: the two new weathers decode; settings saved before them load the new dials at their defaults.
+        XCTAssertEqual(try JSONDecoder().decode(SkySettings.self, from: Data(#"{"weather":"humid"}"#.utf8)).weather, .humid)
+        XCTAssertEqual(try JSONDecoder().decode(SkySettings.self, from: Data(#"{"weather":"diamondDust"}"#.utf8)).weather, .diamondDust)
+        XCTAssertEqual(blizzard.constellationLines, 0.35)
+        XCTAssertEqual(blizzard.auroraScale, 1)
+        let night = try JSONDecoder().decode(SkySettings.self, from: Data(#"{"constellationLines":0.8,"auroraScale":5}"#.utf8))
+        XCTAssertEqual(night.constellationLines, 0.8)
+        XCTAssertEqual(night.auroraScale, 2, "clamped")
+        let bad = try JSONDecoder().decode(SkySettings.self, from: Data(#"{"constellationLines":"lots","weather":"snow"}"#.utf8))
+        XCTAssertEqual(bad.constellationLines, 0.35)
+        XCTAssertEqual(bad.weather, .snow)
+        var round = SkySettings(); round.constellationLines = 0.6; round.auroraScale = 1.4
+        XCTAssertEqual(try JSONDecoder().decode(SkySettings.self, from: JSONEncoder().encode(round)), round)
     }
 
     func testTheLoungeHasNoWeather() {
         var st = SkyState(); st.halo = 0.7; st.frost = 0.6; st.wetness = 0.9; st.gust = 1
         let lounge = SpaceshipLoungeModel.weatherless(st)
         XCTAssertEqual([lounge.halo, lounge.frost, lounge.wetness, lounge.gust], [0, 0, 0, 0])
+        var night = SkyState(); night.aurora = 1; night.auroraStorm = 0.8; night.fireflies = 1; night.diamondDust = 1; night.pillar = 1
+        let space = SpaceshipLoungeModel.weatherless(night)
+        XCTAssertEqual([space.aurora, space.auroraStorm, space.fireflies, space.diamondDust, space.pillar], [0, 0, 0, 0, 0])
+    }
+}
+
+// MARK: - Sets 7 & 8: the aurora, fireflies, diamond dust and pillars, deep night
+
+extension LivingSkyTests {
+    private func frozen(_ kind: WeatherKind, hour: Double, city: String = "melbourne", seed: UInt64 = 1) -> LivingSky {
+        var s = SkySettings(); s.timeMode = .frozen; s.frozenHour = hour; s.cityID = city; s.weatherMode = .pick; s.weather = kind
+        return LivingSky(settings: s, seed: seed, homeZone: melbourneZone)
+    }
+
+    private func steps(_ sky: LivingSky, seconds: Int, aurora: AuroraMode, hold: SkyHold = .follow, from t0: Date) -> SkyState {
+        var st = SkyState()
+        for i in 1...seconds { st = sky.step(now: t0.addingTimeInterval(Double(i)), dt: 1, hold: hold, aurora: aurora) }
+        return st
+    }
+
+    func testAuroraOnlyAtNight() {
+        XCTAssertEqual(steps(frozen(.clear, hour: 13, city: "tromso"), seconds: 5, aurora: .always, from: start).aurora, 0, "none by day")
+        let night = steps(frozen(.clear, hour: 23, city: "tromso"), seconds: 5, aurora: .always, from: start)
+        XCTAssertLessThan(night.sun.altitude, -10)
+        XCTAssertGreaterThan(night.aurora, 0.5)
+        XCTAssertGreaterThanOrEqual(night.auroraAltitude, 25)
+        XCTAssertLessThanOrEqual(night.auroraAltitude, 60)
+        XCTAssertEqual(night.hemisphere, 1)
+        // Cloud hides it: overcast (cloud 0.85) leaves about a fifth, a storm's full cover a tenth.
+        let overcast = steps(frozen(.overcast, hour: 23, city: "tromso"), seconds: 5, aurora: .always, from: start)
+        XCTAssertLessThan(overcast.aurora, 0.25 * night.aurora + 0.01)
+        XCTAssertLessThan(steps(frozen(.storm, hour: 23, city: "tromso"), seconds: 5, aurora: .always, from: start).aurora, 0.15)
+        XCTAssertEqual(steps(frozen(.clear, hour: 23, city: "tromso"), seconds: 5, aurora: .never, from: start).aurora, 0)
+        XCTAssertEqual(frozen(.clear, hour: 23).step(now: start, dt: 0).hemisphere, -1, "Melbourne looks south")
+    }
+
+    /// Review focus 1: the mode is passed each step, so a world with "Always" leaves no aurora behind it.
+    func testAuroraModeIsPerStep() {
+        let sky = frozen(.clear, hour: 23)   // Melbourne, seed 1: a quiet Kp (about 1)
+        let always = steps(sky, seconds: 30, aurora: .always, from: start)
+        XCTAssertLessThan(always.sun.altitude, -10)
+        XCTAssertGreaterThan(always.aurora, 0.5)
+        let follow = steps(sky, seconds: 30, aurora: .follow, from: start.addingTimeInterval(30))
+        XCTAssertLessThan(follow.aurora, 0.05, "back to the real (quiet) sky at Melbourne")
+        XCTAssertLessThan(sky.step(now: start.addingTimeInterval(61), dt: 1).aurora, 0.05, "and the default is follow")
+    }
+
+    func testAuroraScaleOnlyInFollow() {
+        // Tromsø at night: whatever the seed's Kp, the oval is overhead or close, so follow mode shows it.
+        var s = SkySettings(); s.timeMode = .frozen; s.frozenHour = 23; s.cityID = "tromso"; s.weatherMode = .pick; s.weather = .clear
+        s.auroraScale = 0
+        let none = LivingSky(settings: s, homeZone: melbourneZone)
+        XCTAssertEqual(steps(none, seconds: 3, aurora: .follow, from: start).aurora, 0)
+        XCTAssertGreaterThan(steps(none, seconds: 3, aurora: .always, from: start).aurora, 0.5, "Always ignores the scale")
+    }
+
+    func testFirefliesOnlyAtNight() {
+        XCTAssertEqual(frozen(.humid, hour: 13).step(now: start, dt: 0).fireflies, 0)
+        XCTAssertEqual(frozen(.humid, hour: 2).step(now: start, dt: 0).fireflies, 1, accuracy: 1e-4)
+        XCTAssertEqual(frozen(.clear, hour: 2).step(now: start, dt: 0).fireflies, 0)
+        XCTAssertEqual(frozen(.humid, hour: 2).step(now: start, dt: 0).frost, 0, "a humid night never frosts")
+        let blue = frozen(.humid, hour: 13).step(now: start, dt: 0, hold: .blueHour)   // −6°: half dark
+        XCTAssertGreaterThan(blue.fireflies, 0.05)
+        XCTAssertLessThan(blue.fireflies, 0.95)
+    }
+
+    func testPillarsOnlyWithALowLight() {
+        let noon = frozen(.diamondDust, hour: 13).step(now: start, dt: 0)
+        XCTAssertGreaterThan(noon.sun.altitude, 30)
+        XCTAssertEqual(noon.diamondDust, 1, "the dust glitters any time")
+        XCTAssertEqual(noon.pillar, 0, "no pillar under a high sun")
+        XCTAssertEqual(frozen(.diamondDust, hour: 13).step(now: start, dt: 0, hold: .goldenHour).pillar, 1, accuracy: 1e-4)
+        XCTAssertEqual(frozen(.diamondDust, hour: 2).step(now: start, dt: 0).pillar, 1, accuracy: 1e-4, "the moon's (and lamps') by night")
+        XCTAssertEqual(frozen(.clear, hour: 2).step(now: start, dt: 0).pillar, 0)
+        XCTAssertGreaterThanOrEqual(noon.halo, 0.99, "diamond dust days show the rings and sundogs")
+        XCTAssertEqual(noon.frost, 0.9, accuracy: 0.01)
+    }
+
+    func testDeepNightHold() {
+        XCTAssertEqual(SkyHold.deepNight.rawValue, "Deep night")
+        XCTAssertEqual(SkyHold.deepNight.altitude, -30)
+        XCTAssertFalse(SkyHold.deepNight.forcesPastel)
+        let st = frozen(.clear, hour: 13).step(now: start, dt: 0, hold: .deepNight)
+        XCTAssertEqual(st.sun.altitude, -30, accuracy: 1e-9)
+        XCTAssertGreaterThan(st.starVisibility, 0.5)
+        XCTAssertLessThan(luminance(st.zenith), 0.05)
+    }
+
+    func testConstellationLinesSetting() {
+        XCTAssertEqual(frozen(.clear, hour: 2).step(now: start, dt: 0).constellationLines, 0.35, accuracy: 1e-6)
+        var s = SkySettings(); s.constellationLines = 1
+        XCTAssertEqual(LivingSky(settings: s).step(now: start, dt: 0).constellationLines, 1)
+        var d = SkySettings(); d.applyAdvanced(.dramatic)
+        XCTAssertEqual([d.constellationLines, d.auroraScale], [0.5, 1.6])
+        d.resetAdvanced()
+        XCTAssertEqual([d.constellationLines, d.auroraScale], [0.35, 1])
     }
 }

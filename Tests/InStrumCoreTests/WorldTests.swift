@@ -497,6 +497,26 @@ extension WorldTests {
         XCTAssertEqual(SnowboundCabinModel.coldSky(shower).weather, .snow)
     }
 
+    /// The cold-sky rule lives in Core as `WorldWeather.cold`, shared by the cabin (and the fjord).
+    func testColdSkySharedByCabin() {
+        var storm = sky(sun: 20, hour: 13); storm.rain = 1; storm.wind = 0.9; storm.gust = 0.6; storm.weather = .storm
+        storm.fireflies = 0.8; storm.aurora = 0.6; storm.pillar = 0.5
+        XCTAssertEqual(SnowboundCabinModel.coldSky(storm), WorldWeather.cold(storm))
+        let cold = WorldWeather.cold(storm)
+        XCTAssertEqual(cold.weather, .blizzard)
+        XCTAssertEqual(cold.fireflies, 0, "no fireflies in the cold")
+        XCTAssertEqual(cold.aurora, 0.6, "the aurora and pillars stay")
+        XCTAssertEqual(cold.pillar, 0.5)
+        var humid = sky(sun: -20, hour: 23); humid.weather = .humid; humid.nextWeather = .humid; humid.fireflies = 1
+        XCTAssertEqual(WorldWeather.cold(humid).weather, .clear)
+        var dust = sky(sun: -20, hour: 23); dust.weather = .diamondDust; dust.nextWeather = .diamondDust
+        XCTAssertEqual(WorldWeather.cold(dust).weather, .diamondDust, "diamond dust is at home in the cold")
+        var cabin = SnowboundCabinModel(); cabin.setSky(storm)
+        let frame = cabin.step(dt: 1.0 / 60, params: ThemeRegistry.parameterSet(for: SnowboundCabinModel.id, state: ThemeState()),
+                               roles: RoleValues(), inputs: InputFrame(), quality: .high)
+        XCTAssertEqual(frame.sky, cold)
+    }
+
     /// Snow that was rain still frosts the glass, and a storm turned blizzard frosts it hard and whites out with each
     /// gust (final review: the frost vanished whenever the cabin's snow came from rain).
     func testColdSkyKeepsTheFrost() {

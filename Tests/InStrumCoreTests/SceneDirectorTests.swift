@@ -114,7 +114,40 @@ final class SceneDirectorTests: XCTestCase {
         _ = lake.step(dt: 1.0 / 60, t: 0, quality: .high)
         XCTAssertLessThan(lake.lastSky?.sun.altitude ?? 0, -20, "the lake follows the real 2 am sky")
         XCTAssertEqual(SkyHold.spec(default: .blueHour).defaultValue, .choice("Blue hour"))
-        XCTAssertEqual(SkyHold.allCases.map(\.rawValue), ["Follow the sky", "Golden hour", "Blue hour", "Pastel dawn"])
+        XCTAssertEqual(SkyHold.allCases.map(\.rawValue), ["Follow the sky", "Golden hour", "Blue hour", "Pastel dawn", "Deep night"])
+    }
+
+    /// A world that shows the aurora always (as the fjord does).
+    struct AuroraProbe: ThemeModel, SkyAware {
+        static let id = "aurora-probe", displayName = "Aurora probe"
+        static let parameters: [ParamSpec] = [AuroraMode.spec(default: .always)]
+        static let macroTargets: [Macro: [(id: String, weight: Double)]] = [:]
+        var sky: SkyState?
+        init() {}
+        mutating func handle(_ e: PerformanceEvent) {}
+        mutating func setSky(_ s: SkyState) { sky = s }
+        mutating func step(dt: Double, params: ParameterSet, roles: RoleValues, inputs: InputFrame, quality: QualityLevel) -> SkyState? { sky }
+    }
+
+    /// The director passes the world's aurora mode each step; worlds without the parameter follow the sky.
+    func testDirectorPassesAuroraMode() {
+        var s = SkySettings(); s.timeMode = .frozen; s.frozenHour = 23; s.cityID = "melbourne"; s.weatherMode = .pick; s.weather = .clear
+        let always = SceneDirector(entry: ThemeEntry.make(AuroraProbe.self), state: ThemeState(), reaction: ReactionPresets.expressivePianist)
+        always.sky.settings = s
+        always.clock = { Date(timeIntervalSince1970: 1_793_000_000) }
+        for i in 1...10 { _ = always.step(dt: 1, t: Double(i), quality: .high) }
+        XCTAssertGreaterThan(always.lastSky?.aurora ?? 0, 0.5, "Always, even over Melbourne")
+        let never = SceneDirector(entry: ThemeEntry.make(AuroraProbe.self), state: ThemeState(values: ["aurora.mode": .choice("Never")]),
+                                  reaction: ReactionPresets.expressivePianist)
+        never.sky.settings = s
+        for i in 1...10 { _ = never.step(dt: 1, t: Double(i), quality: .high) }
+        XCTAssertEqual(never.lastSky?.aurora, 0)
+        // The lake has no aurora parameter: it follows Melbourne's quiet sky (the default seed's Kp is low).
+        let lake = SceneDirector(themeID: MoonlitLakeModel.id, state: ThemeState(), reaction: ReactionPresets.expressivePianist)
+        lake.sky.settings = s
+        for i in 1...10 { _ = lake.step(dt: 1, t: Double(i), quality: .high) }
+        XCTAssertLessThan(lake.lastSky?.aurora ?? 1, 0.05)
+        XCTAssertEqual(lake.parameters.choice("aurora.mode"), "", "a missing parameter reads as no choice")
     }
 
     func testMoodLookIsNeutralAtHalf() {
