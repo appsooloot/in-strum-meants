@@ -90,6 +90,39 @@ final class StarCatalogueTests: XCTestCase {
         XCTAssertGreaterThan(stride(from: 0, to: plain.count, by: 4).filter { plain[$0] > 0 }.count, 1500, "every star leaves light")
     }
 
+    /// A bright star is a point with a glow, not a ball: Sirius's core (the texels holding at least half its peak light,
+    /// about where the night's tone curve clips it) spans at most 0.6° along Dec and along RA (× cos Dec), the same
+    /// angle at any screen size (it is drawn on the sky, not in pixels); and the faint stars are still there.
+    func testBrightStarsArePointsNotBalls() throws {
+        let w = StarTexture.width, h = StarTexture.height
+        let image = StarTexture.build(lines: false)
+        // Light (linear: the texture holds its square root) in Sirius's brightest channel.
+        func light(_ x: Int, _ y: Int) -> Double {
+            let xx = (x % w + w) % w, i = (min(h - 1, max(0, y)) * w + xx) * 4
+            let v = Double(max(image[i], image[i + 1], image[i + 2])) / 255
+            return v * v
+        }
+        let sirius = try XCTUnwrap(StarCatalogue.star(hip: 32349))
+        let p = StarTexture.pixel(ra: sirius.ra, dec: sirius.dec)
+        let peak = light(p.x, p.y)
+        XCTAssertEqual(peak, 1, accuracy: 1e-9)
+        var rows = Set<Int>(), cols = Set<Int>()
+        for dy in -20...20 { for dx in -20...20 where light(p.x + dx, p.y + dy) >= 0.5 * peak { rows.insert(dy); cols.insert(dx) } }
+        let texel = 180.0 / Double(h)   // degrees of Dec per texel (RA: 360 / w, the same)
+        let across = Double(cols.count) * texel * cos(Double(sirius.dec) * .pi / 180), tall = Double(rows.count) * texel
+        XCTAssertLessThanOrEqual(tall, 0.6, "Sirius's core is \(tall)° tall")
+        XCTAssertLessThanOrEqual(across, 0.6, "and \(across)° across")
+        // The faint stars keep their light: the 20 faintest still leave a texel of a thousandth of Sirius's peak or more
+        // (about 8 of 255 in the stored square root; they sit near 12).
+        let faint = StarCatalogue.stars.suffix(20)
+        for s in faint {
+            let q = StarTexture.pixel(ra: s.ra, dec: s.dec)
+            var best = 0.0
+            for dy in -1...1 { for dx in -1...1 { best = max(best, light(q.x + dx, q.y + dy)) } }
+            XCTAssertGreaterThanOrEqual(best, 0.001, "HIP \(s.hip) (mag \(s.mag)) still shows")
+        }
+    }
+
     func testStarTextureBuildsQuickly() {
         _ = StarCatalogue.stars   // the catalogue is built once, outside the timing
         let t0 = Date()

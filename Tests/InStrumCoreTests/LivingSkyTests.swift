@@ -746,8 +746,10 @@ extension LivingSkyTests {
         let always = steps(sky, seconds: 30, aurora: .always, from: start)
         XCTAssertLessThan(always.sun.altitude, -10)
         XCTAssertGreaterThan(always.aurora, 0.5)
+        XCTAssertTrue(always.auroraAlways, "the sky is told it's for the show (it stands where the world looks)")
         let follow = steps(sky, seconds: 30, aurora: .follow, from: start.addingTimeInterval(30))
         XCTAssertLessThan(follow.aurora, 0.05, "back to the real (quiet) sky at Melbourne")
+        XCTAssertFalse(follow.auroraAlways, "and back to the pole")
         XCTAssertLessThan(sky.step(now: start.addingTimeInterval(61), dt: 1).aurora, 0.05, "and the default is follow")
     }
 

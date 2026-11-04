@@ -10,6 +10,17 @@ final class SettingsPanelTests: XCTestCase {
         let declared = ButterflyGardenModel.parameters.filter(\.hero).map(\.id)
         XCTAssertEqual(hero.map(\.id), declared)
     }
+    /// All settings shows the Sky extras group (constellation lines, the aurora, iridescence, rime) only under a real sky:
+    /// every world but the lounge (space has its own stars, no lines and no aurora), never the Garden or the Steinway.
+    func testNightSkySettingsOnlyUnderARealSky() {
+        for id in [MoonlitLakeModel.id, GoldenHourBeachModel.id, CoastRoadModel.id, SnowboundCabinModel.id, BedroomDawnModel.id,
+                   AuroraFjordModel.id, BioluminescentBayModel.id, TeaHouseSnowModel.id, ZenRockGardenModel.id] {
+            XCTAssertTrue(AllSettingsView.hasNightSky(id), id)
+        }
+        for id in [ButterflyGardenModel.id, MidnightSteinwayModel.id, SpaceshipLoungeModel.id, "no-such-theme"] {
+            XCTAssertFalse(AllSettingsView.hasNightSky(id), id)
+        }
+    }
     func testValueEditWritesThemeState() {
         var state = ThemeState()
         state = VisualSettings.updated(state, themeID: ButterflyGardenModel.id, id: "rays", to: .number(0.9))

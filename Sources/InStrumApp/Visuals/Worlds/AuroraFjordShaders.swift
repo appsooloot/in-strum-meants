@@ -7,7 +7,7 @@
 enum AuroraFjordShaders {
     static let source = SkyShaders.common + """
     struct FjordU {
-        float4 a;          // keys top (NDC y), time (s), aspect, noise octaves (2 on Smooth, 3 above)
+        float4 a;          // keys top (NDC y), time (s, wrapped to the hour), aspect, noise octaves (2 on Smooth, 3 above)
         float4 b;          // night 0…1, day 0…1, mist 0…1, wind 0…1
         float4 c;          // swell 0…1, sparkle (after the flash limiter), village lights 0…1 (0 when unlit), alpenglow 0…1
         float4 sun;        // direction (east-north-up), strength 0…1
@@ -23,6 +23,21 @@ enum AuroraFjordShaders {
     constant float kOpenL = 0.13, kOpenR = 0.16;            // where the walls end at the sea, left and right of the view
     constant float kWallK = 0.55;                           // the walls' height over their distance
     constant float kWallFoot = 250.0, kWallSpread = 0.08;   // their feet either side of the jetty, and how they spread
+    // The clock (f.a.y) wraps at the hour; what moves with it reads fjordNoise, which repeats every 64 cells, at whole
+    // multiples of kFjordTick (64 cells an hour), so it comes round exactly at the wrap and never jumps.
+    constant float kFjordTick = 64.0 / 3600.0;
+
+    /// vnoise3 on a lattice wrapped every `n` cells along each axis (`n` whole): the same noise, but periodic.
+    float fjordNoise(float3 p, float n) {
+        float3 i = floor(p), f = fract(p);
+        float3 u = f * f * (3.0 - 2.0 * f);
+        float3 a = i - n * floor(i / n);
+        float3 b = a + 1.0;
+        b = float3(b.x >= n ? 0.0 : b.x, b.y >= n ? 0.0 : b.y, b.z >= n ? 0.0 : b.z);
+        float h0 = hash13(a), h1 = hash13(float3(b.x, a.y, a.z)), h2 = hash13(float3(a.x, b.y, a.z)), h3 = hash13(float3(b.x, b.y, a.z));
+        float h4 = hash13(float3(a.x, a.y, b.z)), h5 = hash13(float3(b.x, a.y, b.z)), h6 = hash13(float3(a.x, b.y, b.z)), h7 = hash13(b);
+        return mix(mix(mix(h0, h1, u.x), mix(h2, h3, u.x), u.y), mix(mix(h4, h5, u.x), mix(h6, h7, u.x), u.y), u.z);
+    }
 
     struct FjordOut { float4 pos [[position]]; float2 ndc; };
 
@@ -116,7 +131,7 @@ enum AuroraFjordShaders {
             float fx = (phi - 0.43) / 0.0035;
             float fall = exp(-fx * fx) * smoothstep(0.05, 0.15, frac) * (1.0 - smoothstep(0.75, 0.95, frac));
             if (fall > 0.01) {
-                float flow = 0.6 + 0.4 * vnoise3(float3(phi * 400.0, alt * 60.0 + f.a.y * 1.5, 3.0));
+                float flow = 0.6 + 0.4 * fjordNoise(float3(phi * 400.0, alt * 60.0 + f.a.y * (84.0 * kFjordTick), 3.0), 64.0);
                 col = mix(col, (f.ambient.rgb + sunC * 0.5 + moonC + f.aurora.rgb) * 0.9, fall * flow * 0.8);
             }
         }
@@ -146,15 +161,18 @@ enum AuroraFjordShaders {
         slope += d2 * (amp * 0.5 * 0.137 * cos(0.137 * dot(d2, q) + f.swell.y) * (1.0 - smoothstep(23.0, 46.0, footprint)));
         // Cat's-paws: the wind's ripples (one octave on Smooth, two above), faded where a pixel spans them.
         float kw = 1.0 - smoothstep(1.5, 4.5, footprint);
+        // Everything here that moves with the clock does so at whole multiples of kFjordTick (see fjordNoise).
+        float tick = time * kFjordTick;
         if (kw > 0.001) {
-            float2 wq = q * float2(0.7, 0.35) + float2(time * 0.2, time * 0.08);
-            float2 w = float2(vnoise3(float3(wq, time * 0.15)), vnoise3(float3(wq * 1.7 + 5.0, time * 0.18))) - 0.5;
+            float2 wq = q * float2(0.7, 0.35) + float2(11.0, 4.0) * tick;
+            float2 wq2 = q * float2(1.19, 0.595) + 5.0 + float2(19.0, 7.0) * tick;
+            float2 w = float2(fjordNoise(float3(wq, 8.0 * tick), 64.0), fjordNoise(float3(wq2, 10.0 * tick), 64.0)) - 0.5;
             slope += w * ((0.01 + 0.14 * wind) * kw);
         }
         float kf = 1.0 - smoothstep(0.5, 1.5, footprint);
         if (octaves > 2 && kf > 0.001) {
             float2 fq = q * 2.4;
-            float2 w2 = float2(vnoise3(float3(fq, time * 0.5)), vnoise3(float3(fq + 9.0, time * 0.55))) - 0.5;
+            float2 w2 = float2(fjordNoise(float3(fq, 28.0 * tick), 64.0), fjordNoise(float3(fq + 9.0, 31.0 * tick), 64.0)) - 0.5;
             slope += w2 * ((0.006 + 0.05 * wind) * kf);
         }
         float3 nrm = normalize(float3(-(slope.x * R.x + slope.y * F.x), -(slope.x * R.y + slope.y * F.y), 1.0));
@@ -180,7 +198,7 @@ enum AuroraFjordShaders {
         float3 col = mix(mix(dark, greyGreen, f.b.y), refl, fres);
         // The sun's and the moon's paths: a soft sheen broken into glints near by (gentle visuals halve them).
         float kg = 1.0 - smoothstep(0.8, 2.4, footprint);
-        float2 g = (float2(vnoise3(float3(q * 1.3, time * 1.2)), vnoise3(float3(q * 1.3 + 13.0, time * 1.4))) - 0.5) * kg;
+        float2 g = (float2(fjordNoise(float3(q * 1.3, 68.0 * tick), 64.0), fjordNoise(float3(q * 1.3 + 13.0, 79.0 * tick), 64.0)) - 0.5) * kg;
         float3 gn = normalize(nrm + float3(g * 0.12, 0.0));
         float3 gr = reflect(d, gn);
         float ss = saturate(dot(gr, f.sun.xyz)), sm = saturate(dot(gr, f.moon.xyz));
@@ -203,7 +221,11 @@ enum AuroraFjordShaders {
         }
         float3 d = fjordRay(p, u);
         float alt = asin(clamp(d.z, -1.0, 1.0));
-        if (alt > 0.75) discard_fragment();   // above the highest peak: the dome shows
+        if (alt > 0.75) {   // above the highest peak: the dome shows
+            discard_fragment();
+            out.color = float4(0, 0, 0, 1); out.depth = float4(1, 0, 0, 1);
+            return out;
+        }
         int octaves = int(f.a.w + 0.5);
         float phi = fjordPhi(d, u);
         float side;
@@ -213,7 +235,11 @@ enum AuroraFjordShaders {
         float3 col;
         float depth;
         if (alt >= 0.0) {
-            if (alt >= top) discard_fragment();   // the V of sky: the dome shows
+            if (alt >= top) {   // the V of sky: the dome shows
+                discard_fragment();
+                out.color = float4(0, 0, 0, 1); out.depth = float4(1, 0, 0, 1);
+                return out;
+            }
             col = open ? fjordIslandColour(u, f) : fjordWallColour(phi, alt, top, side, u, f);
             depth = open ? 0.98 : wallDepth;
         } else {
@@ -269,7 +295,7 @@ enum AuroraFjordShaders {
             float across = dAz * cos(alt) / (rad * (1.2 + 2.0 * f.b.w));
             float len = 0.006 + 0.05 * f.b.w + 0.02 * f.c.x;
             float along = below > 0.0 ? exp(-below / len) : exp(-below * below / (rad * rad * 4.0));
-            float glints = 0.35 + 0.65 * smoothstep(0.35, 0.75, vnoise3(float3(alt * 700.0, dAz * 200.0, f.a.y * 1.7)));
+            float glints = 0.35 + 0.65 * smoothstep(0.35, 0.75, fjordNoise(float3(alt * 700.0, dAz * 200.0, f.a.y * (96.0 * kFjordTick)), 256.0));
             refl = exp(-across * across) * along * glints * 0.7;
         }
         float fog = 1.0 - 0.85 * f.b.z;

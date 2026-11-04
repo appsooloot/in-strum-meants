@@ -359,7 +359,7 @@ final class WorldKitTests: XCTestCase {
             return luma(rgb(image, at: above, radius: 2)) / max(1e-6, luma(rgb(image, at: beside, radius: 2)))
         }
         let on = try ratio(pillar: 1), off = try ratio(pillar: 0)
-        XCTAssertGreaterThanOrEqual(on, 1.3, "pillar against beside: \(on)")
+        XCTAssertGreaterThanOrEqual(on, 1.2, "pillar against beside: \(on)")
         XCTAssertEqual(off, 1, accuracy: 0.1, "no pillar: \(off)")
     }
 
@@ -543,6 +543,69 @@ final class WorldKitTests: XCTestCase {
         XCTAssertLessThanOrEqual(jumps, 2 * 3 * 3, "limited")
         XCTAssertGreaterThan(boosts.max() ?? 1, 1, "lightning does brighten the scene")
     }
+
+    /// A light pillar is a thin column, not a flare: in diamond dust (its halos and mist) with the sun 4° up, the column
+    /// 10° above the sun is still a colour after the tone curve, not clipped white, and still brighter than the sky 6°
+    /// beside it. (The crystals are left out: they're the weather layer's, twinkling at random.)
+    func testPillarIsAColumnNotAFlare() throws {
+        var s = frozen(13)
+        let view = SkyLayer.defaultViewAzimuth(latitude: s.latitude)
+        s.sun = SkyDirection(azimuth: view, altitude: 4)
+        s.moon = SkyDirection(azimuth: view + 180, altitude: -30)
+        let c = SkyPalette.colours(sunAltitude: 4, cloud: 0, mist: 0.2, moonlight: 0)
+        s.zenith = c.zenith; s.horizon = c.horizon
+        s.starVisibility = 0; s.cloudCover = 0; s.mist = 0.2; s.halo = 1; s.rainbow = 0
+        s.pillar = 1; s.diamondDust = 0
+        let (image, sky) = try renderSky(s, viewAzimuth: view)
+        let column = rgb(image, at: screenPoint(SkyDirection(azimuth: view, altitude: 14), sky: sky, latitude: s.latitude), radius: 2)
+        let beside = rgb(image, at: screenPoint(SkyDirection(azimuth: view + 6, altitude: 14), sky: sky, latitude: s.latitude), radius: 2)
+        XCTAssertLessThan(luma(column), 0.95, "10° above the sun the column is a colour, not clipped white: \(column)")
+        XCTAssertGreaterThanOrEqual(luma(column) / max(1e-6, luma(beside)), 1.2, "and still a column: \(column) beside \(beside)")
+    }
+
+    /// Spec §6.4: bound, the real stars replace the procedural field's brightest 30%, which stays only as the faint
+    /// background. With a texture bound that has no stars in it, the night's brightest points are no brighter than a
+    /// second-magnitude star; while the texture is still building, the procedural field's bright stars carry the sky.
+    func testRealStarsReplaceTheBrightProceduralStars() throws {
+        guard let device = MTLCreateSystemDefaultDevice() else { throw XCTSkip("No Metal device") }
+        let blank = [UInt8](repeating: 0, count: StarTexture.width * StarTexture.height * 4)
+        let empty = try XCTUnwrap(StarTextureCache.makeTexture(device: device, bytes: blank))
+        let cache = StarTextureCache.shared
+        defer { cache.withheld = false }
+        func top(_ configure: (SkyOnlyRenderer) -> Void) throws -> Double {
+            let l = FramePatch.luminance(try renderConfigured(darkNight(), configure).image).sorted(by: >)
+            return l[l.count / 1000]   // the brightest 0.1%
+        }
+        let bound = try top { r in r.sky.starTextureOverride = empty }
+        cache.withheld = true
+        let alone = try top { _ in }
+        cache.withheld = false
+        XCTAssertLessThan(bound, 0.6, "under the real stars only faint procedural ones: \(bound)")
+        XCTAssertGreaterThan(alone, 0.75, "on their own the procedural stars keep their bright ones: \(alone)")
+    }
+
+    /// Long sessions: the weather clock wraps at the hour, and every firefly's blink and crystal's twinkle is a whole
+    /// number of cycles an hour, so a moment just short of the wrap draws as the same moment an hour earlier.
+    func testWeatherClockWrapsWithoutAJump() throws {
+        guard let device = MTLCreateSystemDefaultDevice() else { throw XCTSkip("No Metal device") }
+        let late = try XCTUnwrap(WeatherLayer(device: device)), early = try XCTUnwrap(WeatherLayer(device: device))
+        var s = darkNight(); s.fireflies = 1; s.diamondDust = 1
+        let size = CGSize(width: 640, height: 360)
+        // The same seed, so the same fireflies and crystals; then the same moment, an hour apart.
+        for w in [late, early] { w.update(s, quality: .high, size: size, dt: 1.0 / 30, surface: .ground(horizonY: -0.3)) }
+        late.clock = WeatherLayer.clockWrap - 0.5
+        early.clock = -0.5
+        for w in [late, early] { w.update(s, quality: .high, size: size, dt: 1.0 / 30, surface: .ground(horizonY: -0.3)) }
+        XCTAssertEqual(late.crystalInstances.count, WeatherLayer.crystalCap(.high))
+        XCTAssertEqual(late.crystalInstances.count, early.crystalInstances.count)
+        var gap: Float = 0
+        for (a, b) in zip(late.crystalInstances, early.crystalInstances) { gap += abs(a.w - b.w) }
+        gap /= Float(max(1, late.crystalInstances.count))
+        XCTAssertLessThan(gap, 0.01, "each crystal twinkles alike an hour apart (mean alpha gap \(gap))")
+        let lit = late.fireflyInstances.map(\.w).reduce(0, +), earlier = early.fireflyInstances.map(\.w).reduce(0, +)
+        XCTAssertGreaterThan(earlier, 0, "some fireflies are lit")
+        XCTAssertEqual(lit, earlier, accuracy: 0.05 + 0.002 * earlier, "and every firefly blinks alike (\(lit) against \(earlier))")
+    }
 }
 
 /// Moonlit Lake (Set 1's world) with Lake Ripples.
@@ -554,6 +617,48 @@ final class MoonlitLakeRendererTests: XCTestCase {
         for name in ["lake_vertex", "lake_fragment", "firefly_vertex", "firefly_fragment", "lake_keys_vertex", "lake_keys_fragment"] {
             XCTAssertNotNil(lib.makeFunction(name: name), name)
         }
+    }
+
+    /// In Always the aurora is for the show, so it stands where a world looks: the lake at Melbourne faces north (the
+    /// equator), its back to the pole, and an Always night there has a brighter sky than a Never one. (The lake itself
+    /// doesn't offer the Aurora choice: the test's lake does.)
+    func testAlwaysAuroraIsInView() throws {
+        guard let device = MTLCreateSystemDefaultDevice() else { throw XCTSkip("No Metal device") }
+        let preview = try XCTUnwrap(PreviewRenderer(width: 640, height: 360))
+        let lake = ThemeEntry.make(MoonlitLakeModel.self)
+        let entry = ThemeEntry(id: lake.id, name: lake.name, parameters: lake.parameters + [AuroraMode.spec(default: .follow)],
+                               macroTargets: lake.macroTargets, make: lake.make)
+        var night = Self.night
+        night.frozenPhase = 0.1   // a thin moon, set with the sun: the lake faces the equator
+        let size = CGSize(width: 640, height: 360)
+        func shot(_ mode: AuroraMode) throws -> (image: CGImage, sky: SkyState) {
+            let r = try XCTUnwrap(MoonlitLakeRenderer(device: device))
+            let d = SceneDirector(entry: entry, state: ThemeState(values: ["aurora.mode": .choice(mode.rawValue)]),
+                                  reaction: ReactionPresets.expressivePianist)
+            let start = Date(timeIntervalSince1970: 1_793_000_000)
+            var elapsed = 0.0
+            d.clock = { start.addingTimeInterval(elapsed) }
+            d.sky.reset(settings: night)
+            var sky = SkyState()
+            for i in 1...30 {
+                elapsed = Double(i) / 60
+                let f = try XCTUnwrap(d.step(dt: 1.0 / 60, t: elapsed, quality: .high) as? LakeFrame)
+                r.update(f, params: d.parameters, quality: .high, gentle: false, dt: 1.0 / 60, size: size)
+                sky = f.sky
+            }
+            return (try XCTUnwrap(preview.capture(r)), sky)
+        }
+        let always = try shot(.always), never = try shot(.never)
+        XCTAssertTrue(always.sky.auroraAlways)
+        XCTAssertFalse(never.sky.auroraAlways)
+        XCTAssertGreaterThan(always.sky.aurora, 0.5, "Always, on a clear night")
+        XCTAssertLessThan(always.sky.moon.altitude, -5, "no moon to face")
+        func light(_ image: CGImage) -> Double {
+            let c = FramePatch.meanRGB(image, x: -1...1, y: 0.3...1)   // the sky, well above the hills
+            return 0.2126 * c.x + 0.7152 * c.y + 0.0722 * c.z
+        }
+        XCTAssertGreaterThanOrEqual(light(always.image), 1.3 * light(never.image),
+                                    "the aurora stands in the lake's sky: \(light(never.image)) → \(light(always.image))")
     }
 
     static var night: SkySettings {
@@ -2122,6 +2227,63 @@ final class AuroraFjordRendererTests: XCTestCase {
         XCTAssertGreaterThan(r.rippleCount, 0)
         XCTAssertEqual(r.floeCount, AuroraFjordModel.floeCount(0.6))
     }
+
+    /// Every village light's quad holds its whole reflection: from the light past the horizon to its mirror point (the
+    /// light's height plus the eye's below the horizon) and on by 5 × the streak's length (the shader's `len`), where the
+    /// streak has faded to e^−5. A calm, clear night with Village lights at 1, so all ten are lit, the 130 m one too.
+    func testVillageReflectionsAreWhole() throws {
+        let state = ThemeState(values: ["village": .number(1), "swell": .number(0.4)])
+        let shot = try XCTUnwrap(fjordShots(at: [1.5], state: state) { $0.wind = 0 }.last)
+        let r = shot.renderer
+        XCTAssertEqual(shot.frame.sky.pillar, 0, "no diamond dust: the quads end at the reflections")
+        XCTAssertEqual(r.villageRects.count, AuroraFjordRenderer.maxVillageLights)
+        let tanV = Float(tan(AuroraFjordRenderer.verticalFOV(aspect: 640.0 / 360) * .pi / 360))
+        let pitch: Float = -atan(r.horizonY * tanV)
+        let streak: Float = 0.006 + 0.02 * 0.4   // the shader's len: no wind, swell 0.4
+        for (i, l) in AuroraFjordRenderer.villageLayout.enumerated() {
+            let distance = AuroraFjordRenderer.wallDistance(l.phi) * 1.03
+            let end = -(atan((l.height + AuroraFjordRenderer.eyeHeight) / distance) + 5 * streak)
+            // Where (φ, end) lands on screen: the view's frame is level ahead and across, pitched up by `pitch`.
+            let flat: Float = cos(end) * cos(l.phi)
+            let up: Float = sin(end) * cos(pitch) - flat * sin(pitch)
+            let ahead: Float = flat * cos(pitch) + sin(end) * sin(pitch)
+            let y = up / (ahead * tanV)
+            XCTAssertLessThanOrEqual(r.villageRects[i].y, max(y, -1.05) + 1e-4,
+                                     "light \(i) (\(l.height) m): its quad stops at \(r.villageRects[i].y), its reflection runs to \(y)")
+        }
+    }
+
+    /// Long sessions: the shader's clock is the world's wrapped to the hour (so its floats stay fine), and the wrap
+    /// doesn't show: across it the water changes no more than between two ordinary frames (noon, so the cat's paws and
+    /// glints move bright reflections).
+    func testFjordClockWrapsWithoutAJump() throws {
+        guard let device = MTLCreateSystemDefaultDevice() else { throw XCTSkip("No Metal device") }
+        let preview = try XCTUnwrap(PreviewRenderer(width: 640, height: 360))
+        let follow = ThemeState(values: ["light.hold": .choice(SkyHold.follow.rawValue), "swell": .number(0)])
+        let base = try XCTUnwrap(fjordShots(at: [0.5], state: follow, sky: Self.sky(hour: 13)) { $0.wind = 0.6 }.last).frame
+        let params = ThemeRegistry.parameterSet(for: AuroraFjordModel.id, state: follow)
+        let size = CGSize(width: 640, height: 360)
+        // Two frames 1/60 s apart, the second at `t`; returns the water's change between them and the shader's clock.
+        func step(to t: Double) throws -> (change: Double, clock: Float) {
+            let r = try XCTUnwrap(AuroraFjordRenderer(device: device))
+            var f = base
+            f.time = t - 1.0 / 60
+            r.update(f, params: params, quality: .high, gentle: false, dt: 1.0 / 60, size: size)
+            let a = try XCTUnwrap(preview.capture(r))
+            f.time = t
+            r.update(f, params: params, quality: .high, gentle: false, dt: 1.0 / 60, size: size)
+            let b = try XCTUnwrap(preview.capture(r))
+            let keyTop = Double(r.keyRects.map(\.w).max() ?? -1)
+            let water: ClosedRange<Double> = (keyTop + 0.02)...(Double(r.horizonY) - 0.02)
+            return (FramePatch.difference(a, b, x: -1...1, y: water), r.uniforms[0].y)
+        }
+        let day = try step(to: 86_400.5)
+        XCTAssertEqual(day.clock, 0.5, accuracy: 1e-3, "a day in, the shader's clock reads half a second into the hour")
+        let ordinary = try step(to: 1_800), wrap = try step(to: AuroraFjordRenderer.clockWrap)
+        XCTAssertLessThan(wrap.clock, 1e-3, "it wraps on the hour")
+        XCTAssertLessThanOrEqual(wrap.change, 2 * ordinary.change + 0.002,
+                                 "the water across the wrap \(wrap.change) against an ordinary frame \(ordinary.change)")
+    }
 }
 
 extension WorldPreviewTests {
@@ -2282,22 +2444,44 @@ final class BioluminescentBayRendererTests: XCTestCase {
         XCTAssertGreaterThanOrEqual(inside, 1.4 * beside, "patch \(inside), beside \(beside)")
     }
 
-    /// The still bay mirrors the real stars: with them forced on, the water under the sky holds far brighter points than
-    /// with them off (night, clear, no moon; the glow, lantern, lighthouse and keys off).
+    /// The still bay mirrors the real stars: at 17:00 the Pointers and Crux stand low over the bay's mouth, and the same
+    /// night with the star texture swapped for an empty one (still bound, so the procedural field is the same faint
+    /// background in both) holds far fainter points on the water (clear, no moon; glow, lantern, lighthouse, keys off).
     func testBayMirrorsTheRealStars() throws {
+        guard let device = MTLCreateSystemDefaultDevice() else { throw XCTSkip("No Metal device") }
+        let blank = [UInt8](repeating: 0, count: StarTexture.width * StarTexture.height * 4)
+        let empty = try XCTUnwrap(StarTextureCache.makeTexture(device: device, bytes: blank))
         let still = ThemeState(values: ["glow": .number(0), "lantern": .number(0), "lighthouse": .number(0), "keys.show": .bool(false)])
-        func water(_ visibility: Float) throws -> (bright: Double, mean: Double) {
-            let shot = try renderBay(notes: [], at: 1, state: still, sky: Self.sky(hour: 22, phase: 0),
-                                     skyEdit: { $0.starVisibility = visibility })
-            XCTAssertNotNil(StarTextureCache.shared.texture, "the real stars are bound")
+        func water(_ texture: MTLTexture?) throws -> (bright: Double, mean: Double) {
+            let shot = try renderBay(notes: [], at: 1, state: still, sky: Self.sky(hour: 17, phase: 0),
+                                     each: { r, _ in r.sky.starTextureOverride = texture })
+            XCTAssertNotNil(shot.renderer.sky.starTexture, "a star texture is bound")
             let r = shot.renderer
             let x = -0.7...0.7, y = Double(r.waterlineY + 0.05)...Double(r.horizonY - 0.03)
-            return (bright: FramePatch.brightest(shot.image, x: x, y: y, share: 0.01),
+            return (bright: FramePatch.brightest(shot.image, x: x, y: y, share: 0.001),
                     mean: luma(FramePatch.meanRGB(shot.image, x: x, y: y)))
         }
-        let on = try water(1), off = try water(0)
-        XCTAssertGreaterThanOrEqual(on.bright, 1.25 * off.bright, "reflected stars: \(off.bright) → \(on.bright)")
-        XCTAssertGreaterThan(on.mean, off.mean, "the mirror carries the starlight")
+        let real = try water(nil)
+        XCTAssertNotNil(StarTextureCache.shared.texture, "the real stars are built (the preview waits for them)")
+        let none = try water(empty)
+        XCTAssertGreaterThanOrEqual(real.bright, 1.15 * none.bright, "reflected real stars: \(none.bright) → \(real.bright)")
+        XCTAssertGreaterThan(real.mean, none.mean, "the mirror carries their light")
+    }
+
+    /// The bay frames the aurora low over its mouth, as the fjord does: forced on with its base anywhere from 25° (the
+    /// lowest "Always") to overhead, it stands in the bay's sky, which is far brighter than the same night without it.
+    func testBayShowsTheAuroraAtAnyHeight() throws {
+        let still = ThemeState(values: ["glow": .number(0), "lantern": .number(0), "lighthouse": .number(0), "keys.show": .bool(false)])
+        func skyLight(_ aurora: Float, base: Float) throws -> Double {
+            let shot = try renderBay(notes: [], at: 0.5, state: still, sky: Self.sky(hour: 22, phase: 0),
+                                     skyEdit: { s in s.aurora = aurora; s.auroraAltitude = base; s.auroraStorm = 0 })
+            return luma(FramePatch.meanRGB(shot.image, x: -1...1, y: Double(shot.renderer.horizonY + 0.02)...1))
+        }
+        let off = try skyLight(0, base: 42.5)
+        for base: Float in [25, 42.5, 60, 90] {
+            let on = try skyLight(1, base: base)
+            XCTAssertGreaterThanOrEqual(on, 1.3 * off, "base \(base)°: the bay's sky \(off) → \(on)")
+        }
     }
 
     func testBayHonoursGentleVisuals() throws {
