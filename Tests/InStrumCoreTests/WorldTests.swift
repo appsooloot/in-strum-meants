@@ -804,3 +804,164 @@ extension WorldTests {
         XCTAssertEqual(f.glow, 0, accuracy: 1e-6, "Curtain Light rests while Frost Grow plays")
     }
 }
+
+// MARK: - Bioluminescent Bay
+
+extension WorldTests {
+    private func bayStep(_ model: inout BioluminescentBayModel, seconds: Double, dt: Double = 1.0 / 30,
+                         state: ThemeState = ThemeState()) -> BayFrame {
+        let p = ThemeRegistry.parameterSet(for: BioluminescentBayModel.id, state: state)
+        var frame: BayFrame?
+        for _ in 0..<max(1, Int((seconds / dt).rounded())) {
+            frame = model.step(dt: dt, params: p, roles: RoleValues(), inputs: InputFrame(), quality: .high)
+        }
+        return frame!
+    }
+
+    /// The bay through the director at a frozen hour in Melbourne, following the sky (not held at deep night).
+    private func bayFrame(hour: Double, weather: WeatherKind = .clear, hold: SkyHold = .follow) -> BayFrame? {
+        var state = ThemeState(); state.values["light.hold"] = .choice(hold.rawValue)
+        let d = SceneDirector(themeID: BioluminescentBayModel.id, state: state, reaction: ReactionPresets.expressivePianist)
+        var s = SkySettings(); s.timeMode = .frozen; s.frozenHour = hour; s.cityID = "melbourne"; s.weatherMode = .pick; s.weather = weather
+        d.sky.reset(settings: s)
+        var frame: BayFrame?
+        for i in 0..<90 {
+            if i == 80 { d.handle([.noteOn(note: 60, velocity: 0.8)], at: Double(i) / 30) }
+            frame = d.step(dt: 1.0 / 30, t: Double(i) / 30, quality: .high) as? BayFrame
+        }
+        return frame
+    }
+
+    func testBayGlowsOnlyAtNight() throws {
+        let noon = try XCTUnwrap(bayFrame(hour: 12))
+        XCTAssertGreaterThan(noon.sky.sun.altitude, 20)
+        XCTAssertEqual(noon.glowScale, 0, "the plankton needs the dark")
+        XCTAssertEqual(noon.patches.count, 1, "the note still lands")
+        XCTAssertTrue(noon.patches.allSatisfy { $0.brightness == 0 })
+        XCTAssertFalse(noon.lanternLit)
+        let night = try XCTUnwrap(bayFrame(hour: 23))
+        XCTAssertLessThan(night.sky.sun.altitude, -8)
+        XCTAssertEqual(night.glowScale, 1, accuracy: 0.02)
+        XCTAssertGreaterThan(try XCTUnwrap(night.patches.first).brightness, 0.6)
+        XCTAssertTrue(night.lanternLit)
+        // Held at deep night (the default), noon glows too.
+        XCTAssertEqual(try XCTUnwrap(bayFrame(hour: 12, hold: .deepNight)).glowScale, 1, accuracy: 0.02)
+
+        // Rain dulls it: ×(1 − 0.6·rain).
+        var model = BioluminescentBayModel()
+        var s = SkyState(); s.sun = SkyDirection(azimuth: 0, altitude: -20); s.hourOfDay = 23; s.rain = 0.5
+        model.setSky(s)
+        XCTAssertEqual(bayStep(&model, seconds: 0.1).glowScale, 0.7, accuracy: 1e-5)
+        XCTAssertEqual(BioluminescentBayModel.glowScale(s), 0.7, accuracy: 1e-5)
+    }
+
+    func testBayAmbience() {
+        var night = BioluminescentBayModel()
+        night.mood = .secretGlow
+        night.setSky(sky(sun: -20, hour: 23))
+        let a = bayStep(&night, seconds: 0.1).ambience
+        XCTAssertEqual(a.level(.lapping), 0.7, accuracy: 1e-9)
+        XCTAssertEqual(a.level(.water), 0.3, accuracy: 1e-9)
+        XCTAssertEqual(a.level(.crickets), 0.5, accuracy: 1e-9)
+        XCTAssertEqual(a.level(.boat), 0.4, accuracy: 1e-9)
+        XCTAssertEqual(a.level(.breeze), 0.25, accuracy: 1e-9)
+        XCTAssertEqual(a.level(.owl), 0.15, accuracy: 1e-9)
+        XCTAssertEqual(a.level(.gulls), 0, accuracy: 1e-9)
+        XCTAssertEqual(a.level(.surf), 0, "a sheltered cove: no surf")
+        XCTAssertEqual(a.closeness, MoodLook.ambienceCloseness(base: 0.6, .secretGlow), accuracy: 1e-9)
+        XCTAssertGreaterThan(a.nightCool, 0)
+        XCTAssertNil(a.wave)
+
+        var day = BioluminescentBayModel()
+        var d = sky(sun: 40, hour: 13); d.wind = 0.3; d.rain = 0.4
+        day.setSky(d)
+        let b = bayStep(&day, seconds: 0.1).ambience
+        XCTAssertEqual(b.level(.crickets), 0)
+        XCTAssertEqual(b.level(.owl), 0)
+        XCTAssertEqual(b.level(.gulls), 0.2, accuracy: 1e-9)
+        XCTAssertEqual(b.level(.breeze), 0.55, accuracy: 1e-6)
+        XCTAssertEqual(b.level(.rainOnWater), 0.4, accuracy: 1e-6)
+
+        // Thunder as the lake: once per strike.
+        var storm = BioluminescentBayModel()
+        var st = sky(sun: -20, hour: 23); st.lightning = 1
+        storm.setSky(st)
+        let p = ThemeRegistry.parameterSet(for: BioluminescentBayModel.id, state: ThemeState())
+        let first = storm.step(dt: 1.0 / 30, params: p, roles: RoleValues(), inputs: InputFrame(), quality: .high)
+        let second = storm.step(dt: 1.0 / 30, params: p, roles: RoleValues(), inputs: InputFrame(), quality: .high)
+        XCTAssertNotNil(first.ambience.thunder)
+        XCTAssertNil(second.ambience.thunder)
+    }
+
+    func testBayDefaults() {
+        XCTAssertEqual(ThemeRegistry.resolve(BioluminescentBayModel.id), BioluminescentBayModel.id)
+        XCTAssertTrue(ThemeRegistry.all.contains { $0.id == BioluminescentBayModel.id && $0.name == "Bioluminescent Bay" })
+        XCTAssertTrue(ThemeRegistry.isWorld(BioluminescentBayModel.id))
+        assertValidParameters(BioluminescentBayModel.parameters)
+        let params = ThemeRegistry.parameterSet(for: BioluminescentBayModel.id, state: ThemeState())
+        XCTAssertEqual(BioluminescentBayModel.visuals, ["Glow Wake", "Galaxy Warp"])
+        XCTAssertEqual(params.choice("visual"), "Glow Wake")
+        XCTAssertEqual(params.choice("light.hold"), "Deep night")
+        XCTAssertEqual(params.choice("aurora.mode"), "Follow the sky")
+        XCTAssertEqual(params.number("glow"), 0.7, accuracy: 1e-9)
+        XCTAssertEqual(params.number("lantern"), 0.6, accuracy: 1e-9)
+        XCTAssertEqual(params.number("lighthouse"), 0.5, accuracy: 1e-9)
+        XCTAssertEqual(params.number("keys.show"), 1, accuracy: 1e-9)
+        XCTAssertEqual(params.number("keys.height"), 0.12, accuracy: 1e-9)
+        XCTAssertTrue(BioluminescentBayModel.parameters.first { $0.id == "glow" }?.hero ?? false)
+        XCTAssertEqual(Mood.secretGlow, Mood(energy: 0.3, warmth: 0.55, brightness: 0.35, space: 0.7, motion: 0.4))
+
+        // The frame carries the glow, the keys and, with Galaxy Warp, streaks instead.
+        var model = BioluminescentBayModel()
+        model.setSky(sky(sun: -20, hour: 23))
+        model.handle(.noteOn(note: 60, velocity: 0.8))
+        let f = bayStep(&model, seconds: 0.5)
+        XCTAssertEqual(f.patches.count, 1)
+        XCTAssertEqual(f.keys.count, 88)
+        XCTAssertTrue(f.keys.contains { $0.key.note == 60 && $0.pressed })
+        XCTAssertNil(f.warp)
+        XCTAssertTrue(f.swellScale > 0 && f.swellScale < 0.2, "a still bay in calm weather")
+        let w = bayStep(&model, seconds: 0.5, state: ThemeState(values: ["visual": .choice("Galaxy Warp")]))
+        XCTAssertNotNil(w.warp)
+        XCTAssertTrue(w.patches.isEmpty, "Galaxy Warp replaces the glow")
+
+        // Storms whip the bay up.
+        var stormy = BioluminescentBayModel()
+        var s = sky(sun: -20, hour: 23); s.weather = .storm; s.nextWeather = .storm
+        stormy.setSky(s)
+        XCTAssertGreaterThan(bayStep(&stormy, seconds: 0.1).swellScale, 2 * f.swellScale)
+    }
+
+    func testLighthouseBlinksEverySixSeconds() {
+        var model = BioluminescentBayModel()
+        model.setSky(sky(sun: -20, hour: 23))
+        let p = ThemeRegistry.parameterSet(for: BioluminescentBayModel.id, state: ThemeState())
+        let dt = 1.0 / 60
+        var onsets: [Double] = []
+        var litFrames = 0
+        var previous: Float = 0
+        for i in 1...(19 * 60) {
+            let f = model.step(dt: dt, params: p, roles: RoleValues(), inputs: InputFrame(), quality: .high)
+            XCTAssertTrue((0...1).contains(f.lighthouseFlash))
+            if f.lighthouseFlash > 0 { litFrames += 1 }
+            if f.lighthouseFlash > 0, previous == 0 { onsets.append(Double(i) * dt) }
+            previous = f.lighthouseFlash
+        }
+        XCTAssertEqual(onsets.count, 4, "at 0, 6, 12 and 18 s")
+        for (a, b) in zip(onsets, onsets.dropFirst()) { XCTAssertEqual(b - a, 6, accuracy: 0.05) }
+        XCTAssertEqual(Double(litFrames) * dt / Double(onsets.count), 0.4, accuracy: 0.05, "each flash lasts 0.4 s")
+
+        // Dark by day, and when the lighthouse is turned off.
+        var day = BioluminescentBayModel()
+        day.setSky(sky(sun: 30, hour: 13))
+        var dayMax: Float = 0
+        for _ in 0..<(7 * 60) { dayMax = max(dayMax, day.step(dt: dt, params: p, roles: RoleValues(), inputs: InputFrame(), quality: .high).lighthouseFlash) }
+        XCTAssertEqual(dayMax, 0)
+        var off = BioluminescentBayModel()
+        off.setSky(sky(sun: -20, hour: 23))
+        let po = ThemeRegistry.parameterSet(for: BioluminescentBayModel.id, state: ThemeState(values: ["lighthouse": .number(0)]))
+        var offMax: Float = 0
+        for _ in 0..<(7 * 60) { offMax = max(offMax, off.step(dt: dt, params: po, roles: RoleValues(), inputs: InputFrame(), quality: .high).lighthouseFlash) }
+        XCTAssertEqual(offMax, 0)
+    }
+}
