@@ -61,6 +61,16 @@ final class OrbitPadTests: XCTestCase {
         XCTAssertLessThanOrEqual(out.l.map { abs($0) }.max() ?? 2, 1.0)
     }
 
+    /// Two-hand chords a second apart under the pedal: from the third on, each steals eight voices at once from a full
+    /// pool. With four spare voices the steals past the fourth were cut dead, and the pad's ladder filter leaves almost
+    /// nothing above 10 kHz to hide the cut: 36 dB over the same chords played without stealing (Polar Choir's breath
+    /// hid its own). Every steal now fades (the g++ mirror: −2.9 dB at worst; with the 20 ms fade removed, +34).
+    func testFullPoolStealIsClickFree() {
+        let steal = R.stealClicks(pad, params: dry, velocities: [UInt8](repeating: 90, count: 6), gap: 1, from: 2)
+        XCTAssertTrue(steal.out.l.allSatisfy(\.isFinite) && steal.out.r.allSatisfy(\.isFinite))
+        XCTAssertLessThan(steal.clicks.max() ?? 99, 3, "dB over the chords without stealing: \(steal.clicks)")
+    }
+
     func testDialSweepIsSmooth() {
         var start = dry; start[Int(ISD_P_BLOOM)] = 0; start[Int(ISD_P_BRIGHTNESS)] = 0; start[Int(ISD_P_DRIFT)] = 0
         let out = R.render(pad, seconds: 3.25, params: start, events: [R.noteOn(0, 57, 100)],

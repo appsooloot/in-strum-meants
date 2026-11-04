@@ -145,7 +145,7 @@ final class HazeBellsTests: XCTestCase {
             XCTAssertEqual(level(engine), felt, accuracy: 3, name)
         }
         // Polar Choir is still mid-swell for its first 1.5 s (attack 0.3–3 s by design), so it is heard once it has
-        // arrived: 2.0–3.5 s into the chord (the g++ mirror: 1.7 dB over Felt Glass's first 1.5 s).
+        // arrived: 2.0–3.5 s into the chord (the g++ mirror: 1.5 dB over Felt Glass's first 1.5 s).
         let choir = DSPTestKit.dBFS(R.slice(R.render(ISD_ENGINE_POLAR_CHOIR, seconds: 3.5, events: chord).l, 2.0, 3.5))
         XCTAssertEqual(choir, felt, accuracy: 3, "Polar Choir")
         // Morning Box's presets too (final review: Music Box sat 9 dB over the rest).

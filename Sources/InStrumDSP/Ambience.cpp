@@ -791,7 +791,7 @@ class Road final : public AmbienceSource {
     Pink pinkL, pinkR;
     Brown brown;
     SVF lpL, lpR, rumble, thumpLP, hissL, hissR;
-    float toJoint = 12, thumpT = 10, thumpGap = 0.1f, thumpPh = 0, thumpAmp = 0;
+    float toJoint = 12, thumpT = 10, thumpGap = 0.1f, thumpAmp = 0;
 
 public:
     explicit Road(uint64_t seed) : rng(seed) { direct = 1.f; send = 0.2f; }
@@ -1263,7 +1263,9 @@ public:
         }
         if ((toCrack -= dt) <= 0) {
             const float pan = 0.8f * rng.bipolar();
-            click.start(3500.f, 0.35f, 0.001f + 0.002f * rng.uniform(), 16.f, pan, fsr);
+            // At 16 the cracks were the loudest thing in the ambience (0.997 peak over 30 min at level 1, density 1.5);
+            // at 8 they peak at 0.58 and still stand 28–35 dB over the 200 ms around them.
+            click.start(3500.f, 0.35f, 0.001f + 0.002f * rng.uniform(), 8.f, pan, fsr);
             const float f = 1000.f + 1000.f * rng.uniform();
             ring[0].start(f, 0.3f, 0.12f, fsr); ring[1].start(f * 1.47f, 0.2f, 0.06f, fsr);
             panGains(pan, ringGl, ringGr);

@@ -49,4 +49,58 @@ enum SynthRender {
     static func maxAbsDifference(_ a: [Float], _ b: [Float]) -> Float {
         zip(a, b).reduce(0) { max($0, abs($1.0 - $1.1)) }
     }
+
+    /// Chord `c` of a run of two-hand chords: eight notes in fourths up from C2, each chord a whole tone above the last
+    /// (a semitone more after five), struck at `t` and let go `gap` later, as the next one comes.
+    static func handChord(_ c: Int, at t: Double, gap: Double, velocity: UInt8) -> [Event] {
+        (0..<8).flatMap { k -> [Event] in
+            let note = UInt8(36 + 2 * (c % 5) + c / 5 + 5 * k)
+            return [noteOn(t, note, velocity), noteOff(t + gap, note)]
+        }
+    }
+
+    /// Two-hand chords `gap` s apart under the pedal on one synth, against the same chords each on a synth of its own,
+    /// summed, where nothing is stolen. For each chord from `first` on (once the voices are full, each steals eight at
+    /// once): how far (dB) the loudest millisecond above 10 kHz, from 2 ms before it to 25 ms after, rises over the
+    /// reference, taken as no quieter than −80 dBFS. With the stealing render, for its own checks.
+    static func stealClicks(_ engine: ISDEngine, params: [Int: Float], velocities: [UInt8], gap: Double, from first: Int)
+        -> (clicks: [Double], out: (l: [Float], r: [Float])) {
+        let seconds = Double(velocities.count - 1) * gap + 0.03
+        var all = [pedal(0, 127)]
+        for (c, v) in velocities.enumerated() { all += handChord(c, at: Double(c) * gap, gap: gap, velocity: v) }
+        let out = render(engine, seconds: seconds, params: params, events: all)
+        var refL = [Float](repeating: 0, count: out.l.count), refR = refL
+        for (c, v) in velocities.enumerated() {
+            let t = Double(c) * gap
+            let solo = render(engine, seconds: seconds - t, params: params, events: [pedal(0, 127)] + handChord(c, at: 0, gap: gap, velocity: v))
+            let at = Int(t * sr)
+            for i in 0..<min(solo.l.count, refL.count - at) {
+                refL[at + i] += solo.l[i]
+                refR[at + i] += solo.r[i]
+            }
+        }
+        let clicks = (first..<velocities.count).map { c -> Double in
+            let t = Double(c) * gap
+            let heard = DSPTestKit.loudestHigh(out.l, out.r, from: t - 0.002, to: t + 0.025)
+            let reference = DSPTestKit.loudestHigh(refL, refR, from: t - 0.002, to: t + 0.025)
+            return heard - max(reference, -80)
+        }
+        return (clicks, out)
+    }
+
+    /// `dial` jumps from 0 to 1 at `t`: how far (dB) the loudest millisecond above 10 kHz, from 2 ms before to 25 ms
+    /// after, rises over the same notes with the dial held at 0 and at 1 (taken as no quieter than −80 dBFS).
+    static func jumpClick(_ engine: ISDEngine, params: [Int: Float], dial: Int, at t: Double, events: [Event]) -> Double {
+        var low = params, high = params
+        low[dial] = 0
+        high[dial] = 1
+        let seconds = t + 0.1
+        let jump = render(engine, seconds: seconds, params: low, events: events, changes: [ParamChange(time: t, address: dial, value: 1)])
+        let still0 = render(engine, seconds: seconds, params: low, events: events)
+        let still1 = render(engine, seconds: seconds, params: high, events: events)
+        let heard = DSPTestKit.loudestHigh(jump.l, jump.r, from: t - 0.002, to: t + 0.025)
+        let held0 = DSPTestKit.loudestHigh(still0.l, still0.r, from: t - 0.002, to: t + 0.025)
+        let held1 = DSPTestKit.loudestHigh(still1.l, still1.r, from: t - 0.002, to: t + 0.025)
+        return heard - max(held0, held1, -80)
+    }
 }
