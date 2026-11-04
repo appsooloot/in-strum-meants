@@ -20,6 +20,11 @@ public:
     virtual int activeVoices() const = 0;
     /// Internal counters for tests (see ISDDebugCount); engines without one return 0.
     virtual int debugCount(int which) const { (void)which; return 0; }
+    /// The pitch wheel, in semitones (−2…+2, 0 at rest). Engines that don't bend ignore it.
+    virtual void pitchBend(float semitones) { (void)semitones; }
+    /// Aftertouch 0…1: `note` −1 is channel pressure (every held note), otherwise poly pressure on that note.
+    /// Engines that don't respond to pressure ignore it.
+    virtual void aftertouch(int note, float pressure) { (void)note; (void)pressure; }
 };
 
 } // namespace isd

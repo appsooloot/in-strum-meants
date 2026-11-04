@@ -210,13 +210,26 @@ void handleMidi(isd::Engine &e, const MidiEvent &m) {
         switch (m.bytes[1]) {
         case 64: e.setSustain(m.bytes[2] >= 64); break;
         case 120: e.allSoundOff(); break;
-        case 121: e.setSustain(false); break;
+        case 121: e.setSustain(false); e.pitchBend(0.f); e.aftertouch(-1, 0.f); break;   // reset all controllers
         case 123: e.allNotesOff(); break;
         default: break;
         }
         break;
+    case 0xE0: {   // pitch wheel: 14 bits, centre 8192, ±2 semitones at the ends
+        if (m.length < 3) return;
+        const int v = (int)(m.bytes[1] & 0x7F) | ((int)(m.bytes[2] & 0x7F) << 7);
+        const int d = v - 8192;
+        e.pitchBend(2.f * (float)d / (d >= 0 ? 8191.f : 8192.f));
+        break;
+    }
+    case 0xD0:   // channel pressure
+        if (m.length >= 2) e.aftertouch(-1, (float)(m.bytes[1] & 0x7F) / 127.f);
+        break;
+    case 0xA0:   // poly pressure
+        if (m.length >= 3) e.aftertouch(m.bytes[1] & 0x7F, (float)(m.bytes[2] & 0x7F) / 127.f);
+        break;
     default:
-        break;   // pitch bend, pressure, program change, system messages: ignored
+        break;   // program change, system messages: ignored
     }
 }
 
