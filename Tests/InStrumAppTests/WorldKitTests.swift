@@ -416,7 +416,8 @@ final class WorldKitTests: XCTestCase {
         var lake = SkySettings(); lake.timeMode = .frozen; lake.frozenHour = 22; lake.cityID = "melbourne"
         lake.weatherMode = .pick; lake.weather = .clear
         let preview = try XCTUnwrap(PreviewRenderer(width: 640, height: 360))
-        for id in [MoonlitLakeModel.id, GoldenHourBeachModel.id, CoastRoadModel.id, SnowboundCabinModel.id, BedroomDawnModel.id] {
+        for id in [MoonlitLakeModel.id, GoldenHourBeachModel.id, CoastRoadModel.id, SnowboundCabinModel.id, BedroomDawnModel.id,
+                   BioluminescentBayModel.id] {
             let image = try XCTUnwrap(preview.render(themeID: id, at: [0.5], sky: lake).first, id)
             XCTAssertGreaterThan(PreviewRenderer.stats(image).variance, 0, "\(id) without the stars")
         }
@@ -432,7 +433,8 @@ final class WorldKitTests: XCTestCase {
         let after = try render(darkNight())
         XCTAssertGreaterThan(PreviewRenderer.stats(after).variance, 0, "real stars after")
         XCTAssertGreaterThan(FramePatch.difference(before, after, x: -1...1, y: -1...1), 0, "the real stars change the sky")
-        for id in [MoonlitLakeModel.id, GoldenHourBeachModel.id, CoastRoadModel.id, SnowboundCabinModel.id, BedroomDawnModel.id] {
+        for id in [MoonlitLakeModel.id, GoldenHourBeachModel.id, CoastRoadModel.id, SnowboundCabinModel.id, BedroomDawnModel.id,
+                   BioluminescentBayModel.id] {
             let image = try XCTUnwrap(preview.render(themeID: id, at: [0.5], sky: lake).first, id)
             XCTAssertGreaterThan(PreviewRenderer.stats(image).variance, 0, "\(id) with the stars")
         }
@@ -1012,7 +1014,7 @@ final class CoastRoadRendererTests: XCTestCase {
         let pattern = try NSRegularExpression(pattern: #"pow\([^;]*?,\s*2\.0\)"#)
         let shared = SkyShaders.common.count + OceanShaders.common.count
         for (name, full) in [("road", CoastRoadShaders.source), ("beach", GoldenHourBeachShaders.source), ("ocean", OceanShaders.common),
-                             ("sky", SkyShaders.source)] {
+                             ("sky", SkyShaders.source), ("bay", BioluminescentBayShaders.source)] {
             let source = name == "ocean" || name == "sky" ? full : String(full.dropFirst(shared))
             let hits = pattern.numberOfMatches(in: source, range: NSRange(source.startIndex..., in: source))
             XCTAssertEqual(hits, 0, name)
@@ -1707,6 +1709,254 @@ extension WorldPreviewTests {
         for (name, s, state, q, t) in cases {
             let image = try XCTUnwrap(preview.render(themeID: BedroomDawnModel.id, at: [t], state: state, quality: q, sky: s,
                                                      mood: .softWaking).first)
+            try PreviewRenderer.writePNG(image, to: url.appendingPathComponent("\(name).png"))
+        }
+    }
+}
+
+/// Bioluminescent Bay (Set 8's world) with Glow Wake.
+@MainActor
+final class BioluminescentBayRendererTests: XCTestCase {
+    func testBayShadersCompile() throws {
+        guard let device = MTLCreateSystemDefaultDevice() else { throw XCTSkip("No Metal device") }
+        let lib = try device.makeLibrary(source: BioluminescentBayShaders.source, options: nil)
+        for name in ["bay_vertex", "bay_fragment", "bay_keys_vertex", "bay_keys_fragment"] {
+            XCTAssertNotNil(lib.makeFunction(name: name), name)
+        }
+        let own = String(BioluminescentBayShaders.source.dropFirst(SkyShaders.common.count + OceanShaders.common.count))
+        XCTAssertFalse(own.contains("pow("), "squares and powers are written out")
+        // The Swift uniform arrays match the MSL structs byte for byte (the pipeline's own reflection says so).
+        let d = MTLRenderPipelineDescriptor()
+        d.vertexFunction = lib.makeFunction(name: "bay_vertex")
+        d.fragmentFunction = lib.makeFunction(name: "bay_fragment")
+        d.colorAttachments[0].pixelFormat = RenderStack.sceneFormat
+        d.colorAttachments[1].pixelFormat = RenderStack.depthFormat
+        var reflection: MTLAutoreleasedRenderPipelineReflection?
+        _ = try device.makeRenderPipelineState(descriptor: d, options: [.bindingInfo, .bufferTypeInfo], reflection: &reflection)
+        let buffers = (reflection?.fragmentBindings ?? []).compactMap { $0 as? MTLBufferBinding }
+        func size(_ index: Int) -> Int? { buffers.first { $0.index == index }?.bufferDataSize }
+        let row = MemoryLayout<SIMD4<Float>>.stride
+        XCTAssertEqual(size(0), SkyLayer.uniformCount * row, "SkyU")
+        XCTAssertEqual(size(1), BioluminescentBayRenderer.uniformCount * row, "BayU")
+        XCTAssertEqual(size(2), 7 * row, "OceanU")
+        XCTAssertEqual(BioluminescentBayRenderer.wakeBase, BioluminescentBayRenderer.patchBase + GlowWake.cap)
+        XCTAssertEqual(BioluminescentBayRenderer.dartBase, BioluminescentBayRenderer.wakeBBase + GlowWake.wakeCap)
+        XCTAssertEqual(BioluminescentBayRenderer.uniformCount, BioluminescentBayRenderer.dartBBase + GlowWake.dartCap)
+        let r = try XCTUnwrap(BioluminescentBayRenderer(device: device))
+        XCTAssertEqual(r.uniforms.count, BioluminescentBayRenderer.uniformCount)
+        XCTAssertEqual(r.oceanUniforms.count, 7)
+    }
+
+    /// Frozen Melbourne skies (the world holds Deep night unless a test follows the sky); a thin moon by default.
+    nonisolated static func sky(hour: Double, weather: WeatherKind = .clear, phase: Double = 0.1) -> SkySettings {
+        var s = SkySettings(); s.timeMode = .frozen; s.frozenHour = hour; s.frozenPhase = phase; s.cityID = "melbourne"
+        s.weatherMode = .pick; s.weather = weather
+        return s
+    }
+
+    struct BayShot { var image: CGImage; var renderer: BioluminescentBayRenderer; var frame: BayFrame }
+
+    /// Steps the bay at 60 fps (notes go down at 0.5 s and stay held) and renders the frame at `seconds`.
+    private func renderBay(notes: [UInt8], velocity: Float = 1, at seconds: Double, state: ThemeState = ThemeState(),
+                           sky: SkySettings = BioluminescentBayRendererTests.sky(hour: 22), quality: QualityLevel = .high,
+                           gentle: Bool = false, width: Int = 640, height: Int = 360,
+                           skyEdit: ((inout SkyState) -> Void)? = nil,
+                           each: ((BioluminescentBayRenderer, BayFrame) -> Void)? = nil) throws -> BayShot {
+        guard let device = MTLCreateSystemDefaultDevice() else { throw XCTSkip("No Metal device") }
+        let preview = try XCTUnwrap(PreviewRenderer(width: width, height: height))
+        let r = try XCTUnwrap(BioluminescentBayRenderer(device: device))
+        let d = SceneDirector(themeID: BioluminescentBayModel.id, state: state, reaction: ReactionPresets.expressivePianist)
+        let start = Date(timeIntervalSince1970: 1_793_000_000)
+        var elapsed = 0.0
+        d.clock = { start.addingTimeInterval(elapsed) }
+        d.sky.reset(settings: sky)
+        d.mood = .secretGlow
+        var frame: BayFrame?
+        let size = CGSize(width: width, height: height)
+        for i in 1...Int(seconds * 60) {
+            let t = Double(i) / 60
+            elapsed = t
+            if i == 30, !notes.isEmpty { d.handle(notes.map { .noteOn(note: $0, velocity: velocity) }, at: t) }
+            frame = d.step(dt: 1.0 / 60, t: t, quality: quality) as? BayFrame
+            if let edit = skyEdit, frame != nil { edit(&frame!.sky) }
+            if let frame {
+                r.update(frame, params: d.parameters, quality: quality, gentle: gentle, dt: 1.0 / 60, size: size)
+                each?(r, frame)
+            }
+        }
+        let f = try XCTUnwrap(frame)
+        return BayShot(image: try XCTUnwrap(preview.capture(r)), renderer: r, frame: f)
+    }
+
+    private func luma(_ c: SIMD3<Double>) -> Double { 0.2126 * c.x + 0.7152 * c.y + 0.0722 * c.z }
+
+    /// The median luminance inside an NDC rectangle (a reflected star in it can't move it).
+    private func medianLuma(_ image: CGImage, x: ClosedRange<Double>, y: ClosedRange<Double>) -> Double {
+        let l = FramePatch.pixels(image, x: x, y: y).map(luma).sorted()
+        return l.isEmpty ? 0 : l[l.count / 2]
+    }
+
+    private struct LightCase { let name: String; let state: ThemeState; let sky: SkySettings; let mean: Double; let variance: Double }
+
+    func testBayPreviewIsStructured() throws {
+        let follow = ThemeState(values: ["light.hold": .choice(SkyHold.follow.rawValue)])
+        let cases = [
+            LightCase(name: "night", state: ThemeState(), sky: Self.sky(hour: 22), mean: 0.012, variance: 0.0008),
+            LightCase(name: "dawn", state: follow, sky: Self.sky(hour: 7.1, phase: 0.3), mean: 0.05, variance: 0.002),
+            LightCase(name: "noon", state: follow, sky: Self.sky(hour: 13, phase: 0.5), mean: 0.2, variance: 0.004),
+        ]
+        for q in [QualityLevel.lite, .high] {
+            for c in cases {
+                let shot = try renderBay(notes: [60, 64, 67], at: 1.5, state: c.state, sky: c.sky, quality: q)
+                let s = PreviewRenderer.stats(shot.image)
+                XCTAssertGreaterThan(s.meanLuminance, c.mean, "\(q) \(c.name)")
+                XCTAssertGreaterThan(s.variance, c.variance, "\(q) \(c.name)")
+                XCTAssertEqual(shot.renderer.patchCount, 3, "\(q) \(c.name): the notes land in any light")
+                if c.name == "night" {
+                    XCTAssertGreaterThan(shot.renderer.glowOut, 0.5, "\(q): the plankton glows in the dark")
+                    XCTAssertGreaterThan(shot.renderer.lanternOut, 0.4, "\(q): the lantern is lit")
+                }
+                if c.name == "noon" {
+                    XCTAssertEqual(shot.renderer.glowOut, 0, "\(q): no glow by day")
+                    XCTAssertEqual(shot.renderer.lanternOut, 0, "\(q): the lantern is out by day")
+                    XCTAssertEqual(shot.renderer.lighthouseOut, 0, "\(q): nor the lighthouse")
+                }
+            }
+        }
+    }
+
+    /// A held note at night lights its patch of water: the patch is far brighter than the water beside it.
+    func testNotesLightTheWater() throws {
+        let quiet = ThemeState(values: ["lantern": .number(0), "lighthouse": .number(0)])
+        let shot = try renderBay(notes: [60], at: 1.5, state: quiet)
+        let patch = try XCTUnwrap(shot.frame.patches.first)
+        XCTAssertGreaterThan(patch.brightness, 0.5, "lit in the dark")
+        XCTAssertEqual(shot.renderer.patchCount, 1)
+        let box = try XCTUnwrap(shot.renderer.screenBox(of: patch))
+        let cx = Double(box.centre.x), cy = Double(box.centre.y), hx = Double(box.half.x), hy = Double(box.half.y)
+        XCTAssertLessThan(cy, Double(shot.renderer.horizonY), "on the water")
+        XCTAssertGreaterThan(cy, Double(shot.renderer.waterlineY), "beyond the waterline")
+        let y = (cy - 0.6 * hy)...(cy + 0.6 * hy)
+        let inside = luma(FramePatch.meanRGB(shot.image, x: (cx - 0.4 * hx)...(cx + 0.4 * hx), y: y))
+        let beside = max(medianLuma(shot.image, x: (cx - 3.4 * hx)...(cx - 2.6 * hx), y: y),
+                         medianLuma(shot.image, x: (cx + 2.6 * hx)...(cx + 3.4 * hx), y: y))
+        XCTAssertGreaterThanOrEqual(inside, 1.4 * beside, "patch \(inside), beside \(beside)")
+    }
+
+    /// The still bay mirrors the real stars: with them forced on, the water under the sky holds far brighter points than
+    /// with them off (night, clear, no moon; the glow, lantern, lighthouse and keys off).
+    func testBayMirrorsTheRealStars() throws {
+        let still = ThemeState(values: ["glow": .number(0), "lantern": .number(0), "lighthouse": .number(0), "keys.show": .bool(false)])
+        func water(_ visibility: Float) throws -> (bright: Double, mean: Double) {
+            let shot = try renderBay(notes: [], at: 1, state: still, sky: Self.sky(hour: 22, phase: 0),
+                                     skyEdit: { $0.starVisibility = visibility })
+            XCTAssertNotNil(StarTextureCache.shared.texture, "the real stars are bound")
+            let r = shot.renderer
+            let x = -0.7...0.7, y = Double(r.waterlineY + 0.05)...Double(r.horizonY - 0.03)
+            return (bright: FramePatch.brightest(shot.image, x: x, y: y, share: 0.01),
+                    mean: luma(FramePatch.meanRGB(shot.image, x: x, y: y)))
+        }
+        let on = try water(1), off = try water(0)
+        XCTAssertGreaterThanOrEqual(on.bright, 1.25 * off.bright, "reflected stars: \(off.bright) → \(on.bright)")
+        XCTAssertGreaterThan(on.mean, off.mean, "the mirror carries the starlight")
+    }
+
+    func testBayHonoursGentleVisuals() throws {
+        var plain: (glow: Float, flash: Float) = (glow: 0, flash: 0), gentle: (glow: Float, flash: Float) = (glow: 0, flash: 0)
+        _ = try renderBay(notes: [60, 64, 67], at: 1, each: { r, _ in
+            plain = (glow: max(plain.glow, r.glowOut), flash: max(plain.flash, r.lighthouseOut))
+        })
+        _ = try renderBay(notes: [60, 64, 67], at: 1, gentle: true, each: { r, _ in
+            gentle = (glow: max(gentle.glow, r.glowOut), flash: max(gentle.flash, r.lighthouseOut))
+        })
+        XCTAssertGreaterThan(plain.glow, 0.3, "the plankton glows at night")
+        XCTAssertGreaterThan(plain.flash, 0.2, "the lighthouse flashes in the first second")
+        XCTAssertLessThanOrEqual(gentle.glow, plain.glow * 0.55, "gentle visuals calm the glow")
+        XCTAssertLessThanOrEqual(gentle.flash, plain.flash * 0.55, "and the lighthouse")
+    }
+
+    func testFirefliesOnTheHeadlandsOnHumidNights() throws {
+        let humid = try renderBay(notes: [], at: 1, sky: Self.sky(hour: 22, weather: .humid))
+        XCTAssertGreaterThan(humid.frame.sky.fireflies, 0.5, "a humid night")
+        XCTAssertGreaterThan(humid.renderer.weather.fireflyCount, 0, "fireflies over the shore")
+        let clear = try renderBay(notes: [], at: 1)
+        XCTAssertEqual(clear.renderer.weather.fireflyCount, 0, "none on a clear night")
+    }
+
+    func testBayFramesAnyAspect() throws {
+        for (w, h) in [(864, 360), (360, 360)] {
+            let shot = try renderBay(notes: [21, 60, 64, 67, 108], at: 1.5, width: w, height: h)
+            let r = shot.renderer
+            XCTAssertEqual(r.keyRects.count, 88)
+            for k in r.keyRects {
+                XCTAssertGreaterThanOrEqual(k.x, -1); XCTAssertLessThanOrEqual(k.z, 1)
+                XCTAssertGreaterThanOrEqual(k.y, -1); XCTAssertLessThanOrEqual(k.w, 1)
+            }
+            let keyTop = r.keyRects.map(\.w).max() ?? -1
+            XCTAssertTrue(r.waterlineY > keyTop && r.waterlineY < r.horizonY && r.horizonY < 1, "\(w)×\(h): sand, water, sky in order")
+            for (name, p) in [("lantern", r.lanternScreen), ("lighthouse", r.lighthouseScreen)] {
+                XCTAssertTrue(abs(p.x) < 0.95 && p.y > r.waterlineY && p.y < 0.95, "\(w)×\(h): the \(name) at \(p)")
+            }
+            XCTAssertEqual(r.patchCount, 5)
+            for patch in shot.frame.patches {
+                let box = try XCTUnwrap(r.screenBox(of: patch))
+                XCTAssertTrue(abs(box.centre.x) + box.half.x < 1, "\(w)×\(h): note \(patch.note)'s glow is in view")
+            }
+            XCTAssertGreaterThan(PreviewRenderer.stats(shot.image).variance, 0.0008, "\(w)×\(h)")
+        }
+    }
+
+    func testBayBurstStaysInBudget() throws {
+        guard let device = MTLCreateSystemDefaultDevice() else { throw XCTSkip("No Metal device") }
+        let preview = try XCTUnwrap(PreviewRenderer(width: 640, height: 360))
+        let r = try XCTUnwrap(BioluminescentBayRenderer(device: device))
+        let d = SceneDirector(themeID: BioluminescentBayModel.id, state: ThemeState(), reaction: ReactionPresets.expressivePianist)
+        d.sky.reset(settings: Self.sky(hour: 22))
+        for q in [QualityLevel.lite, .high] {
+            let start = Date()
+            for i in 0..<60 {
+                let t = Double(i) / 60
+                d.handle((0..<34).map { k in .noteOn(note: UInt8(21 + (i * 34 + k) % 88), velocity: 0.8) }, at: t)
+                let f = try XCTUnwrap(d.step(dt: 1.0 / 60, t: t, quality: q) as? BayFrame)
+                r.update(f, params: d.parameters, quality: q, gentle: false, dt: 1.0 / 60, size: CGSize(width: 640, height: 360))
+                XCTAssertLessThanOrEqual(r.patchCount, BioluminescentBayRenderer.patchBudget(q))
+                XCTAssertLessThanOrEqual(r.patchCount, GlowWake.cap)
+                XCTAssertLessThanOrEqual(r.wakeCount, BioluminescentBayRenderer.wakeBudget(q))
+                XCTAssertLessThanOrEqual(r.dartCount, BioluminescentBayRenderer.dartBudget(q))
+                XCTAssertNotNil(preview.capture(r))
+            }
+            XCTAssertLessThan(Date().timeIntervalSince(start), 4, "\(q)")
+        }
+        XCTAssertGreaterThan(r.patchCount, 0)
+    }
+}
+
+extension WorldPreviewTests {
+    func testWriteBayPreviews() throws {
+        guard let dir = ProcessInfo.processInfo.environment["PREVIEW_DIR"] else { throw XCTSkip("PREVIEW_DIR not set") }
+        guard MTLCreateSystemDefaultDevice() != nil else { throw XCTSkip("No Metal device") }
+        let url = URL(fileURLWithPath: dir, isDirectory: true)
+        try FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
+        let preview = try XCTUnwrap(PreviewRenderer(width: 1280, height: 720))
+        let night = ThemeState()   // the world's default: held at Deep night
+        let follow = ThemeState(values: ["light.hold": .choice(SkyHold.follow.rawValue)])
+        let warp = ThemeState(values: ["visual": .choice("Galaxy Warp")])
+        let sky = BioluminescentBayRendererTests.sky
+        // At 17:00 on the frozen date the star clock puts Crux 12–17° up over the left headland and the Pointers over
+        // the bay's mouth (the light is held at Deep night).
+        let cases: [(String, SkySettings, ThemeState, QualityLevel, Double)] = [
+            ("bay-night", sky(17, .clear, 0.1), night, .high, 5),
+            ("bay-night-glow-t3", sky(17, .clear, 0.1), night, .high, 3),
+            ("bay-humid-fireflies", sky(17, .humid, 0.1), night, .high, 5),
+            ("bay-dawn", sky(7.1, .clear, 0.3), follow, .high, 5),
+            ("bay-noon", sky(13, .clear, 0.5), follow, .high, 5),
+            ("bay-rain", sky(17, .rain, 0.1), night, .high, 5),
+            ("bay-smooth", sky(17, .clear, 0.1), night, .lite, 5),
+            ("bay-warp-t7", sky(17, .clear, 0.1), warp, .high, 7),
+        ]
+        for (name, s, state, q, t) in cases {
+            let image = try XCTUnwrap(preview.render(themeID: BioluminescentBayModel.id, at: [t], state: state, quality: q, sky: s,
+                                                     mood: .secretGlow).first)
             try PreviewRenderer.writePNG(image, to: url.appendingPathComponent("\(name).png"))
         }
     }
