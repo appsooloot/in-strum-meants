@@ -79,7 +79,8 @@ final class DemoRenderTests: XCTestCase {
     nonisolated static func renderAmbience(_ levels: [(ISDAmbienceSource, Float)], seconds: Double, nightCool: Float = 0,
                                            waves: [Wave] = [], speed: Float = 0, surfDistance: Float = 0, indoors: Float = 0,
                                            snowOnGlass: Float = 0, kettleAt: Double? = nil,
-                                           boatAt: Double? = nil) -> (l: [Float], r: [Float]) {
+                                           boatAt: Double? = nil, bellAt: Double? = nil,
+                                           knockerAt: Double? = nil) -> (l: [Float], r: [Float]) {
         guard let a = isd_ambience_create(rate, 512, 7) else { return ([], []) }
         defer { isd_ambience_destroy(a) }
         for (source, level) in levels { isd_ambience_set_level(a, source, level) }
@@ -88,7 +89,7 @@ final class DemoRenderTests: XCTestCase {
         isd_ambience_set_surf_distance(a, surfDistance)
         isd_ambience_set_indoors(a, indoors)
         isd_ambience_set_snow_on_glass(a, snowOnGlass)
-        var kettlePending = kettleAt, boatPending = boatAt
+        var kettlePending = kettleAt, boatPending = boatAt, bellPending = bellAt, knockerPending = knockerAt
         let total = Int(seconds * rate), block = 256
         var l = [Float](repeating: 0, count: total), r = [Float](repeating: 0, count: total)
         var i = 0, nextWave = 0
@@ -99,6 +100,8 @@ final class DemoRenderTests: XCTestCase {
             }
             if let k = kettlePending, Int(k * rate) < i + n { isd_ambience_debug_start_kettle(a); kettlePending = nil }
             if let b = boatPending, Int(b * rate) < i + n { isd_ambience_debug_start_boat(a); boatPending = nil }
+            if let b = bellPending, Int(b * rate) < i + n { isd_ambience_debug_strike_bell(a); bellPending = nil }
+            if let k = knockerPending, Int(k * rate) < i + n { isd_ambience_debug_start_knocker(a); knockerPending = nil }
             l.withUnsafeMutableBufferPointer { lp in
                 r.withUnsafeMutableBufferPointer { rp in isd_ambience_render(a, lp.baseAddress! + i, rp.baseAddress! + i, Int32(n)) }
             }
@@ -145,6 +148,29 @@ final class DemoRenderTests: XCTestCase {
         ]
         for (name, levels, boat) in nightScenes {
             let audio = Self.renderAmbience(levels, seconds: 60, indoors: 0, boatAt: boat)
+            let peak = max(audio.l.map(abs).max() ?? 0, audio.r.map(abs).max() ?? 0)
+            XCTAssertLessThanOrEqual(peak, 1.0, name)
+            let rms = (audio.l.reduce(0) { $0 + Double($1) * Double($1) } / Double(max(1, audio.l.count))).squareRoot()
+            XCTAssertGreaterThan(20 * log10(max(rms, 1e-10)), -60, name)
+            try Self.writeWAV(audio, to: url.appendingPathComponent("\(name).wav"))
+            try PreviewRenderer.writePNG(Spectrogram.image(left: audio.l, sampleRate: Self.rate, width: 1400, height: 500),
+                                         to: url.appendingPathComponent("\(name)-spectrogram.png"))
+        }
+        // The still places. The tea house at a snowy dusk (the Snow weather) with its screens half open, heard through the
+        // paper (indoors 0.8 − 0.5 × 0.5): the draught's rustle (0.4 × (0.4 + wind 0.25)), snow ticking on the paper
+        // (0.8 × the paper's 0.55), the iron kettle warming from 2 s, and the temple bell struck at 3 s, once its level has
+        // glided in, on E (the ambience's key until one is played, and the koto demo's). The garden on a spring morning,
+        // outdoors: the water-knocker, starting empty at 2 s, fills, tips and clacks on its stone, then fills again (one
+        // whole cycle inside the minute); the warbler calls on its own.
+        let stillScenes: [(String, [(ISDAmbienceSource, Float)], Float, Float, Double?, Double?, Double?)] = [
+            ("tea-house-snow-ambience", [(ISD_AMB_KETTLE, 0.35), (ISD_AMB_PAPER_SCREENS, 0.26), (ISD_AMB_TEMPLE_BELL, 0.5),
+                                         (ISD_AMB_WIND, 0.3), (ISD_AMB_RAIN_GLASS, 0.44)], 0.55, 0.8, 2, 3, nil),
+            ("zen-rock-garden-ambience", [(ISD_AMB_WATER_KNOCKER, 0.6), (ISD_AMB_WARBLER, 0.5), (ISD_AMB_BREEZE, 0.35),
+                                          (ISD_AMB_DAWN_CHORUS, 0.3), (ISD_AMB_TEMPLE_BELL, 0.3)], 0, 0, nil, nil, 2),
+        ]
+        for (name, levels, indoors, snow, kettle, bell, knocker) in stillScenes {
+            let audio = Self.renderAmbience(levels, seconds: 60, indoors: indoors, snowOnGlass: snow, kettleAt: kettle,
+                                            bellAt: bell, knockerAt: knocker)
             let peak = max(audio.l.map(abs).max() ?? 0, audio.r.map(abs).max() ?? 0)
             XCTAssertLessThanOrEqual(peak, 1.0, name)
             let rms = (audio.l.reduce(0) { $0 + Double($1) * Double($1) } / Double(max(1, audio.l.count))).squareRoot()

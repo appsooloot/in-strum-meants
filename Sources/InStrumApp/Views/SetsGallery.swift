@@ -30,6 +30,8 @@ struct SetsGallery: View {
         case SetLibrary.bedroomDawn.id: return [Color(red: 0.42, green: 0.38, blue: 0.62), Color(red: 0.96, green: 0.72, blue: 0.60)]
         case SetLibrary.auroraFjord.id: return [Color(red: 0.03, green: 0.06, blue: 0.10), Color(red: 0.15, green: 0.55, blue: 0.40)]
         case SetLibrary.bioluminescentBay.id: return [Color(red: 0.02, green: 0.05, blue: 0.12), Color(red: 0.10, green: 0.60, blue: 0.55)]
+        case SetLibrary.teaHouseSnow.id: return [Color(red: 0.10, green: 0.09, blue: 0.11), Color(red: 0.86, green: 0.80, blue: 0.70)]
+        case SetLibrary.zenRockGarden.id: return [Color(red: 0.08, green: 0.10, blue: 0.08), Color(red: 0.78, green: 0.76, blue: 0.66)]
         default: return [Color(white: 0.12), Color(white: 0.22)]
         }
     }
