@@ -114,6 +114,24 @@ typedef enum {
     /// whistle rising from about 2.5 to 3.2 kHz over 0.6 s, then two quick notes, every 40–120 s (the world decides
     /// in which seasons and hours it sings), peaking near −20 dBFS at 1.
     ISD_AMB_TEMPLE_BELL, ISD_AMB_PAPER_SCREENS, ISD_AMB_WATER_KNOCKER, ISD_AMB_WARBLER,
+    /// Deep water: SONAR a soft ping (outdoor: it rings in the water and is heard through the hull) every 14–30 s, a
+    /// pure sine at the tonic of the player's key in A5–G♯6 (880–1661 Hz; E6, 1318.5 Hz, until a key is set) with a
+    /// 25 ms attack and a 0.35 s body peaking near −26 dBFS at 1, ringing on for 3–5 s in its own unmodulated underwater
+    /// tail (the ping's own tone, so nothing above it and never off the key) and coming back off the seabed 1.4–2.6 s
+    /// later at −20 dB; HULL_CREAK the pressure hull settling (indoor: you are inside it) every 12–45 s, a stick-slip
+    /// groan of 0.6–3 s whose pulses glide between 8 and 30 Hz through hull resonances at 60–250 Hz (near −30 dBFS RMS
+    /// at 1), and now and then a 1–3 kHz metal tick of 0.2 s; WHALE a far-off humpback (outdoor) singing units (moans
+    /// at 100–400 Hz, whoops rising from 200 to 800 Hz, cries at 800–1800 Hz, grunts) in phrases of 3–6, each phrase
+    /// sung 2–4 times as a theme and the themes in a seeded order that drifts slowly, 20–60 s of song then 30–180 s of
+    /// quiet, low-passed above 2 kHz and mostly reverberant, near −30 dBFS RMS while it sings at 1; BUBBLES (outdoor)
+    /// bursts of 4–30 bubbles over 0.3–1.5 s, each a damped sine ringing 5–25 ms at its Minnaert frequency (1.1–8 kHz)
+    /// with an 8% upward chirp, by themselves every 8–30 s and on isd_ambience_trigger_bubbles, peaking near −28 dBFS
+    /// at 1; SHRIMP a reef's snapping shrimp (outdoor), a crackle of 0.1–0.3 ms clicks high-passed at 2 kHz with
+    /// Pareto amplitudes, scattered across the stereo field, 900 a second at 1 and fewer the lower the level (a world
+    /// sets the hour's rate through the level), near −24 dBFS RMS at 1; FISH_CHORUS reef fish (outdoor) at 100–800 Hz,
+    /// damselfish trains of 3–10 pulses at 20–60 Hz, knocks, pops and croaks, calling more often the higher the level
+    /// until they gather into a chorus, near −30 dBFS RMS at 1.
+    ISD_AMB_SONAR, ISD_AMB_HULL_CREAK, ISD_AMB_WHALE, ISD_AMB_BUBBLES, ISD_AMB_SHRIMP, ISD_AMB_FISH_CHORUS,
     ISD_AMB_COUNT
 } ISDAmbienceSource;
 
@@ -123,7 +141,9 @@ typedef struct ISDAmbience ISDAmbience;
 float isd_ambience_debug_tone_hz(float hz, float sampleRate, float seconds);
 /// Internal (tests): how many events a source has started so far (the waking street counts its passing cars; the
 /// ice its groans and cracks together; lapping its sloshes; the boat its passes; the temple bell its strikes; the
-/// paper screens their rustles; the water-knocker its clacks; the warbler its calls).
+/// paper screens their rustles; the water-knocker its clacks; the warbler its calls; the sonar its pings; the hull
+/// its groans and ticks together; the whale its units; the bubbles their bursts; the shrimp their snaps; the fish
+/// their calls).
 int isd_ambience_debug_events(const ISDAmbience *ambience, ISDAmbienceSource source);
 /// The same seed gives the same ambience.
 ISDAmbience *isd_ambience_create(double sampleRate, int maxFrames, uint64_t seed);
@@ -159,8 +179,9 @@ void isd_ambience_debug_start_kettle(ISDAmbience *ambience);
 /// Internal (tests): a boat passes now.
 void isd_ambience_debug_start_boat(ISDAmbience *ambience);
 /// Any thread. The key the player is in: root 0…11 (C = 0), major 1 or minor 0. The temple bell sounds its tonic
-/// (in A1–G♯2, in either mode) from its next strike on and never retunes a strike that is ringing. A root outside
-/// 0…11 (−1: the key can't be sensed) keeps the last key; E major until one is set.
+/// (in A1–G♯2, in either mode) from its next strike on and never retunes a strike that is ringing; the sonar pings
+/// it (in A5–G♯6) from its next ping on and never retunes a ping, its tail or its return. A root outside 0…11 (−1:
+/// the key can't be sensed) keeps the last key; E major until one is set.
 void isd_ambience_set_key(ISDAmbience *ambience, int root, int major);
 /// Internal (tests): the temple bell strikes now.
 void isd_ambience_debug_strike_bell(ISDAmbience *ambience);
@@ -171,6 +192,16 @@ float isd_ambience_debug_bell_hz(const ISDAmbience *ambience);
 void isd_ambience_debug_start_knocker(ISDAmbience *ambience);
 /// Internal (tests): the bush warbler calls now.
 void isd_ambience_debug_call_warbler(ISDAmbience *ambience);
+/// Any thread. A burst of bubbles rises now, strength 0…1 (from 4 bubbles over 0.3 s to 30 over 1.5 s), starting
+/// within a render of the call. Silent unless the bubbles are up (a burst never carries into the next world).
+void isd_ambience_trigger_bubbles(ISDAmbience *ambience, float strength);
+/// Internal (tests): the sonar pings now.
+void isd_ambience_debug_ping_sonar(ISDAmbience *ambience);
+/// Internal (tests): the frequency (Hz) of the sonar's ringing ping (its tail and its return included), or of its
+/// next ping while it is silent. Any thread.
+float isd_ambience_debug_sonar_hz(const ISDAmbience *ambience);
+/// Internal (tests): the whale starts singing now, from where its song left off.
+void isd_ambience_debug_start_whale(ISDAmbience *ambience);
 /// Render thread. Overwrites `left`/`right`.
 void isd_ambience_render(ISDAmbience *ambience, float *left, float *right, int frames);
 

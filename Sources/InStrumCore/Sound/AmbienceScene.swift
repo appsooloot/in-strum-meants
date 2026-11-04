@@ -5,6 +5,7 @@ public enum AmbienceSource: String, Codable, CaseIterable {
     case fire, kettle, street, drips, clock
     case iceGroan, waterfall, lapping, boat
     case templeBell, paperScreens, waterKnocker, warbler
+    case sonar, hullCreak, whaleSong, bubbles, snappingShrimp, fishChorus
 }
 
 /// The key the player is in (spec §7.1): root 0…11 (C = 0), major or minor.
@@ -43,13 +44,17 @@ public struct AmbienceScene: Equatable {
     public var wetness: Double
     /// 0…1: snow on the glass turns rain on the glass into soft ticks.
     public var snowOnGlass: Double
-    /// The key the player is in, once it can be sensed: in-key sources (the temple bell) take it at their next
-    /// strike. Nil leaves them where they are.
+    /// The key the player is in, once it can be sensed: in-key sources (the temple bell, the sonar) take it at their
+    /// next strike or ping. Nil leaves them where they are.
     public var key: AmbienceKey?
+    /// One-shot: a burst of bubbles rises now, with this strength (0 a few … 1 a stream). Heard only while the world's
+    /// bubbles are up.
+    public var bubbleBurst: Double?
 
     public init(levels: [AmbienceSource: Double] = [:], nightCool: Double = 0, activity: Double = 0, thunder: Double? = nil,
                 closeness: Double = 0.5, density: Double = 1, wave: Double? = nil, speed: Double = 0, surfDistance: Double = 0,
-                indoors: Double = 0, wetness: Double = 0, snowOnGlass: Double = 0, key: AmbienceKey? = nil) {
+                indoors: Double = 0, wetness: Double = 0, snowOnGlass: Double = 0, key: AmbienceKey? = nil,
+                bubbleBurst: Double? = nil) {
         self.levels = levels
         self.nightCool = nightCool
         self.activity = activity
@@ -63,6 +68,7 @@ public struct AmbienceScene: Equatable {
         self.wetness = wetness
         self.snowOnGlass = snowOnGlass
         self.key = key
+        self.bubbleBurst = bubbleBurst
     }
 
     public static let silent = AmbienceScene()

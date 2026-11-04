@@ -319,6 +319,34 @@ final class AppModelTests: XCTestCase {
         XCTAssertTrue(engine.scenes.allSatisfy { $0.wave == nil }, "the beach's wave doesn't crash in the lounge")
     }
 
+    /// A burst of bubbles held back by the throttle still goes, once (two inside one tenth of a second go as the
+    /// bigger), and a burst due as the world changes stays behind.
+    func testBubbleBurstsSurviveTheThrottle() {
+        let m = makeModel()
+        let sub = AmbienceScene(levels: [.shipHum: 0.35, .sonar: 0.5, .bubbles: 0.15], indoors: 0.85)
+        m.updateAmbience(sub, at: 3)
+        engine.scenes.removeAll()
+        var small = sub; small.bubbleBurst = 0.4
+        var big = sub; big.bubbleBurst = 0.9
+        m.updateAmbience(small, at: 3.01)   // too soon: held back, not dropped
+        m.updateAmbience(big, at: 3.05)
+        m.updateAmbience(sub, at: 3.2)
+        m.updateAmbience(sub, at: 3.4)
+        XCTAssertEqual(engine.scenes.compactMap(\.bubbleBurst), [0.9])
+        XCTAssertTrue(AppModel.ambienceChanged(sub, AmbienceScene(levels: [.shipHum: 0.35, .sonar: 0.5, .bubbles: 0.15, .hullCreak: 0.4],
+                                                                  indoors: 0.85)), "a new source counts")
+        let n = makeModel()
+        n.updateAmbience(sub, at: 3)
+        engine.scenes.removeAll()
+        n.updateAmbience(big, at: 3.01)                                         // held back by the throttle
+        let lake = AmbienceScene(levels: [.water: 0.8, .crickets: 0.6])
+        n.updateAmbience(lake, at: 3.05)                                        // the world changes before it's sent
+        n.updateAmbience(lake, at: 3.2)
+        n.updateAmbience(lake, at: 3.4)
+        XCTAssertFalse(engine.scenes.isEmpty)
+        XCTAssertTrue(engine.scenes.allSatisfy { $0.bubbleBurst == nil }, "the submarine's bubbles don't rise by the lake")
+    }
+
     func testAmbienceSettingsPersist() async {
         let m = makeModel()
         m.setAmbienceVolume(0.4)

@@ -523,6 +523,7 @@ public final class AppModel: ObservableObject {
         var lastSend = -Double.infinity
         var pendingThunder: Double?
         var pendingWave: Double?
+        var pendingBubbles: Double?
         var closeness = 0.5
     }
     nonisolated private let ambienceLive = OSAllocatedUnfairLock(uncheckedState: AmbienceLive())
@@ -531,9 +532,10 @@ public final class AppModel: ObservableObject {
 
     /// From the render loop (any thread): hands the world's soundscape to the engine at most ten times a second,
     /// and only when it has really changed (a level by > 0.01, the activity by > 0.05, the speed by > 0.02, the key
-    /// the player is in) or thunder or a wave is due. The user's closeness leans the world's own closeness; a
-    /// thunderclap or a wave held back by the throttle goes next time (two waves inside one tenth of a second go as
-    /// the bigger one), unless the next scene has no surf (a new world): a beach's wave never crashes in the next world.
+    /// the player is in) or thunder, a wave or a burst of bubbles is due. The user's closeness leans the world's own
+    /// closeness; a thunderclap, a wave or a bubble burst held back by the throttle goes next time (two waves or two
+    /// bursts inside one tenth of a second go as the bigger one), unless the next scene has no surf or no bubbles (a
+    /// new world): a beach's wave never crashes in the next world, and the submarine's bubbles never rise in it.
     public nonisolated func updateAmbience(_ s: AmbienceScene, at t: Double = ProcessInfo.processInfo.systemUptime) {
         let out: AmbienceScene? = ambienceLive.withLockUnchecked { a in
             var scene = s
@@ -541,14 +543,19 @@ public final class AppModel: ObservableObject {
             if let thunder = s.thunder { a.pendingThunder = thunder }
             if let wave = s.wave { a.pendingWave = max(wave, a.pendingWave ?? 0) }
             if s.level(.surf) <= 0 { a.pendingWave = nil }   // the world changed: its waves stay behind
+            if let burst = s.bubbleBurst { a.pendingBubbles = max(burst, a.pendingBubbles ?? 0) }
+            if s.level(.bubbles) <= 0 { a.pendingBubbles = nil }   // and its bubbles too
             scene.thunder = a.pendingThunder
             scene.wave = a.pendingWave
+            scene.bubbleBurst = a.pendingBubbles
             guard t - a.lastSend >= Self.ambienceInterval - 1e-9 else { return nil }
-            if scene.thunder == nil, scene.wave == nil, let previous = a.sent, !Self.ambienceChanged(previous, scene) { return nil }
+            if scene.thunder == nil, scene.wave == nil, scene.bubbleBurst == nil, let previous = a.sent,
+               !Self.ambienceChanged(previous, scene) { return nil }
             a.sent = scene
             a.lastSend = t
             a.pendingThunder = nil
             a.pendingWave = nil
+            a.pendingBubbles = nil
             return scene
         }
         if let out { engine.setAmbience(out) }
@@ -560,7 +567,7 @@ public final class AppModel: ObservableObject {
         if abs(a.activity - b.activity) > 0.05 { return true }
         if abs(a.speed - b.speed) > 0.02 || abs(a.surfDistance - b.surfDistance) > 0.01 { return true }
         if abs(a.indoors - b.indoors) > 0.01 || abs(a.wetness - b.wetness) > 0.01 || abs(a.snowOnGlass - b.snowOnGlass) > 0.01 { return true }
-        if a.key != b.key { return true }   // the temple bell retunes at its next strike
+        if a.key != b.key { return true }   // the temple bell and the sonar retune at their next strike or ping
         return abs(a.nightCool - b.nightCool) > 0.01 || abs(a.closeness - b.closeness) > 0.01 || abs(a.density - b.density) > 0.01
     }
 
