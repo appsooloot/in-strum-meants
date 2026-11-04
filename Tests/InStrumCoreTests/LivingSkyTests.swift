@@ -764,9 +764,22 @@ extension LivingSkyTests {
         XCTAssertEqual(frozen(.clear, hour: 2).step(now: start, dt: 0).constellationLines, 0.35, accuracy: 1e-6)
         var s = SkySettings(); s.constellationLines = 1
         XCTAssertEqual(LivingSky(settings: s).step(now: start, dt: 0).constellationLines, 1)
-        var d = SkySettings(); d.applyAdvanced(.dramatic)
-        XCTAssertEqual([d.constellationLines, d.auroraScale], [0.5, 1.6])
-        d.resetAdvanced()
+    }
+
+    func testAdvancedNightSkyDefaults() {
+        let d = SkySettings()
         XCTAssertEqual([d.constellationLines, d.auroraScale], [0.35, 1])
+        let looks: [(SkySettings.AdvancedPreset, [Double])] = [(.gentle, [0.2, 0.7]), (.dramatic, [0.5, 1.6]), (.dreamy, [0.35, 1.0])]
+        for (look, expected) in looks {
+            var s = SkySettings(); s.constellationLines = 0.9; s.auroraScale = 0.1
+            s.applyAdvanced(look)
+            XCTAssertEqual([s.constellationLines, s.auroraScale], expected, "\(look)")
+            s.resetAdvanced()
+            XCTAssertEqual([s.constellationLines, s.auroraScale], [0.35, 1], "Reset after \(look)")
+        }
+        // Reset restores the night-sky dials from any hand-set value too.
+        var hand = SkySettings(); hand.constellationLines = 1; hand.auroraScale = 2
+        hand.resetAdvanced()
+        XCTAssertEqual(hand, SkySettings())
     }
 }
