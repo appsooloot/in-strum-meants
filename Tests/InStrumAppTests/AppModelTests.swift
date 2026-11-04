@@ -53,6 +53,9 @@ final class FakeEngine: InstrumentEngine {
         return uid.map { !failingUIDs.contains($0) } ?? true
     }
     func checkHealth() -> String? { healthChecks += 1; return healthNote }
+    /// A real unit for the tests that watch its dials move (nil, as before, for every other test).
+    var unit: AUAudioUnit?
+    var loadedAudioUnit: AUAudioUnit? { unit }
 }
 
 /// Stands in for the MIDI input in tests.
@@ -952,6 +955,98 @@ final class AppModelTests: XCTestCase {
         }
         XCTAssertEqual(PatchLibrary.defaultPatch(for: .reefMarimba).id, "reef-marimba")
         XCTAssertEqual(BuiltInEngine.reefMarimba.displayName, "Reef Marimba")
+    }
+
+    /// The instrument's pulse (spec §7.6) follows the patch: Blue Depth's Tempo, with Blink as the gate, while Blink is
+    /// up; nil at Blink 0, for every other engine and for a plugin. Switching instrument clears it, and the instrument's
+    /// own dials move it as they turn.
+    func testInstrumentPulseFollowsThePatch() async throws {
+        let m = makeModel()
+        await m.launch(skipPluginInSafeMode: false)
+        XCTAssertNil(m.instrumentPulse, "no instrument yet")
+        let depth = try XCTUnwrap(BuiltInCatalog.instruments.first { $0.name == "Blue Depth" })
+        await m.choose(depth)
+        XCTAssertEqual(m.instrumentPulse, InstrumentPulse(bpm: 118, gate: 0.60), "its default preset")
+        var values = PatchLibrary.defaultPatch(for: .blueDepth).values
+        values["tempo"] = 100
+        values["blink"] = 0.4
+        m.applyPatch(Patch(id: "slow", name: "Slow", engine: .blueDepth, values: values))
+        XCTAssertEqual(m.instrumentPulse, InstrumentPulse(bpm: 100, gate: 0.4))
+        values["blink"] = 0
+        m.applyPatch(Patch(id: "still", name: "Still", engine: .blueDepth, values: values))
+        XCTAssertNil(m.instrumentPulse, "Blink 0: no arp, so no pulse")
+        m.applyPatch(try XCTUnwrap(PatchLibrary.all.first { $0.id == "pressure-hull" }))
+        XCTAssertEqual(m.instrumentPulse, InstrumentPulse(bpm: 118, gate: 0.75))
+        let felt = try XCTUnwrap(BuiltInCatalog.instruments.first { $0.name == "Felt Glass" })
+        await m.choose(felt)
+        XCTAssertNil(m.instrumentPulse, "switching instrument clears it")
+        await m.choose(depth)
+        XCTAssertEqual(m.instrumentPulse, InstrumentPulse(bpm: 118, gate: 0.60))
+        await m.choose(info("One", 1))
+        XCTAssertNil(m.instrumentPulse, "a plugin has none")
+        // Every other engine has none, whatever its dials say.
+        for kind in BuiltInEngine.allCases where kind != .blueDepth {
+            XCTAssertNil(InstrumentPulse(engine: kind, values: ["blink": 1, "tempo": 120]), kind.rawValue)
+        }
+        XCTAssertNil(InstrumentPulse(engine: nil, values: ["blink": 1, "tempo": 120]))
+        // The dials move it too: the Tempo turned on the instrument's own panel, then Blink turned all the way down.
+        let unit = try BuiltInInstrumentAU(componentDescription: BuiltInCatalog.description(for: .blueDepth), options: [])
+        engine.unit = unit
+        await m.choose(depth)
+        let atStart: Double = m.instrumentPulse?.bpm ?? 0
+        XCTAssertEqual(atStart, 118, accuracy: 1e-4)
+        let tempo = try XCTUnwrap(unit.parameterTree?.allParameters.first { $0.identifier == "tempo" })
+        let blink = try XCTUnwrap(unit.parameterTree?.allParameters.first { $0.identifier == "blink" })
+        tempo.setValue(140, originator: nil)
+        for _ in 0..<200 where abs((m.instrumentPulse?.bpm ?? 0) - 140) > 1e-3 { try await Task.sleep(nanoseconds: 10_000_000) }
+        let turned: Double = m.instrumentPulse?.bpm ?? 0, gate: Double = m.instrumentPulse?.gate ?? 0
+        XCTAssertEqual(turned, 140, accuracy: 1e-3, "the Tempo dial moves the pulse")
+        XCTAssertEqual(gate, 0.6, accuracy: 1e-6)
+        blink.setValue(0, originator: nil)
+        for _ in 0..<200 where m.instrumentPulse != nil { try await Task.sleep(nanoseconds: 10_000_000) }
+        XCTAssertNil(m.instrumentPulse, "and Blink at 0 stops it")
+        // The director carries what the canvas hands it, through a world switch (it is the instrument's, not the world's).
+        let director = SceneDirector(themeID: MoonlitLakeModel.id, state: ThemeState(), reaction: ReactionPresets.expressivePianist)
+        XCTAssertNil(director.instrumentPulse)
+        director.instrumentPulse = InstrumentPulse(bpm: 118, gate: 0.6)
+        director.switchTheme(to: SpaceshipLoungeModel.id, state: ThemeState())
+        XCTAssertEqual(director.instrumentPulse, InstrumentPulse(bpm: 118, gate: 0.6))
+    }
+
+    /// Blue Depth's arp and echo run on their own clock, so a change of preset, world or set while it plays sends all
+    /// notes off to the instrument (spec §13, review focus 1): the arp stops, the echo empties, the next phrase starts a
+    /// fresh grid, and the visuals let go with the sound. Any other instrument rings on through the same changes, as
+    /// it always has.
+    func testSwitchesStopBlueDepthsArp() async throws {
+        let allOff: [UInt8] = [0xB0, 123, 0]
+        let m = makeModel()
+        await m.launch(skipPluginInSafeMode: false)
+        let depth = try XCTUnwrap(BuiltInCatalog.instruments.first { $0.name == "Blue Depth" })
+        await m.choose(depth)
+        m.handleMIDI(bytes: [0x90, 61, 100], time: 0)   // a note held, blinking
+        engine.sent.removeAll()
+        _ = m.drainEvents()
+        m.applyPatch(try XCTUnwrap(PatchLibrary.all.first { $0.id == "ghost-signal" }))
+        XCTAssertEqual(engine.sent, [allOff], "a preset switch stops the arp")
+        XCTAssertEqual(m.drainEvents(), [.allNotesOff], "and the visuals let go with it")
+        engine.sent.removeAll()
+        m.setTheme(MoonlitLakeModel.id)
+        XCTAssertEqual(engine.sent, [allOff], "a world switch stops it")
+        engine.sent.removeAll()
+        m.setTheme(MoonlitLakeModel.id)
+        XCTAssertTrue(engine.sent.isEmpty, "the same world again changes nothing")
+        // A set switch changes the world (stopping the arp) before its own instrument, Orbit Pad, loads.
+        await m.applySet("spaceship-lounge")
+        XCTAssertEqual(engine.sent, [allOff], "a set switch stops it, once")
+        XCTAssertEqual(engine.loaded.last.flatMap { BuiltInCatalog.engine(for: $0) }, .orbitPad)
+        // Any other instrument rings on through the same changes.
+        engine.sent.removeAll()
+        m.applyPatch(try XCTUnwrap(PatchLibrary.all.first { $0.id == "weightless" }))
+        m.setTheme(MoonlitLakeModel.id)
+        await m.restoreSet()
+        await m.choose(info("One", 1))
+        m.setTheme(BioluminescentBayModel.id)
+        XCTAssertTrue(engine.sent.isEmpty, "Orbit Pad's and a plugin's tails are left alone")
     }
 
     func testHoneyTapePresetsCarryTheirCredit() {

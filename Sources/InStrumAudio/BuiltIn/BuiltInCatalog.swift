@@ -67,6 +67,7 @@ public enum BuiltInCatalog {
         case .teaHouseKoto: return "isTK"
         case .zenShakuhachi: return "isZS"
         case .reefMarimba: return "isRM"
+        case .blueDepth: return "isBD"
         }
     }
 
@@ -83,6 +84,7 @@ public enum BuiltInCatalog {
         case .teaHouseKoto: return ISD_ENGINE_TEA_HOUSE_KOTO
         case .zenShakuhachi: return ISD_ENGINE_ZEN_SHAKUHACHI
         case .reefMarimba: return ISD_ENGINE_REEF_MARIMBA
+        case .blueDepth: return ISD_ENGINE_BLUE_DEPTH
         }
     }
 

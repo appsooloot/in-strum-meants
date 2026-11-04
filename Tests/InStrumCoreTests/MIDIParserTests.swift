@@ -75,7 +75,7 @@ final class MIDIMessageBytesTests: XCTestCase {
         for phrase in [DemoPhrases.feltGlass, DemoPhrases.orbitPad, DemoPhrases.honeyTape, DemoPhrases.hazeBells,
                        DemoPhrases.cabinFelt, DemoPhrases.morningBox, DemoPhrases.polarChoir, DemoPhrases.planktonKeys,
                        DemoPhrases.teaHouseKoto, DemoPhrases.zenShakuhachi,
-                       DemoPhrases.reefMarimba] {
+                       DemoPhrases.reefMarimba, DemoPhrases.blueDepth] {
             XCTAssertGreaterThan(phrase.last?.time ?? 0, 18)
             XCTAssertEqual(phrase.map(\.time), phrase.map(\.time).sorted())
             var held = Set<UInt8>()
