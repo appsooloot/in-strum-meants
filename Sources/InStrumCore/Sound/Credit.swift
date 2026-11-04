@@ -42,8 +42,11 @@ public enum CreditLibrary {
                                                      artist: "Lana Del Rey", album: "Norman Fucking Rockwell!", year: 2019,
                                                      trackNumber: 13, key: "D major", tempoBPM: 68,
                                                      line: "Its soft, bell-like keys and the slow haze they drift in.")
+    public static let underwater = Credit(id: "underwater", song: "Underwater", artist: "RÜFÜS DU SOL",
+                                          album: "Solace", year: 2018, trackNumber: 7, key: "F♯ minor", tempoBPM: 118,
+                                          line: "The blinking, echoing arp that starts it, murky as deep water.")
     public static let all: [Credit] = [comeBackToEarth, innerbloom, musicToWatchBoysTo, highByTheBeach, stay, dunno, wings,
-                                       happinessIsAButterfly]
+                                       happinessIsAButterfly, underwater]
 
     public static func credit(id: String) -> Credit? { all.first { $0.id == id } }
 }

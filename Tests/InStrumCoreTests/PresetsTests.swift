@@ -93,4 +93,28 @@ final class PresetsTests: XCTestCase {
             XCTAssertEqual(look.themeID, ButterflyGardenModel.id)
         }
     }
+
+    /// Blue Depth's four presets (spec §4.2), each after "Underwater": the dials in their order (Blink, Murk, Ghosts,
+    /// Echo, Bass, Tempo, Space, Width) with the spec table's values, every one at the record's 118 BPM.
+    func testBlueDepthPresets() {
+        let presets = PatchLibrary.patches(for: .blueDepth)
+        XCTAssertEqual(presets.map(\.id), ["blue-depth", "ghost-signal", "pressure-hull", "surface-light"])
+        XCTAssertEqual(presets.map(\.name), ["Blue Depth", "Ghost Signal", "Pressure Hull", "Surface Light"])
+        XCTAssertEqual(PatchLibrary.defaultPatch(for: .blueDepth).id, "blue-depth")
+        XCTAssertEqual(BuiltInEngine.blueDepth.displayName, "Blue Depth")
+        XCTAssertEqual(BuiltInEngine(rawValue: "blueDepth"), .blueDepth)
+        let dials = ["blink", "murk", "ghosts", "echo", "bass", "tempo", "space", "width"]
+        let expected: [String: [Double]] = ["blue-depth": [0.60, 0.55, 0.40, 0.50, 0.55, 118, 0.55, 0.60],
+                                            "ghost-signal": [0.35, 0.45, 0.75, 0.65, 0.30, 118, 0.70, 0.70],
+                                            "pressure-hull": [0.75, 0.80, 0.25, 0.40, 0.80, 118, 0.45, 0.50],
+                                            "surface-light": [0.50, 0.25, 0.35, 0.55, 0.40, 118, 0.50, 0.65]]
+        for p in presets {
+            XCTAssertEqual(p.engine, .blueDepth, p.id)
+            XCTAssertEqual(Set(p.values.keys), Set(dials), p.id)
+            XCTAssertEqual(dials.map { p.values[$0] ?? -1 }, expected[p.id], p.id)
+            XCTAssertEqual(p.creditID, "underwater", p.id)
+            XCTAssertEqual(p.credit, CreditLibrary.underwater, p.id)
+            XCTAssertEqual(p.displayName, "\(p.name) · after \"Underwater\"", p.id)
+        }
+    }
 }

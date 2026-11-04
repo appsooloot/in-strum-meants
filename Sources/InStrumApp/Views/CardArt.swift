@@ -7,6 +7,7 @@ import InStrumCore
 /// breathing at one slow fixed pulse (`placePulse`).
 enum CardArt {
     case comeBackToEarth, innerbloom, musicToWatchBoysTo, highByTheBeach, stay, dunno, wings, happinessIsAButterfly
+    case underwater
     /// Place cards (see `place(for:)`).
     case teaHouseSnow
 
@@ -44,6 +45,40 @@ enum CardArt {
                                                               (0.80, 0.66, 10), (0.88, 0.60, 8), (0.95, 0.70, 9),
                                                               (0.86, 0.77, 7)]
 
+    /// The Underwater card's sonar: its centre (fractions of the card) and its dial's radius (a fraction of the height),
+    /// right of the title block and below the liner notes.
+    static let underwaterSonar: (x: CGFloat, y: CGFloat, radius: CGFloat) = (0.74, 0.44, 0.30)
+
+    /// The Underwater card's faint dial: one tick per pitch class, C at the top and round clockwise, as on a clock.
+    static let underwaterDialTicks = 12
+
+    /// Where the Underwater card's sweep rests on its dial: F♯ (pitch class 6, opposite C), the song's key.
+    static let underwaterSweep = 6
+
+    /// The Underwater card's seven bubbles (the track number), rising on the left, clear of the words: x (a fraction of
+    /// the width), radius in points at 600 × 360, how many beats one rise takes (the bigger, the quicker), and where in
+    /// its rise each starts.
+    static let underwaterBubbles: [(x: CGFloat, radius: CGFloat, beats: Double, phase: Double)] = [
+        (0.14, 4.2, 14, 0.08), (0.20, 7.0, 10, 0.55), (0.27, 3.6, 16, 0.31), (0.33, 6.0, 11, 0.83),
+        (0.39, 4.8, 13, 0.20), (0.24, 8.0, 9, 0.68), (0.44, 3.8, 15, 0.44)]
+
+    /// A pitch class's place on the Underwater card's dial: radians from the +x axis, clockwise on screen (y down), so C
+    /// (0) sits at the top and F♯ (6) at the bottom.
+    static func dialAngle(_ pitchClass: Int) -> Double { (Double(pitchClass) / 12 - 0.25) * 2 * Double.pi }
+
+    /// The Underwater card's sonar rings at `t`: one leaves the centre on every beat and spreads past the dial over three
+    /// beats as it fades (radius a fraction of the dial's, opacity), so the picture pulses with the song and repeats
+    /// exactly once a beat.
+    static func sonarRings(at t: Double, pulse: Double) -> [(radius: Double, opacity: Double)] {
+        let beat: Double = t / pulse
+        let phase: Double = beat - floor(beat)
+        return (0..<3).map { (j: Int) -> (radius: Double, opacity: Double) in
+            let age: Double = (phase + Double(j)) / 3
+            let fade: Double = 1 - age
+            return (radius: 0.05 + 1.35 * age, opacity: 0.55 * fade * fade)
+        }
+    }
+
     static func art(for creditID: String) -> CardArt? {
         switch creditID {
         case CreditLibrary.comeBackToEarth.id: return .comeBackToEarth
@@ -54,6 +89,7 @@ enum CardArt {
         case CreditLibrary.dunno.id: return .dunno
         case CreditLibrary.wings.id: return .wings
         case CreditLibrary.happinessIsAButterfly.id: return .happinessIsAButterfly
+        case CreditLibrary.underwater.id: return .underwater
         default: return nil
         }
     }
@@ -73,6 +109,8 @@ enum CardArt {
         switch self {
         case .comeBackToEarth, .innerbloom, .musicToWatchBoysTo, .highByTheBeach, .stay, .dunno, .wings, .happinessIsAButterfly:
             return false
+        case .underwater:
+            return false
         case .teaHouseSnow:
             return true
         }
@@ -90,6 +128,7 @@ enum CardArt {
         case .dunno: return .system(size: 26, weight: .light, design: .rounded)
         case .wings: return .system(size: 28, weight: .light, design: .rounded)
         case .happinessIsAButterfly: return .system(size: 26, weight: .regular, design: .serif)
+        case .underwater: return .system(size: 27, weight: .light, design: .monospaced)
         case .teaHouseSnow: return .system(size: 28, weight: .light, design: .serif)
         }
     }
@@ -104,6 +143,7 @@ enum CardArt {
         case .dunno: return 2
         case .wings: return 2
         case .happinessIsAButterfly: return 1
+        case .underwater: return 2
         case .teaHouseSnow: return 2.5
         }
     }
@@ -116,6 +156,7 @@ enum CardArt {
         case .stay: return 2 * credit.pulsePeriod
         case .wings: return 60.0 / 60
         case .happinessIsAButterfly: return credit.pulsePeriod   // 68 BPM: the motes blink at 60/68 s
+        case .underwater: return credit.pulsePeriod   // 118 BPM: a sonar ring leaves every 60/118 s
         case .teaHouseSnow: return Self.placePulse
         default: return credit.pulsePeriod
         }
@@ -124,7 +165,7 @@ enum CardArt {
 
     func draw(in ctx: GraphicsContext, size: CGSize, t: Double, pulse: Double) {
         switch self {
-        case .comeBackToEarth: Self.underwater(ctx, size, t, pulse)
+        case .comeBackToEarth: Self.lightUnderWater(ctx, size, t, pulse)
         case .innerbloom: Self.bloom(ctx, size, t, pulse)
         case .musicToWatchBoysTo: Self.goldenHaze(ctx, size, t, pulse)
         case .highByTheBeach: Self.coastLine(ctx, size, t, pulse)
@@ -132,13 +173,14 @@ enum CardArt {
         case .dunno: Self.dawnBedroom(ctx, size, t, pulse)
         case .wings: Self.auroraWater(ctx, size, t, pulse)
         case .happinessIsAButterfly: Self.moonlitCove(ctx, size, t, pulse)
+        case .underwater: Self.deepBlue(ctx, size, t, pulse)
         case .teaHouseSnow: Self.teaHouse(ctx, size, t, pulse)
         }
     }
 
     // MARK: - Come Back to Earth: light under water, a ring rising to the surface
 
-    private static func underwater(_ ctx: GraphicsContext, _ size: CGSize, _ t: Double, _ pulse: Double) {
+    private static func lightUnderWater(_ ctx: GraphicsContext, _ size: CGSize, _ t: Double, _ pulse: Double) {
         let rect = CGRect(origin: .zero, size: size)
         ctx.fill(Path(rect), with: .linearGradient(
             Gradient(colors: [Color(red: 0.55, green: 0.74, blue: 0.86), Color(red: 0.10, green: 0.30, blue: 0.48),
@@ -740,6 +782,117 @@ enum CardArt {
             let core: CGFloat = 1.2 + 0.8 * CGFloat(blink)
             glow.fill(Path(ellipseIn: CGRect(x: c.x - core, y: c.y - core, width: 2 * core, height: 2 * core)),
                       with: .color(Color(red: 0.85, green: 1, blue: 1).opacity(0.9 * blink)))
+        }
+    }
+
+    // MARK: - Underwater: a deep-blue field, sonar rings pulsing on the beat, seven bubbles rising and a sweep resting
+    // at F♯ on a faint twelve-tick dial
+
+    private static func deepBlue(_ ctx: GraphicsContext, _ size: CGSize, _ t: Double, _ pulse: Double) {
+        let w = size.width, h = size.height
+        let k: CGFloat = w / 600
+        let centre = CGPoint(x: w * Self.underwaterSonar.x, y: h * Self.underwaterSonar.y)
+        let dial: CGFloat = h * Self.underwaterSonar.radius
+        let beat: Double = t / pulse
+        let ping: Double = exp(-(beat - floor(beat)) * 5)   // 1 as each ring leaves the centre, fading over the beat
+        let cyan = Color(red: 0.45, green: 0.85, blue: 1.0)
+
+        // The deep-blue field, a little light from far above, and the sonar's glow, a little brighter on each ping.
+        ctx.fill(Path(CGRect(origin: .zero, size: size)), with: .linearGradient(
+            Gradient(stops: [.init(color: Color(red: 0.05, green: 0.19, blue: 0.33), location: 0),
+                             .init(color: Color(red: 0.025, green: 0.10, blue: 0.22), location: 0.5),
+                             .init(color: Color(red: 0.01, green: 0.035, blue: 0.10), location: 1)]),
+            startPoint: .zero, endPoint: CGPoint(x: 0, y: h)))
+        var light = ctx
+        light.blendMode = .plusLighter
+        let above = CGPoint(x: w * 0.32, y: -h * 0.25)
+        let reach: CGFloat = w * 0.8
+        let surface = Color(red: 0.30, green: 0.60, blue: 0.80)
+        light.fill(Path(ellipseIn: CGRect(x: above.x - reach, y: above.y - reach, width: 2 * reach, height: 2 * reach)),
+                   with: .radialGradient(Gradient(colors: [surface.opacity(0.16), surface.opacity(0)]),
+                                         center: above, startRadius: 0, endRadius: reach))
+        let halo: CGFloat = 1.3 * dial
+        light.fill(Path(ellipseIn: CGRect(x: centre.x - halo, y: centre.y - halo, width: 2 * halo, height: 2 * halo)),
+                   with: .radialGradient(Gradient(colors: [cyan.opacity(0.10 + 0.06 * ping), cyan.opacity(0)]),
+                                         center: centre, startRadius: 0, endRadius: halo))
+
+        // Murk: faint flecks drifting down through the blue.
+        for i in 0..<40 {
+            let u: Double = (hash(i, 61) + t * 0.012 * (0.6 + 0.8 * hash(i, 62))).truncatingRemainder(dividingBy: 1)
+            let x: CGFloat = w * CGFloat(hash(i, 63)) + 6 * k * CGFloat(sin(t * 0.3 + Double(i)))
+            let y: CGFloat = h * CGFloat(u)
+            let r: CGFloat = (0.5 + 0.7 * CGFloat(hash(i, 64))) * k
+            ctx.fill(Path(ellipseIn: CGRect(x: x - r, y: y - r, width: 2 * r, height: 2 * r)),
+                     with: .color(Color(red: 0.70, green: 0.85, blue: 0.95).opacity(0.10 + 0.20 * hash(i, 65))))
+        }
+
+        // The range rings and the faint twelve-tick dial: C at the top with a longer tick, the key's tick a little brighter.
+        for (j, opacity) in [0.10, 0.12, 0.16].enumerated() {
+            let r: CGFloat = dial * CGFloat(j + 1) / 3
+            ctx.stroke(Path(ellipseIn: CGRect(x: centre.x - r, y: centre.y - r, width: 2 * r, height: 2 * r)),
+                       with: .color(cyan.opacity(opacity)), lineWidth: 0.8 * k)
+        }
+        for p in 0..<Self.underwaterDialTicks {
+            let a: Double = Self.dialAngle(p)
+            let ca = CGFloat(cos(a)), sa = CGFloat(sin(a))
+            let inner: CGFloat = dial + 3 * k
+            let outer: CGFloat = dial + (p == 0 ? 11 : 7) * k
+            var tick = Path()
+            tick.move(to: CGPoint(x: centre.x + inner * ca, y: centre.y + inner * sa))
+            tick.addLine(to: CGPoint(x: centre.x + outer * ca, y: centre.y + outer * sa))
+            ctx.stroke(tick, with: .color(cyan.opacity(p == Self.underwaterSweep ? 0.55 : 0.30)),
+                       style: StrokeStyle(lineWidth: 1.2 * k, lineCap: .round))
+        }
+
+        // The sweep, resting on the key's tick, with the fading wedge of where it has swept behind it.
+        let rest: Double = Self.dialAngle(Self.underwaterSweep)
+        let slice: Double = 5 * Double.pi / 180
+        for s in 0..<10 {
+            let from: Double = rest - Double(s) * slice
+            var wedge = Path()
+            wedge.move(to: centre)
+            for q in 0...3 {
+                let a: Double = from - slice * Double(q) / 3
+                wedge.addLine(to: CGPoint(x: centre.x + dial * CGFloat(cos(a)), y: centre.y + dial * CGFloat(sin(a))))
+            }
+            wedge.closeSubpath()
+            light.fill(wedge, with: .color(cyan.opacity((0.18 - 0.016 * Double(s)) * (0.8 + 0.2 * ping))))
+        }
+        var sweep = Path()
+        sweep.move(to: centre)
+        sweep.addLine(to: CGPoint(x: centre.x + dial * CGFloat(cos(rest)), y: centre.y + dial * CGFloat(sin(rest))))
+        ctx.stroke(sweep, with: .color(Color(red: 0.75, green: 0.95, blue: 1.0).opacity(0.8)),
+                   style: StrokeStyle(lineWidth: 1.6 * k, lineCap: .round))
+
+        // The rings: one leaves the centre on every beat and spreads past the dial over three, fading, each in a soft
+        // glow; the centre flashes as it leaves.
+        for ring in Self.sonarRings(at: t, pulse: pulse) {
+            let r: CGFloat = dial * CGFloat(ring.radius)
+            let circle = Path(ellipseIn: CGRect(x: centre.x - r, y: centre.y - r, width: 2 * r, height: 2 * r))
+            light.stroke(circle, with: .color(cyan.opacity(0.22 * ring.opacity)), lineWidth: 7 * k)
+            light.stroke(circle, with: .color(cyan.opacity(ring.opacity)), lineWidth: 1.6 * k)
+        }
+        let core: CGFloat = 9 * k
+        let flash = Color(red: 0.8, green: 0.97, blue: 1.0)
+        light.fill(Path(ellipseIn: CGRect(x: centre.x - core, y: centre.y - core, width: 2 * core, height: 2 * core)),
+                   with: .radialGradient(Gradient(colors: [flash.opacity(0.5 + 0.5 * ping), flash.opacity(0)]),
+                                         center: centre, startRadius: 0, endRadius: core))
+
+        // Seven bubbles rising on the left (the track number), each at its own pace, wobbling as they go and growing a
+        // little as the pressure eases.
+        for b in Self.underwaterBubbles {
+            let rise: Double = t / (b.beats * pulse) + b.phase
+            let u: Double = rise - floor(rise)   // 0 at the bottom of its rise, 1 at the top
+            let x: CGFloat = w * b.x + 5 * k * CGFloat(sin(2 * Double.pi * (2.5 * u + b.phase)))
+            let y: CGFloat = h * (0.64 - 0.58 * CGFloat(u))
+            let r: CGFloat = k * b.radius * (0.85 + 0.3 * CGFloat(u))
+            let a: Double = min(1, u / 0.12) * min(1, (1 - u) / 0.18)
+            let body = Path(ellipseIn: CGRect(x: x - r, y: y - r, width: 2 * r, height: 2 * r))
+            ctx.fill(body, with: .color(Color(red: 0.55, green: 0.80, blue: 0.95).opacity(0.16 * a)))
+            ctx.stroke(body, with: .color(Color(red: 0.78, green: 0.93, blue: 1.0).opacity(0.80 * a)), lineWidth: 1.2 * k)
+            let glint: CGFloat = 0.32 * r
+            ctx.fill(Path(ellipseIn: CGRect(x: x - 0.38 * r - glint, y: y - 0.38 * r - glint, width: 2 * glint, height: 2 * glint)),
+                     with: .color(.white.opacity(0.85 * a)))
         }
     }
 

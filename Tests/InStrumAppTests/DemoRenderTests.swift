@@ -57,6 +57,7 @@ final class DemoRenderTests: XCTestCase {
             ("polar-choir", ISD_ENGINE_POLAR_CHOIR, DemoPhrases.polarChoir),
             ("plankton-keys", ISD_ENGINE_PLANKTON_KEYS, DemoPhrases.planktonKeys),
             ("tea-house-koto", ISD_ENGINE_TEA_HOUSE_KOTO, DemoPhrases.teaHouseKoto),
+            ("blue-depth", ISD_ENGINE_BLUE_DEPTH, DemoPhrases.blueDepth),
         ]
         var written = 0
         for (name, engine, phrase) in demos {
@@ -72,6 +73,65 @@ final class DemoRenderTests: XCTestCase {
             written += 1
         }
         XCTAssertGreaterThanOrEqual(written, 1)
+    }
+
+    /// For each sixteenth `k` of an arp grid that starts at `start` (seconds), the power of the 15 ms after the step
+    /// against the 15 ms before it (dB): a blinking arp re-plucks a note on every step.
+    nonisolated static func stepRises(_ x: [Float], start: Double, step: Double, steps: ClosedRange<Int>) -> [Double] {
+        let w = Int((0.015 * rate).rounded())
+        func power(_ a: Int, _ b: Int) -> Double {
+            let lo = max(0, a), hi = min(b, x.count)
+            guard lo < hi else { return 0 }
+            var sum = 0.0
+            for i in lo..<hi { sum += Double(x[i]) * Double(x[i]) }
+            return sum / Double(hi - lo)
+        }
+        return steps.map { (k: Int) -> Double in
+            let at = Int(((start + Double(k) * step) * rate).rounded(.down))
+            return 10 * log10(max(power(at, at + w), 1e-30) / max(power(at - w, at), 1e-30))
+        }
+    }
+
+    /// Blue Depth's demo, F♯ minor at 118 (DemoPhrases.blueDepth): a chord from C3 up held for the arp to blink, big
+    /// bass hits below C3, a pressure swell, and everything let go at the end. Rendered as the release renders it, it
+    /// stays finite and well under full scale, and the arp blinks: through the held chord at least 60% of the sixteenths
+    /// re-attack by 1.5 dB or more (77% on the mirror, against 13% for the same phrase at Blink 0).
+    func testBlueDepthDemoRenders() throws {
+        let phrase = DemoPhrases.blueDepth
+        let fSharpMinor: Set<Int> = [6, 8, 9, 11, 1, 2, 4, 5]   // F♯ G♯ A B C♯ D E, and the C♯ chord's E♯
+        var held = Set<UInt8>(), bass = 0, chord = 0, swell: UInt8 = 0, pressure: UInt8 = 0, wheel: UInt16 = 8192
+        for (_, m) in phrase {
+            switch m {
+            case let .noteOn(_, n, _):
+                XCTAssertTrue(fSharpMinor.contains(Int(n) % 12), "note \(n) is outside F♯ minor")
+                if n < 48 { bass += 1 } else { chord += 1 }
+                held.insert(n)
+            case let .noteOff(_, n, _): held.remove(n)
+            case let .channelPressure(_, p): swell = max(swell, p); pressure = p
+            case let .pitchBend(_, v): wheel = v
+            default: break
+            }
+        }
+        XCTAssertGreaterThanOrEqual(bass, 4, "a left-hand bass below C3")
+        XCTAssertGreaterThanOrEqual(chord, 3, "a chord from C3 up for the arp")
+        XCTAssertGreaterThan(swell, 90, "a real pressure swell")
+        XCTAssertTrue(held.isEmpty, "everything let go")
+        XCTAssertEqual(pressure, 0)
+        XCTAssertEqual(wheel, 8192)
+        XCTAssertGreaterThan(phrase.last?.time ?? 0, 18)
+
+        let audio = try XCTUnwrap(Self.render(ISD_ENGINE_BLUE_DEPTH, phrase, tail: 6))
+        XCTAssertTrue(audio.l.allSatisfy { $0.isFinite } && audio.r.allSatisfy { $0.isFinite })
+        let peak = max(audio.l.map(abs).max() ?? 0, audio.r.map(abs).max() ?? 0)
+        XCTAssertLessThan(peak, 0.85, "well under full scale and the limiter's 0.9 (0.74 on the mirror)")
+        XCTAssertGreaterThan(peak, 0.1)
+        // The arp's grid starts on the phrase's first note; the chord is held for 144 sixteenths.
+        let mono = zip(audio.l, audio.r).map { $0.0 + $0.1 }
+        let rises = Self.stepRises(mono, start: phrase.first?.time ?? 0, step: 15.0 / 118, steps: 1...143)
+        let blinking = rises.filter { $0 >= 1.5 }.count
+        XCTAssertGreaterThanOrEqual(Double(blinking), 0.6 * Double(rises.count), "only \(blinking) of \(rises.count) sixteenths re-attack")
+        let median = rises.sorted()[rises.count / 2]
+        XCTAssertGreaterThanOrEqual(median, 1.5, "the median sixteenth rises \(median) dB")
     }
 
     /// Renders the ambience alone (levels glide in over 2.5 s, as in the app).

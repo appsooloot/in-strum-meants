@@ -63,6 +63,18 @@ public final class AppModel: ObservableObject {
     private var dialReader: DialReader?
     private struct DialLive { var pending: [UInt64: Double] = [:]; var moved: [UInt64] = [] }
     nonisolated private let dialLive = OSAllocatedUnfairLock(uncheckedState: DialLive())
+    /// What the instrument's pulse follows: the loaded built-in engine (nil for a plugin, or none) and its dials by
+    /// identifier, in their own units. Written on the main actor when an instrument loads or a preset is applied, and
+    /// from the dial reader's thread as the dials move.
+    private struct PulseLive { var engine: BuiltInEngine?; var values: [String: Double] = [:] }
+    nonisolated private let pulseLive = OSAllocatedUnfairLock(uncheckedState: PulseLive())
+
+    /// The loaded instrument's own pulse (spec §7.6): Blue Depth's arp, its Tempo with Blink as the gate, while Blink is
+    /// up. Nil for every other instrument, a plugin, or Blue Depth at Blink 0. It follows the presets and the dials as
+    /// they move; the canvas hands it to `SceneDirector.instrumentPulse` every frame.
+    public nonisolated var instrumentPulse: InstrumentPulse? {
+        pulseLive.withLockUnchecked { InstrumentPulse(engine: $0.engine, values: $0.values) }
+    }
 
     private let store: SettingsStore
     private let launchGuard: LaunchGuard
@@ -153,6 +165,8 @@ public final class AppModel: ObservableObject {
             return
         }
         settings.instrument = choice
+        let kind = BuiltInCatalog.engine(for: choice)
+        pulseLive.withLockUnchecked { $0 = PulseLive(engine: kind) }   // a new instrument: its own dials, or no pulse
         watchDials()
         updateBuiltInPatch()
         engine.setMood(mood)   // a freshly loaded built-in starts neutral
@@ -223,7 +237,23 @@ public final class AppModel: ObservableObject {
         guard let choice = settings.instrument, BuiltInCatalog.engine(for: choice) == patch.engine else { return }
         engine.applyPatch(patch)
         builtInPatch = patch
+        follow(patch)
+        stopTheArp()
         autosave()
+    }
+
+    /// The pulse follows a preset's dials (and then the dials themselves as they move, through the dial reader).
+    private func follow(_ patch: Patch) {
+        pulseLive.withLockUnchecked { l in for (identifier, value) in patch.values { l.values[identifier] = value } }
+    }
+
+    /// Blue Depth's arp and echo run on their own clock, so a change of preset, world or set while it plays would keep
+    /// them going (spec §13, review focus 1). All notes off stops the arp and empties the echo (the reverb's tail rings
+    /// on), and the next phrase starts a fresh grid; it reaches the visuals as a keyboard's would, so they let go with
+    /// the sound. Every other instrument rings on through these changes, as it always has.
+    private func stopTheArp() {
+        guard settings.instrument.flatMap({ BuiltInCatalog.engine(for: $0) }) == .blueDepth else { return }
+        perform([0xB0, 123, 0], time: ProcessInfo.processInfo.systemUptime)
     }
 
     private func updateBuiltInPatch() {
@@ -234,6 +264,7 @@ public final class AppModel: ObservableObject {
             let first = PatchLibrary.defaultPatch(for: kind)
             engine.applyPatch(first)
             builtInPatch = first
+            follow(first)
         }
     }
 
@@ -246,11 +277,21 @@ public final class AppModel: ObservableObject {
         let reader = DialReader(audioUnit: unit)
         let initial = reader.currentValues()
         live.withLockUnchecked { $0.pending = initial }
+        // The pulse follows the dials by identifier, in their own units (Tempo in BPM), from where they are now.
+        var units: [UInt64: (identifier: String, low: Double, span: Double)] = [:]
+        for p in unit.parameterTree?.allParameters ?? [] {
+            units[p.address] = (p.identifier, Double(p.minValue), Double(p.maxValue) - Double(p.minValue))
+        }
+        let named = units, pulse = pulseLive
+        pulse.withLockUnchecked { l in
+            for (address, v) in initial { if let u = named[address] { l.values[u.identifier] = u.low + u.span * v } }
+        }
         reader.onChange = { info, value in
             live.withLockUnchecked { l in
                 l.pending[info.address] = value
                 if !l.moved.contains(info.address) { l.moved.append(info.address) }
             }
+            if let u = named[info.address] { pulse.withLockUnchecked { $0.values[u.identifier] = u.low + u.span * value } }
         }
         dialReader = reader
         dials = reader.dials
@@ -416,6 +457,7 @@ public final class AppModel: ObservableObject {
     public func setTheme(_ id: String) {
         let resolved = ThemeRegistry.resolve(id)
         guard resolved != themeID else { return }
+        stopTheArp()
         themeID = resolved
         settings.themeID = resolved
         visualsVersion += 1

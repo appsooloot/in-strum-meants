@@ -95,12 +95,15 @@ final class BuiltInAUTests: XCTestCase {
     }
 
     /// Dials that keep a single note's pitch still enough to measure (the pad's drift, the tape's wow and the unison
-    /// strings move it; what's left is a symmetric unison, measured by its centre).
+    /// strings move it; what's left is a symmetric unison, measured by its centre). Blue Depth's arp re-plucks a held
+    /// note on every sixteenth and its echo wows, so both go off; mood motion 0 halves its analogue slop, leaving the
+    /// detuned pair, centred on the note (+0.26 cents at 44.1, 48 and 96 kHz on the mirror; −7 with the arp running).
     private func steady(_ e: AudioEngine, _ engine: BuiltInEngine) {
         setParam(e, Int(ISD_P_SPACE), 0)
         if engine == .orbitPad { setParam(e, Int(ISD_P_DRIFT), 0); setParam(e, Int(ISD_P_MOTION), 0) }
         if engine == .honeyTape { setParam(e, Int(ISD_P_WOW), 0); setParam(e, Int(ISD_P_STRINGS), 0) }
         if engine == .hazeBells { setParam(e, Int(ISD_P_DRIFT), 0); setParam(e, Int(ISD_P_ECHO), 0) }
+        if engine == .blueDepth { setParam(e, Int(ISD_P_BLINK), 0); setParam(e, Int(ISD_P_ECHO), 0); setParam(e, Int(ISD_P_MOOD_MOTION), 0) }
     }
 
     func testTuningHoldsAt44_1And96k() async throws {

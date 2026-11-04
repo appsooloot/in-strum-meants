@@ -25,6 +25,28 @@ public enum MoodLook {
     public static func ambienceDensity(_ m: Mood) -> Double { 0.7 + 0.6 * m.energy }
 }
 
+/// The built-in instrument's own pulse (spec §7.6), for visuals that blink with it: an arp's tempo and its gate.
+public struct InstrumentPulse: Equatable {
+    /// The arp's tempo: it steps once a sixteenth (60 / bpm / 4 s), from a phrase's first note, as the arp does.
+    public var bpm: Double
+    /// How hard it blinks, 0…1 (Blue Depth's Blink: its gate shortens as this rises).
+    public var gate: Double
+
+    public init(bpm: Double, gate: Double) {
+        self.bpm = bpm
+        self.gate = gate
+    }
+
+    /// The pulse of a built-in instrument with these dials (by identifier, in their own units): Blue Depth's arp, at
+    /// its Tempo with Blink as the gate, while Blink is up. Nil for any other instrument (or none), and for Blue Depth
+    /// at Blink 0, which has no arp (the engine's own threshold, so the visuals and the arp agree).
+    public init?(engine: BuiltInEngine?, values: [String: Double]) {
+        guard engine == .blueDepth, let blink = values["blink"], blink > 1e-3 else { return nil }
+        let tempo: Double = values["tempo"] ?? 118   // the dial's default, the record's tempo
+        self.init(bpm: min(160, max(70, tempo)), gate: min(1, blink))
+    }
+}
+
 /// One theme the app can show: its settings and how to make its model.
 public struct ThemeEntry {
     public let id, name: String
@@ -117,6 +139,9 @@ public final class SceneDirector {
 
     /// The set's mood, pushed into mood-aware models every step.
     public var mood = Mood.neutral
+    /// The built-in instrument's pulse (Blue Depth's arp grid), which the app sets from the current patch and its
+    /// dials; nil for every other instrument. It is about the instrument, so it carries over a world switch.
+    public var instrumentPulse: InstrumentPulse?
     /// Stepped each frame for sky-aware models (worlds).
     public let sky = LivingSky(settings: SkySettings())
     /// The latest sky state, when the active theme uses one.

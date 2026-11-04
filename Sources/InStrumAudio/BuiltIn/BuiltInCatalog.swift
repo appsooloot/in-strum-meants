@@ -65,6 +65,7 @@ public enum BuiltInCatalog {
         case .polarChoir: return "isPC"
         case .planktonKeys: return "isPK"
         case .teaHouseKoto: return "isTK"
+        case .blueDepth: return "isBD"
         }
     }
 
@@ -79,6 +80,7 @@ public enum BuiltInCatalog {
         case .polarChoir: return ISD_ENGINE_POLAR_CHOIR
         case .planktonKeys: return ISD_ENGINE_PLANKTON_KEYS
         case .teaHouseKoto: return ISD_ENGINE_TEA_HOUSE_KOTO
+        case .blueDepth: return ISD_ENGINE_BLUE_DEPTH
         }
     }
 

@@ -120,6 +120,107 @@ final class InspiredByCardTests: XCTestCase {
         }
     }
 
+    /// The credit for "Underwater" (spec §11), exactly: words and a link only.
+    func testUnderwaterCredit() {
+        let c = CreditLibrary.underwater
+        XCTAssertEqual(c.id, "underwater")
+        XCTAssertEqual(c.song, "Underwater")
+        XCTAssertEqual(c.artist, "RÜFÜS DU SOL")
+        XCTAssertEqual(c.album, "Solace")
+        XCTAssertEqual(c.year, 2018)
+        XCTAssertEqual(c.trackNumber, 7)
+        XCTAssertEqual(c.key, "F♯ minor")
+        XCTAssertEqual(c.tempoBPM, 118)
+        XCTAssertEqual(c.line, "The blinking, echoing arp that starts it, murky as deep water.")
+        XCTAssertEqual(CreditLibrary.credit(id: "underwater"), c)
+        XCTAssertTrue(CreditLibrary.all.contains(c))
+        XCTAssertEqual(c.artist, CreditLibrary.innerbloom.artist, "spelled as the band's other credit")
+        // The card says it in words: the song, the band, the album and its year, and the liner notes.
+        let card = InspiredByCard(credit: c)
+        XCTAssertEqual(card.words.kicker, "INSPIRED BY")
+        XCTAssertEqual(card.words.title, "Underwater")
+        XCTAssertEqual(card.words.subtitle, "RÜFÜS DU SOL · Solace · 2018")
+        XCTAssertEqual(card.words.linerNotes, "F♯ minor · TRACK 7 · 118 BPM")
+        XCTAssertEqual(card.words.line, c.line)
+        XCTAssertEqual(card.words.listen, c)
+    }
+
+    /// The "Underwater" card is original abstract art (nothing from the album art, the lyrics or the short film): a
+    /// deep-blue field with three easter eggs. Sonar rings pulse on the song's beat (one leaves the centre every 60/118 s
+    /// and the picture repeats exactly once a beat), seven bubbles rise (the track number), and a sweep rests at F♯
+    /// (pitch class 6 of 12, opposite C at the top) on a faint twelve-tick dial (the key). The bubbles keep off the
+    /// words, and the card looks like no other song card.
+    func testUnderwaterCardEasterEggs() throws {
+        let credit = CreditLibrary.underwater
+        let art = try XCTUnwrap(CardArt.art(for: credit.id))
+        XCTAssertEqual(art, .underwater)
+        XCTAssertFalse(art.isPlace)
+        XCTAssertFalse(art.titleCase)
+        // The rings' pulse: 60/118 s, the card's breath.
+        let beat = 60.0 / 118
+        XCTAssertEqual(art.pulse(for: credit), beat, accuracy: 1e-12)
+        XCTAssertEqual(InspiredByCard(credit: credit).pulse, beat, accuracy: 1e-12)
+        for t in [0.13, 1.0, 2.4, 7.77] {
+            let now = CardArt.sonarRings(at: t, pulse: beat)
+            let next = CardArt.sonarRings(at: t + beat, pulse: beat)
+            let half = CardArt.sonarRings(at: t + beat / 2, pulse: beat)
+            XCTAssertEqual(now.count, 3)
+            XCTAssertEqual(next.count, 3)
+            XCTAssertEqual(half.count, 3)
+            guard now.count == 3, next.count == 3, half.count == 3 else { continue }
+            for j in 0..<3 {
+                XCTAssertEqual(now[j].radius, next[j].radius, accuracy: 1e-9, "a beat later the rings are where they were (t \(t))")
+                XCTAssertEqual(now[j].opacity, next[j].opacity, accuracy: 1e-9)
+            }
+            XCTAssertGreaterThan(abs(now[0].radius - half[0].radius), 0.1, "half a beat later they have moved on (t \(t))")
+        }
+        let leaving = CardArt.sonarRings(at: 3 * beat + 1e-6, pulse: beat)   // just after a beat
+        XCTAssertLessThan(leaving.first?.radius ?? 1, 0.06, "a ring leaves the centre on the beat")
+        XCTAssertGreaterThan(leaving.first?.opacity ?? 0, 0.5)
+        XCTAssertTrue(leaving.allSatisfy { $0.radius < 1.5 && $0.opacity >= 0 }, "and fades out as it spreads past the dial")
+        // Seven bubbles: the track number.
+        XCTAssertEqual(CardArt.underwaterBubbles.count, 7)
+        XCTAssertEqual(CardArt.underwaterBubbles.count, credit.trackNumber)
+        // The sweep rests at F♯: pitch class 6 of the dial's 12 ticks, C at the top and round clockwise, so it points
+        // straight down.
+        XCTAssertEqual(CardArt.underwaterDialTicks, 12)
+        XCTAssertEqual(CardArt.underwaterSweep, 6)
+        XCTAssertTrue(credit.key.hasPrefix("F♯"), "the key's tonic")
+        XCTAssertEqual(CardArt.dialAngle(0), -Double.pi / 2, accuracy: 1e-12, "C at the top")
+        XCTAssertEqual(CardArt.dialAngle(3), 0, accuracy: 1e-12, "D♯ at the right")
+        XCTAssertEqual(CardArt.dialAngle(CardArt.underwaterSweep), Double.pi / 2, accuracy: 1e-12, "F♯ at the bottom")
+
+        // The bubbles keep off the words (the liner notes, the title block and the Listen button), wherever they are in
+        // their rise; and the sonar's sweep keeps off them too.
+        let w: CGFloat = 600, h: CGFloat = 360
+        let words = [CGRect(x: 0.6 * w, y: 0, width: 0.4 * w, height: 0.1 * h),          // F♯ minor · TRACK 7 · 118 BPM
+                     CGRect(x: 0, y: 0.68 * h, width: 0.72 * w, height: 0.32 * h),        // Inspired by, title, credit, line
+                     CGRect(x: 0.82 * w, y: 0.86 * h, width: 0.18 * w, height: 0.14 * h)] // Listen
+        for b in CardArt.underwaterBubbles {
+            let r: CGFloat = 1.15 * b.radius   // at the top of its rise
+            let span = CGRect(x: b.x * w - 5 - r, y: 0.06 * h - r, width: 10 + 2 * r, height: 0.58 * h + 2 * r)
+            for rect in words { XCTAssertFalse(span.intersects(rect), "the bubble at x \(b.x) crosses \(rect)") }
+        }
+        let sonar = CardArt.underwaterSonar
+        let sweep = CGRect(x: sonar.x * w - 1, y: sonar.y * h, width: 2, height: sonar.radius * h + 1)
+        for rect in words { XCTAssertFalse(sweep.intersects(rect), "the sweep crosses \(rect)") }
+
+        // The picture: it draws, it moves, and it looks like no other song card.
+        let a = try XCTUnwrap(Self.render(credit, at: 0.2))
+        let stats = PreviewRenderer.stats(a)
+        XCTAssertGreaterThan(stats.meanLuminance, 0.05)
+        XCTAssertGreaterThan(stats.variance, 0.001)
+        let b = try XCTUnwrap(Self.render(credit, at: 2.2))
+        let moved = PreviewRenderer.difference(a, b)
+        if moved <= 0.001 { XCTFail("the Underwater card moved only \(moved)") }
+        let mine = try XCTUnwrap(Self.render(credit, at: 1.0))
+        for c in CreditLibrary.all where c.id != credit.id {
+            let other = try XCTUnwrap(Self.render(c, at: 1.0), c.id)
+            let d = PreviewRenderer.difference(mine, other)
+            if d <= 0.02 { XCTFail("the Underwater card and \(c.id) differ by only \(d)") }
+        }
+    }
+
     /// "Stay" is felt in half time, so its card breathes at 67, not 134.
     func testStayCardBreathesAtHalfTempo() throws {
         let art = try XCTUnwrap(CardArt.art(for: CreditLibrary.stay.id))

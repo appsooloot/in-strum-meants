@@ -1,6 +1,7 @@
 /// The app's own instruments (made entirely in the app, no recordings).
 public enum BuiltInEngine: String, Codable, CaseIterable {
     case feltGlass, orbitPad, honeyTape, hazeBells, cabinFelt, morningBox, polarChoir, planktonKeys, teaHouseKoto
+    case blueDepth
 
     public var displayName: String {
         switch self {
@@ -13,6 +14,7 @@ public enum BuiltInEngine: String, Codable, CaseIterable {
         case .polarChoir: return "Polar Choir"
         case .planktonKeys: return "Plankton Keys"
         case .teaHouseKoto: return "Tea House Koto"
+        case .blueDepth: return "Blue Depth"
         }
     }
 }
@@ -71,6 +73,11 @@ public enum PatchLibrary {
         Patch(id: "winter-strings", name: "Winter Strings", engine: .teaHouseKoto, values: koto(pick: 0.35, silk: 0.70, body: 0.60, bloom: 0.55, yuri: 0.20, space: 0.45, width: 0.55)),
         Patch(id: "near-the-bridge", name: "Near the Bridge", engine: .teaHouseKoto, values: koto(pick: 0.15, silk: 0.25, body: 0.40, bloom: 0.25, yuri: 0.35, space: 0.25, width: 0.45)),
         Patch(id: "night-tea", name: "Night Tea", engine: .teaHouseKoto, values: koto(pick: 0.45, silk: 0.60, body: 0.55, bloom: 0.60, yuri: 0.40, space: 0.50, width: 0.50)),
+        // Blue Depth, after "Underwater" (spec §4.2): every preset at the record's 118 BPM.
+        Patch(id: "blue-depth", name: "Blue Depth", engine: .blueDepth, values: blueDepth(blink: 0.60, murk: 0.55, ghosts: 0.40, echo: 0.50, bass: 0.55, tempo: 118, space: 0.55, width: 0.60), creditID: "underwater"),
+        Patch(id: "ghost-signal", name: "Ghost Signal", engine: .blueDepth, values: blueDepth(blink: 0.35, murk: 0.45, ghosts: 0.75, echo: 0.65, bass: 0.30, tempo: 118, space: 0.70, width: 0.70), creditID: "underwater"),
+        Patch(id: "pressure-hull", name: "Pressure Hull", engine: .blueDepth, values: blueDepth(blink: 0.75, murk: 0.80, ghosts: 0.25, echo: 0.40, bass: 0.80, tempo: 118, space: 0.45, width: 0.50), creditID: "underwater"),
+        Patch(id: "surface-light", name: "Surface Light", engine: .blueDepth, values: blueDepth(blink: 0.50, murk: 0.25, ghosts: 0.35, echo: 0.55, bass: 0.40, tempo: 118, space: 0.50, width: 0.65), creditID: "underwater"),
     ]
 
     public static func defaultPatch(for engine: BuiltInEngine) -> Patch {
@@ -109,6 +116,11 @@ public enum PatchLibrary {
 
     private static func koto(pick: Double, silk: Double, body: Double, bloom: Double, yuri: Double, space: Double, width: Double) -> [String: Double] {
         ["pick": pick, "silk": silk, "body": body, "bloom": bloom, "yuri": yuri, "space": space, "width": width]
+    }
+
+    /// Tempo is in BPM (70…160); every other dial 0…1.
+    private static func blueDepth(blink: Double, murk: Double, ghosts: Double, echo: Double, bass: Double, tempo: Double, space: Double, width: Double) -> [String: Double] {
+        ["blink": blink, "murk": murk, "ghosts": ghosts, "echo": echo, "bass": bass, "tempo": tempo, "space": space, "width": width]
     }
 
     private static func pad(bloom: Double, drift: Double, motion: Double, shimmer: Double, brightness: Double, space: Double) -> [String: Double] {

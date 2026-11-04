@@ -100,6 +100,7 @@ final class ThemeCanvas: NSObject, MTKViewDelegate {
         hub.set(.loudness, sound.loudness, at: now)
         hub.set(.width, sound.width, at: now)
         for (address, value) in model.drainDialChanges() { hub.set(.dial(address), value, at: now) }
+        director.instrumentPulse = model.instrumentPulse   // Blue Depth's arp grid, for the visuals that blink with it
         let frame = director.step(dt: dt, t: now, quality: level)
         model.updateAmbience(Self.ambience(for: frame, key: director.key), at: now)
 

@@ -224,6 +224,31 @@ public enum DemoPhrases {
         return m.sorted
     }()
 
+    /// F♯ minor at 118 BPM for about 20 s, the way Blue Depth plays: the right hand holds a chord from C3 up and the arp
+    /// blinks it on the sixteenths in the order it was pressed (C♯, A, F♯, falling), through the dotted-eighth echo,
+    /// while the left hand strikes a big bass note below C3 once a bar (F♯, D, D, B, B, C♯, F♯), so the same blinking
+    /// chord turns from F♯m to Dmaj7 to Bm9. An E joins it for a bar; pressure swells over the B (the filter opens and
+    /// the ghosts come forward); then a bar of C♯, home to F♯m, and everything lets go to ring out through the echo.
+    public static let blueDepth: Phrase = {
+        var m = Builder()
+        let beat = 60.0 / 118
+        func t(_ beats: Double) -> Double { 0.3 + beats * beat }
+        // The chord the arp blinks, pressed C♯5, A4, F♯4 (40 ms apart, so it keeps that order).
+        m.note(t(0), 73, 80, t(36) - t(0))                                // C♯5 rings on through every chord
+        m.note(t(0) + 0.04, 69, 76, t(24) - 0.03 - (t(0) + 0.04))         // A4
+        m.note(t(0) + 0.08, 66, 74, t(24) - 0.03 - (t(0) + 0.08))         // F♯4
+        m.note(t(12), 76, 76, t(16) - 0.03 - t(12))                       // E5 joins for a bar
+        // The left hand's big bass hits, below C3.
+        for (b, n) in [42, 38, 38, 35, 35, 37, 42].enumerated() { m.note(t(4 + 4 * Double(b)), UInt8(n), 96, 1.5 * beat) }
+        m.note(t(32), 42, 96, t(37.5) - t(32))                            // F♯2, the last, held as everything lets go
+        // Lean in over the B.
+        m.pressure(t(17), from: 0, to: 0.8, over: 1.6); m.pressure(t(21.5), from: 0.8, to: 0, over: 1.2)
+        // A bar of C♯ (E♯4 and G♯4 join the C♯5 that rings on), then home to F♯m.
+        m.note(t(24), 65, 76, t(28) - 0.03 - t(24)); m.note(t(24) + 0.012, 68, 78, t(28) - 0.03 - (t(24) + 0.012))
+        m.note(t(28), 66, 76, t(36) - t(28)); m.note(t(28) + 0.012, 69, 78, t(36) - (t(28) + 0.012))
+        return m.sorted
+    }()
+
     private struct Builder {
         var events: Phrase = []
         mutating func note(_ t: Double, _ n: UInt8, _ v: UInt8, _ length: Double) {

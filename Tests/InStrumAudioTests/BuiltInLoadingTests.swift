@@ -108,4 +108,32 @@ final class BuiltInLoadingTests: XCTestCase {
             XCTAssertEqual(Double(p.value), value, accuracy: 1e-6, p.identifier)
         }
     }
+
+    func testN_BlueDepthShowsDialsButNotTestHooks() throws {
+        let au = try BuiltInInstrumentAU(componentDescription: BuiltInCatalog.description(for: .blueDepth), options: [])
+        XCTAssertEqual(au.engine, .blueDepth)
+        XCTAssertEqual(BuiltInCatalog.description(for: .blueDepth).componentSubType, BuiltInCatalog.fourCC("isBD"))
+        XCTAssertEqual(BuiltInCatalog.isdEngine(.blueDepth).rawValue, ISD_ENGINE_BLUE_DEPTH.rawValue)
+        let params = au.parameterTree?.allParameters ?? []
+        let ids = Set(params.map(\.identifier))
+        XCTAssertEqual(ids, ["fineTune", "transpose", "blink", "murk", "ghosts", "echo", "bass", "tempo", "space", "width",
+                             "moodEnergy", "moodWarmth", "moodBrightness", "moodSpace", "moodMotion"])
+        XCTAssertFalse(ids.contains { $0.hasPrefix("debug") })
+        XCTAssertNil(au.parameterTree?.parameter(withAddress: AUParameterAddress(ISD_P_DEBUG_NO_ARP)))
+        XCTAssertNil(au.parameterTree?.parameter(withAddress: AUParameterAddress(ISD_P_DEBUG_DRY)))
+        // The dials in their order (spec §4.2), Tempo in BPM over 70…160.
+        let dials = params.map(\.identifier).filter { !Mood.parameterIdentifiers.contains($0) && $0 != "fineTune" && $0 != "transpose" }
+        XCTAssertEqual(dials, ["blink", "murk", "ghosts", "echo", "bass", "tempo", "space", "width"])
+        let tempo = au.parameterTree?.parameter(withAddress: AUParameterAddress(ISD_P_TEMPO))
+        XCTAssertEqual(tempo?.minValue, 70)
+        XCTAssertEqual(tempo?.maxValue, 160)
+        // A fresh Blue Depth is its default preset, Blue Depth (spec §4.2: the dials' defaults are that preset's values).
+        let preset = PatchLibrary.defaultPatch(for: .blueDepth)
+        XCTAssertEqual(preset.id, "blue-depth")
+        XCTAssertEqual(Set(preset.values.keys), Set(dials))
+        for p in params {
+            guard let value = preset.values[p.identifier] else { continue }
+            XCTAssertEqual(Double(p.value), value, accuracy: 1e-6, p.identifier)
+        }
+    }
 }
