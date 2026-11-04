@@ -48,6 +48,7 @@ public enum ThemeRegistry {
         .make(CoastRoadModel.self),
         .make(SnowboundCabinModel.self),
         .make(BedroomDawnModel.self),
+        .make(AuroraFjordModel.self),
         .make(BioluminescentBayModel.self),
     ]
 
