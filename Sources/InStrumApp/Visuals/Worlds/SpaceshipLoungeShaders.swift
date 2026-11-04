@@ -91,7 +91,7 @@ enum SpaceshipLoungeShaders {
         float3 ray = normalize(float3(ndc.x * aspect * tanV, ndc.y * tanV, 1.0));
         float3 v = float3x3(u.eq0.xyz, u.eq1.xyz, u.eq2.xyz) * ray;
         float3 col = float3(0.0012, 0.0015, 0.0028);
-        col += starField(v, u.east.w, time, 1.0) + milkyWay(v, octaves, 1.0) * 0.9;
+        col += starField(v, u.east.w, time, 1.0, 2.0) + milkyWay(v, octaves, 1.0) * 0.9;   // every procedural star (no real ones here)
 
         // The Moon in its phase, lit from the sun's side.
         float2 mq = (p - u.moon.xy) / u.moon.z;

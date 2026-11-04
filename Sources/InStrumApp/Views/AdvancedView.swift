@@ -50,6 +50,12 @@ struct AllSettingsView: View {
         return seen
     }
 
+    /// The Night sky group belongs to worlds under a real sky: not the Garden or the Steinway (no sky at all), nor the
+    /// lounge (space: its own stars, no constellation lines and no aurora).
+    nonisolated static func hasNightSky(_ themeID: String) -> Bool {
+        ThemeRegistry.isWorld(themeID) && ThemeRegistry.resolve(themeID) != SpaceshipLoungeModel.id
+    }
+
     var body: some View {
         VStack(spacing: 8) {
             TextField("Search settings", text: $search).textFieldStyle(.roundedBorder).padding(.horizontal, 14).padding(.top, 10)
@@ -73,7 +79,7 @@ struct AllSettingsView: View {
                         }
                     }
                 }
-                if SkyExtrasSection.matches(search) { SkyExtrasSection(model: model) }
+                if SkyExtrasSection.matches(search) && Self.hasNightSky(model.themeID) { SkyExtrasSection(model: model) }
             }
         }
     }

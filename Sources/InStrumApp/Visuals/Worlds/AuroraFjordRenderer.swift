@@ -59,6 +59,13 @@ final class AuroraFjordRenderer: ThemeRenderer {
     private(set) var jettyPosts: [SIMD2<Float>] = []
     /// The keys' rectangles in NDC (x0, y0, x1, y1) (tests check they stay inside the frame).
     var keyRects: [SIMD4<Float>] { keyInstances.map(\.rect) }
+    /// The village lights' quads in NDC (x0, y0, x1, y1), in `villageLayout` order (tests check each holds its reflection).
+    var villageRects: [SIMD4<Float>] { villageInstances.map(\.rect) }
+    /// The shader's FjordU (tests read its clock).
+    var uniforms: [SIMD4<Float>] { fjordU }
+    /// The shader's clock wraps at the hour (the newer worlds' wrap); the water, the falls and the glints read noise that
+    /// repeats in a whole number of cells an hour (the shader's kFjordTick), so the wrap never shows.
+    static let clockWrap = 3600.0
 
     private struct KeyInstance { var rect: SIMD4<Float>; var info: SIMD4<Float> }
     /// The shader's VillageLight: the quad (NDC), direction and angular radius, colour and mirror depression.
@@ -239,7 +246,8 @@ final class AuroraFjordRenderer: ThemeRenderer {
         let villageOn: Float = frame.villageLit ? villageAmount : 0
         let phase1 = Float((frame.time * 2 * .pi / 9).truncatingRemainder(dividingBy: 2 * .pi))
         let phase2 = Float((frame.time * 2 * .pi / 6.3).truncatingRemainder(dividingBy: 2 * .pi))
-        fjordU[0] = SIMD4(keyTop, time, aspect, quality == .lite ? 2 : 3)
+        let clock = Float(frame.time.truncatingRemainder(dividingBy: Self.clockWrap))
+        fjordU[0] = SIMD4(keyTop, clock, aspect, quality == .lite ? 2 : 3)
         fjordU[1] = SIMD4(night, day, mist, min(max(s.wind, 0), 1))
         fjordU[2] = SIMD4(swell, sparkle, villageOn, alpenglow)
         fjordU[3] = SIMD4(SkyLayer.enu(s.sun), sunUp)
@@ -283,10 +291,11 @@ final class AuroraFjordRenderer: ThemeRenderer {
                 let colour = SIMD3<Float>(1.0, 0.72, 0.42) * strength
                 guard let at = project(direction(phi: l.phi, alt: alt)) else { continue }
                 // The quad: the glow's halo across; up to the pillar's reach above, down to the reflection's end (or the
-                // pillar's) below.
+                // pillar's) below: from the light (alt up) past the horizon to its mirror point (mirror down), then on
+                // until the streak has faded (5 × its length).
                 let half: Float = 0.036
                 let above: Float = pillar > 0.001 ? 0.45 : 0.036
-                let below: Float = max(mirror - alt + 5 * len, pillar > 0.001 ? 0.45 : 0.036)
+                let below: Float = max(alt + mirror + 5 * len, pillar > 0.001 ? 0.45 : 0.036)
                 var lo = SIMD2<Float>(repeating: 9), hi = SIMD2<Float>(repeating: -9)
                 for (dp, da) in [(-half, above), (half, above), (-half, -below), (half, -below), (Float(0), above), (Float(0), -below)] {
                     if let c = project(direction(phi: l.phi + dp, alt: alt + da)) { lo = simd_min(lo, c); hi = simd_max(hi, c) }

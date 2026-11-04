@@ -80,8 +80,9 @@ enum SkyShaders {
     // Sirius's peak (1.0 in the texture) shows at the brightest procedural star's scale (starField's mag reaches ~9.25).
     constant float kRealStarGain = 9.0;
     // The sun's pillar: the spec's 0.35 of its (HDR, 9–14) colour is lost against the bright low sky after the tone
-    // curve, so it is 1.2 (a column 6° above a 4° sun reads about 1.39× the sky beside it); the moon's keeps 0.35.
-    constant float kPillarGain = 1.2;
+    // curve; 0.55 stands a thin column over a 4° sun (6° up it reads about 1.35× the sky beside it, and 10° up it is
+    // still a colour, not clipped white: 1.2 blew it out into a flare); the moon's keeps 0.35.
+    constant float kPillarGain = 0.55;
     // Constellation lines: the spec's 0.06 all but vanishes where a figure crosses the Milky Way (Crux, Scorpius,
     // Cygnus), so 0.1: a clear blue trace at full strength, a faint one at the default 35%.
     constant float kLineGain = 0.1;
@@ -128,12 +129,14 @@ enum SkyShaders {
     float beltOfVenus(float sunAltDeg) {
         return smoothstep(-6.0, -4.0, sunAltDeg) * (1.0 - smoothstep(0.0, 1.0, sunAltDeg));
     }
-    float3 starField(float3 v, float pixelAngle, float time, float visibility) {
+    /// The procedural stars. A star's brightness rank is r.y (0…1; its magnitude climbs steeply with it): `rankLimit`
+    /// keeps those ranked at or below it (0.7 leaves out the brightest 30%, for the real stars to replace; 2 keeps all).
+    float3 starField(float3 v, float pixelAngle, float time, float visibility, float rankLimit) {
         const float scale = 90.0;
         float3 p = v * scale;
         float3 cell = floor(p);
         float3 r = hash33(cell);
-        if (r.x > 0.30) return float3(0);                       // most cells are empty
+        if (r.x > 0.30 || r.y > rankLimit) return float3(0);    // most cells are empty
         float3 star = cell + 0.15 + 0.7 * hash33(cell + 7.7);
         float d = length(p - star);
         float radius = max(0.9 * pixelAngle * scale, 0.04);
@@ -319,10 +322,11 @@ enum SkyShaders {
         float3 v = eq * d;
         float above = smoothstep(0.0, 0.17, alt);
         if (starVis > 0.001 && alt > 0.0) {
-            float3 procedural = starField(v, u.weather.w, time, starVis);
+            float3 procedural = starField(v, u.weather.w, time, starVis, u.eq0.w > 0.5 ? 0.7 : 2.0);
             float3 catalogue = float3(0);
             if (u.eq0.w > 0.5) {
-                // The real stars lead; the procedural field stays as the faint background.
+                // The real stars lead: they replace the procedural field's brightest 30% (left out above), and the rest
+                // stays as the faint background.
                 catalogue = realStars(v, stars, time, saturate(u.night.z), starVis);
                 procedural *= 0.45;
             }
