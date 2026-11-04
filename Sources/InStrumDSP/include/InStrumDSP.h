@@ -19,7 +19,7 @@ void isd_reverb_configure(ISDReverb *reverb, float size, float damping, float pr
 void isd_reverb_process(ISDReverb *reverb, const float *inL, const float *inR, float *outL, float *outR, int frames);
 
 // ---------- Built-in instruments ----------
-typedef enum { ISD_ENGINE_FELT_GLASS = 0, ISD_ENGINE_ORBIT_PAD = 1, ISD_ENGINE_HONEY_TAPE = 2, ISD_ENGINE_HAZE_BELLS = 3, ISD_ENGINE_CABIN_FELT = 4, ISD_ENGINE_MORNING_BOX = 5, ISD_ENGINE_POLAR_CHOIR = 6, ISD_ENGINE_PLANKTON_KEYS = 7 } ISDEngine;
+typedef enum { ISD_ENGINE_FELT_GLASS = 0, ISD_ENGINE_ORBIT_PAD = 1, ISD_ENGINE_HONEY_TAPE = 2, ISD_ENGINE_HAZE_BELLS = 3, ISD_ENGINE_CABIN_FELT = 4, ISD_ENGINE_MORNING_BOX = 5, ISD_ENGINE_POLAR_CHOIR = 6, ISD_ENGINE_PLANKTON_KEYS = 7, ISD_ENGINE_TEA_HOUSE_KOTO = 8, ISD_ENGINE_ZEN_SHAKUHACHI = 9 } ISDEngine;
 
 /// Parameter addresses (stable: saved in presets and instrument state).
 enum {
@@ -32,6 +32,8 @@ enum {
     ISD_P_BARS = 60, ISD_P_BOX = 61, ISD_P_BUILD = 62, ISD_P_HAZE = 63,
     ISD_P_VOWEL = 70, ISD_P_SWELL = 71,
     ISD_P_TINE = 80, ISD_P_BARK = 81, ISD_P_SPARKLE = 82, ISD_P_TREMOLO = 83, ISD_P_PHASE = 84,
+    ISD_P_PICK = 90, ISD_P_SILK = 91, ISD_P_BODY = 92, ISD_P_YURI = 93,
+    ISD_P_AIR = 94, ISD_P_BEND = 95, ISD_P_BAMBOO = 96,
     ISD_P_MOOD_ENERGY = 100, ISD_P_MOOD_WARMTH = 101, ISD_P_MOOD_BRIGHTNESS = 102, ISD_P_MOOD_SPACE = 103, ISD_P_MOOD_MOTION = 104,
     /// Test hook (unit 3, never shown): Orbit Pad plays one plain saw, no detune, drift, motion or chorus.
     ISD_P_DEBUG_LAYER_A_ONLY = 200,
@@ -44,7 +46,11 @@ enum {
     /// Test hook (unit 3, never shown): Polar Choir's voices alone: one saw, no breath, glass, chorus, drift or swell rise.
     ISD_P_DEBUG_VOICES_ONLY = 206,
     /// Test hooks (unit 3, never shown): Plankton Keys without its sparks; without its tremolo.
-    ISD_P_DEBUG_NO_SPARKLE = 207, ISD_P_DEBUG_NO_TREMOLO = 208
+    ISD_P_DEBUG_NO_SPARKLE = 207, ISD_P_DEBUG_NO_TREMOLO = 208,
+    /// Test hooks (unit 3, never shown): Tea House Koto without its sympathetic open strings; without its body.
+    ISD_P_DEBUG_NO_SYMPATHY = 209, ISD_P_DEBUG_NO_BODY = 210,
+    /// Test hooks (unit 3, never shown): Zen Shakuhachi's tone alone (no breath, muraiki, yuri or echo); no octave fold.
+    ISD_P_DEBUG_TONE_ONLY = 211, ISD_P_DEBUG_NO_FOLD = 212
 };
 
 /// unit: 0 generic 0…1, 1 cents, 2 semitones, 3 internal (test hooks: hosts never show or save these).
