@@ -131,6 +131,8 @@ final class PreviewRenderer {
         case var f as RoadFrame: edit(&f.sky); return f
         case var f as CabinFrame: edit(&f.sky); return f
         case var f as BedroomFrame: edit(&f.sky); return f
+        case var f as FjordFrame: edit(&f.sky); return f
+        case var f as BayFrame: edit(&f.sky); return f
         default: return frame
         }
     }
