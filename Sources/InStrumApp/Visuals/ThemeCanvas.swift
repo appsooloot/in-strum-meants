@@ -20,6 +20,7 @@ final class ThemeCanvas: NSObject, MTKViewDelegate {
     private var bedroom: BedroomDawnRenderer?
     private var fjord: AuroraFjordRenderer?
     private var bay: BioluminescentBayRenderer?
+    private var zenGarden: ZenRockGardenRenderer?
     private var autoQuality: AutoQuality
     private var lastTime: CFTimeInterval = 0
     private var seenVersion = -1
@@ -144,6 +145,10 @@ final class ThemeCanvas: NSObject, MTKViewDelegate {
             if bay == nil { bay = BioluminescentBayRenderer(device: device) }
             bay?.update(y, params: director.parameters, quality: level, gentle: model.gentleVisuals, dt: dt, size: size)
             renderer = bay
+        } else if let z = frame as? ZenGardenFrame {
+            if zenGarden == nil { zenGarden = ZenRockGardenRenderer(device: device) }
+            zenGarden?.update(z, params: director.parameters, quality: level, gentle: model.gentleVisuals, dt: dt, size: size)
+            renderer = zenGarden
         } else {
             renderer = nil
         }
