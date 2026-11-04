@@ -187,8 +187,15 @@ final class SkyLayer {
         u[11] = SIMD4(s.mist, s.wind, (quality == .lite ? 2 : 3) + 0.45 * min(1, max(0, s.rainbow)), pixelAngle)
         u[12] = SIMD4(s.halo, s.dawnPastel, s.gust, s.wetness)
         u[13] = SIMD4(s.aurora, s.auroraStorm, s.constellationLines, s.fireflies)
-        let poleAz = Self.auroraAzimuth(hemisphere: s.hemisphere, time: time) * .pi / 180
-        u[14] = SIMD4(Float(sin(poleAz)), Float(cos(poleAz)), s.auroraAltitude, s.hemisphere)
+        // Follow the sky keeps the real aurora toward the pole; Always is for the show, so it stands where the world looks,
+        // its base at most 12° under the view's top (the fjord and the bay frame theirs lower still).
+        let bandAz: Double = s.auroraAlways ? (viewAzimuth ?? Self.defaultViewAzimuth(latitude: s.latitude))
+                                            : Self.auroraAzimuth(hemisphere: s.hemisphere, time: time)
+        let poleAz = bandAz * .pi / 180
+        let pitchDegrees: Float = -atan(horizonY * cam.tanV) * 180 / .pi
+        let viewTop: Float = Float(verticalFOV / 2) + pitchDegrees
+        let bandAlt: Float = s.auroraAlways ? min(s.auroraAltitude, viewTop - 12) : s.auroraAltitude
+        u[14] = SIMD4(Float(sin(poleAz)), Float(cos(poleAz)), bandAlt, s.hemisphere)
         u[15] = SIMD4(s.diamondDust, s.pillar, min(1, max(-1, auroraTint.x)), min(1, max(0, auroraTint.y)))
         for i in 0..<Self.rippleCount { u[16 + i] = i < ripples.count ? ripples[i] : .zero }
     }
@@ -211,6 +218,10 @@ final class WeatherLayer {
     static func crystalCap(_ q: QualityLevel) -> Int { q == .lite ? 150 : (q == .high ? 400 : 800) }
     /// Fireflies keep to the lower 55% of the view (NDC y below this).
     static let fireflyTop: Float = 0.1
+    /// The weather clock wraps every hour (its floats stay fine in a long session), and every blink and twinkle rate is
+    /// rounded to a whole number of cycles an hour, so the wrap never shows.
+    static let clockWrap: Float = 3600
+    static func wholeCycles(_ rate: Float) -> Float { max(1, (rate * clockWrap).rounded()) / clockWrap }
 
     var gentle = false
     private(set) var particleCount = 0
@@ -245,10 +256,11 @@ final class WeatherLayer {
     private var streamers: [Streamer] = []
     private var streamerInstances: [SIMD4<Float>] = []
     private var fireflies: [Firefly] = []
-    private var fireflyInstances: [SIMD4<Float>] = []
+    private(set) var fireflyInstances: [SIMD4<Float>] = []
     private var crystals: [Crystal] = []
-    private var crystalInstances: [SIMD4<Float>] = []
-    private var clock: Float = 0
+    private(set) var crystalInstances: [SIMD4<Float>] = []
+    /// Seconds, wrapped at `clockWrap` (tests set it).
+    var clock: Float = 0
     private var pixelNDC: Float = 2.0 / 360
     private var rng = SeededRandom(seed: 0xD20F5)
     private var limiter = FlashLimiter()
@@ -368,7 +380,7 @@ final class WeatherLayer {
         streamerCount = streamerInstances.count
 
         clock += fdt
-        if clock > 3600 { clock -= 3600 }   // blink phases are fractions of a period of a few seconds; keep floats fine
+        if clock >= Self.clockWrap { clock -= Self.clockWrap }   // seamless: every blink and twinkle is whole cycles an hour
         pixelNDC = 2 / Float(max(1, size.height))
         updateFireflies(s, quality: quality, dt: fdt, ground: horizon != nil)
         updateCrystals(s, quality: quality, dt: fdt)
@@ -435,13 +447,13 @@ final class WeatherLayer {
 
     private func newFirefly() -> Firefly {
         Firefly(x: rng.range(-1, 1), y: rng.range(-0.95, Self.fireflyTop), heading: rng.range(0, 2 * .pi),
-                speed: rng.range(0.02, 0.06), rate: rng.range(0.4, 1.1), onTime: rng.range(0.25, 0.5),
+                speed: rng.range(0.02, 0.06), rate: Self.wholeCycles(rng.range(0.4, 1.1)), onTime: rng.range(0.25, 0.5),
                 phase: rng.range(0, 3), size: rng.range(3, 6))
     }
 
     private func newCrystal(anywhere: Bool) -> Crystal {
         Crystal(x: rng.range(-1.05, 1.05), y: anywhere ? rng.range(-1, 1.05) : rng.range(1.0, 1.05), speed: rng.range(0.01, 0.03),
-                rate: rng.range(2, 6), phase: rng.range(0, 1), size: rng.range(1, 3))
+                rate: Self.wholeCycles(rng.range(2, 6)), phase: rng.range(0, 1), size: rng.range(1, 3))
     }
 
     private func spawn(top: Bool, snowing: Bool, horizon: Float?) -> Drop {

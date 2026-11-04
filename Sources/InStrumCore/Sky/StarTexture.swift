@@ -5,8 +5,10 @@ import Foundation
 ///
 /// RGB is the summed starlight, **stored as the square root of linear light** (a gamma-2 encoding, so stars down to
 /// magnitude 4.5 survive 8 bits; the shader squares it back, no `pow`). Each star is a Gaussian footprint of radius
-/// 1.0 + 0.9 · max(0, 2.5 − mag) px (round on the sky: wider in x toward the poles), with an amplitude ∝ 10^(−0.4·mag)
-/// scaled so Sirius peaks at 255 in its brightest channel, coloured by its B−V index.
+/// 1.0 + 0.2 · max(0, 2.5 − mag) px (round on the sky: wider in x toward the poles), with an amplitude ∝ 10^(−0.4·mag)
+/// scaled so Sirius peaks at 255 in its brightest channel, coloured by its B−V index. A bright star shows its
+/// brightness, not its size: even Sirius's core (where it is over half its peak) is about 0.4° across, a point whose glow
+/// is the bloom's (the spec's 0.9 px a magnitude made it a soft ball well over a degree across).
 /// Alpha is the constellation lines: 1-pixel anti-aliased great-circle segments, shortened 1.2° at each star
 /// (30% of the side on sides shorter than 4°), split where they cross RA 0/360.
 public enum StarTexture {
@@ -34,7 +36,7 @@ public enum StarTexture {
         return red
     }
 
-    static func radius(mag: Float) -> Float { 1.0 + 0.9 * max(0, 2.5 - mag) }
+    static func radius(mag: Float) -> Float { 1.0 + 0.2 * max(0, 2.5 - mag) }
 
     /// Builds the image (`width` × `height` × 4 bytes). `lines: false` leaves alpha at 0.
     public static func build(lines: Bool = true) -> [UInt8] {

@@ -53,10 +53,11 @@ final class AuroraTests: XCTestCase {
         XCTAssertFalse(spec.help.isEmpty)
     }
 
-    /// Review focus 3: 48 simulated hours of 1-s steps keep Kp in 0…9 (and it wanders).
+    /// Review focus 3: 48 simulated hours of 1-s steps keep Kp in 0…9 (and it wanders); the substorms come as the spec
+    /// has them, one every 20–60 min of the time Kp is 3 or more.
     func testKpStaysInRangeFor48Hours() {
         var m = AuroraMachine(seed: 11)
-        var lo = 9.0, hi = 0.0, storms = 0, wasStorm = false, outOfRange = 0
+        var lo = 9.0, hi = 0.0, storms = 0, wasStorm = false, outOfRange = 0, active = 0
         let t0 = Date()
         for _ in 0..<172_800 {
             let a = m.step(dt: 1, mode: .follow, latitude: 60)
@@ -64,13 +65,19 @@ final class AuroraTests: XCTestCase {
                 outOfRange += 1
             }
             lo = min(lo, a.kp); hi = max(hi, a.kp)
+            if a.kp >= 3 { active += 1 }
             if a.storm > 0.5 && !wasStorm { storms += 1 }
             wasStorm = a.storm > 0.5
         }
         XCTAssertEqual(outOfRange, 0)
         XCTAssertGreaterThan(hi - lo, 0.5, "Kp wanders (\(lo)…\(hi))")
         XCTAssertLessThan(Date().timeIntervalSince(t0), 1)
-        _ = storms
+        // Each substorm passes half strength once; onsets come every 20–60 min of active time (the last may not have
+        // reached half yet when the run ends).
+        let activeMinutes = Double(active) / 60
+        XCTAssertGreaterThan(activeMinutes, 60, "Kp reaches 3 for a while in two days")
+        XCTAssertGreaterThanOrEqual(storms, Int(activeMinutes / 60) - 1, "\(storms) substorms in \(activeMinutes) active minutes")
+        XCTAssertLessThanOrEqual(storms, Int(activeMinutes / 20), "\(storms) substorms in \(activeMinutes) active minutes")
         // Deterministic for a seed.
         var a = AuroraMachine(seed: 5), b = AuroraMachine(seed: 5)
         for _ in 0..<600 { XCTAssertEqual(a.step(dt: 1, mode: .follow, latitude: 50).kp, b.step(dt: 1, mode: .follow, latitude: 50).kp) }
