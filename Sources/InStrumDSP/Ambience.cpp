@@ -15,6 +15,7 @@ const float kGain[ISD_AMB_COUNT] = {
     /* dawn chorus */ 0.60f, /* ship hum */ 0.0845f, /* air flow */ 0.363f, /* chime */ 0.0525f, /* hull ticks */ 0.15f, /* wind */ 0.257f,
     /* surf */ 0.54f, /* palms */ 0.92f, /* gulls */ 0.06f, /* road */ 0.19f, /* engine */ 0.36f, /* window wind */ 0.61f, /* passing car */ 0.30f,
     /* fire */ 0.45f, /* kettle */ 0.095f, /* street */ 0.067f, /* drips */ 0.30f, /* clock */ 0.30f,
+    /* ice groan */ 0.10f, /* waterfall */ 0.134f, /* lapping */ 0.72f, /* boat */ 0.24f,
 };
 
 /// sin(2πx) for x in cycles (any value). 9th-order odd polynomial after folding: error ≈ 2e-6.
@@ -1224,6 +1225,219 @@ public:
     }
 };
 
+// ---------------------------------------------------------------- Ice on the fjord: a creak bed, deep groans, cracks
+class IceGroan final : public AmbienceSource {
+    FastRandom rng;
+    Pink pinkL, pinkR;
+    SVF creakL, creakR, creakTopL, creakTopR;
+    Wander creakF, creakA;
+    // A groan: a resonant sweep through 40–120 Hz over 1–4 s (a tone with a few harmonics and a moaning noise band).
+    struct Groan { float t = -1, dur = 2, f0 = 100, f1 = 45, ph = 0, gl = 0.7f, gr = 0.7f, amp = 1, wob = 6; SVF res, top; Brown brown; } groan;
+    // A crack: a 1–3 ms broadband click, then a ~300 ms ring at 1–2 kHz.
+    Burst click;
+    Partial ring[2];
+    float ringGl = 0.7f, ringGr = 0.7f, toGroan = 10, toCrack = 8;
+
+public:
+    explicit IceGroan(uint64_t seed) : rng(seed) { direct = 1.f; send = 0.6f; }
+    float groanInterval(const AmbienceContext &c) { return (20.f + 70.f * rng.uniform()) / c.density; }
+    float crackInterval(const AmbienceContext &c) { return (15.f + 45.f * rng.uniform()) / c.density; }
+    void wake(const AmbienceContext &c) override {
+        toGroan = groanInterval(c) * (0.1f + 0.4f * rng.uniform());
+        toCrack = crackInterval(c) * (0.1f + 0.4f * rng.uniform());
+    }
+    void render(float *l, float *r, int n, const AmbienceContext &c) override {
+        const float fsr = c.sr, dt = (float)n / fsr, invSr = 1.f / fsr;
+        // The bed: a faint stick-slip creak, a narrow noise band wandering through 250–650 Hz.
+        const float cf = 250.f + 400.f * creakF.next(rng, dt, 3.f), ca = 0.5f + 0.5f * creakA.next(rng, dt, 2.f);
+        creakL.set(cf, 4.f, fsr); creakR.set(cf * 1.06f, 4.f, fsr); creakTopL.set(900.f, 0.7f, fsr); creakTopR.set(950.f, 0.7f, fsr);
+        if (groan.t < 0 && (toGroan -= dt) <= 0) {
+            groan.t = 0; groan.dur = 1.f + 3.f * rng.uniform(); groan.ph = 0;
+            const float lo = 40.f + 15.f * rng.uniform(), hi = 95.f + 25.f * rng.uniform();
+            if (rng.uniform() < 0.6f) { groan.f0 = hi; groan.f1 = lo; } else { groan.f0 = lo; groan.f1 = hi; }
+            groan.amp = 0.7f + 0.3f * rng.uniform(); groan.wob = 4.f + 5.f * rng.uniform();
+            panGains(0.7f * rng.bipolar(), groan.gl, groan.gr);
+            groan.top.set(260.f, 0.7f, fsr);
+            toGroan = groanInterval(c);
+            ++events;
+        }
+        if ((toCrack -= dt) <= 0) {
+            const float pan = 0.8f * rng.bipolar();
+            click.start(3500.f, 0.35f, 0.001f + 0.002f * rng.uniform(), 16.f, pan, fsr);
+            const float f = 1000.f + 1000.f * rng.uniform();
+            ring[0].start(f, 0.3f, 0.12f, fsr); ring[1].start(f * 1.47f, 0.2f, 0.06f, fsr);
+            panGains(pan, ringGl, ringGr);
+            toCrack = crackInterval(c);
+            ++events;
+        }
+        float f = 0, inc = 0;
+        if (groan.t >= 0) {
+            const float u = std::min(1.f, groan.t / groan.dur);
+            f = groan.f0 * std::pow(groan.f1 / groan.f0, u);
+            groan.res.set(f, 6.f, fsr);
+            inc = f * invSr;
+        }
+        for (int i = 0; i < n; ++i) {
+            const float wl = rng.bipolar(), wr = rng.bipolar();
+            float yl = 1.4f * ca * creakTopL.low(creakL.band(pinkL.next(wl))), yr = 1.4f * ca * creakTopR.low(creakR.band(pinkR.next(wr)));
+            if (groan.t >= 0) {
+                const float u = groan.t / groan.dur, s = std::sin(kPi * std::min(1.f, u)), env = s * s;
+                const float wobble = 0.75f + 0.25f * sin2pi(groan.wob * groan.t);
+                advanceTone(groan.ph, inc);
+                const float tone = sin2pi(groan.ph) + 0.35f * sin2pi(2.f * groan.ph) + 0.15f * sin2pi(3.f * groan.ph);
+                const float moan = groan.res.band(groan.brown.next(rng.bipolar()) * 10.f);
+                const float y = groan.amp * env * wobble * groan.top.low(0.6f * tone + moan);
+                yl += 2.5f * y * groan.gl; yr += 2.5f * y * groan.gr;
+                groan.t += invSr;
+                if (groan.t > groan.dur) groan.t = -1;
+            }
+            if (click.on()) { const float k = click.next(rng); yl += k * click.gl; yr += k * click.gr; }
+            float rg = 0;
+            for (auto &p : ring) if (p.mag > 0) { rg += p.next(); if (p.energy() < 1e-12f) p.mag = 0; }
+            yl += rg * ringGl; yr += rg * ringGr;
+            l[i] += yl; r[i] += yr;
+        }
+    }
+};
+
+// ---------------------------------------------------------------- A far waterfall: a white roar over a low rumble
+class Waterfall final : public AmbienceSource {
+    FastRandom rng;
+    Pink pinkL, pinkR;
+    Brown brownL, brownR;
+    SVF hpL, hpR, lpL, lpR, rumL, rumR;
+    Wander wander;
+    float ph = 0, g = 1;
+
+public:
+    explicit Waterfall(uint64_t seed) : rng(seed) { direct = 1.f; send = 0.6f; }
+    void render(float *l, float *r, int n, const AmbienceContext &c) override {
+        const float fsr = c.sr, dt = (float)n / fsr;
+        hpL.set(200.f, 0.7f, fsr); hpR.set(210.f, 0.7f, fsr); lpL.set(3000.f, 0.7f, fsr); lpR.set(2900.f, 0.7f, fsr);
+        rumL.set(80.f, 1.2f, fsr); rumR.set(90.f, 1.2f, fsr);
+        // A slow flicker (about 0.1 Hz, ±1.5 dB) as the spray shifts.
+        ph += 0.1f * dt; if (ph >= 1.f) ph -= 1.f;
+        const float g1 = 1.f + 0.11f * sin2pi(ph) + 0.07f * (wander.next(rng, dt, 3.f) - 0.5f);
+        const float dg = (g1 - g) / (float)n;
+        for (int i = 0; i < n; ++i) {
+            g += dg;
+            const float wl = rng.bipolar(), wr = rng.bipolar();
+            l[i] += g * lpL.low(hpL.high(pinkL.next(wl))) + 0.5f * rumL.band(brownL.next(rng.bipolar()) * 6.f);
+            r[i] += g * lpR.low(hpR.high(pinkR.next(wr))) + 0.5f * rumR.band(brownR.next(rng.bipolar()) * 6.f);
+        }
+    }
+};
+
+// ---------------------------------------------------------------- Lapping: small waves against a hull and rocks
+class Lapping final : public AmbienceSource {
+    FastRandom rng;
+    Pink pinkL, pinkR;
+    SVF hpL, hpR, lpL, lpR;
+    struct Slosh { float t = -1, dur = 0.5f, amp = 1, pan = 0; } slosh;
+    Ping knock, knock2;
+    Burst thud;
+    float toSlosh = 1, toKnock = 10, env = 0, gl = 0.7f, gr = 0.7f;
+
+public:
+    explicit Lapping(uint64_t seed) : rng(seed) { direct = 1.f; send = 0.4f; }
+    void wake(const AmbienceContext &c) override {
+        toSlosh = 0.3f + 1.5f * rng.uniform();
+        toKnock = (8.f + 22.f * rng.uniform()) / c.density * (0.2f + 0.5f * rng.uniform());
+    }
+    void render(float *l, float *r, int n, const AmbienceContext &c) override {
+        const float fsr = c.sr, dt = (float)n / fsr;
+        if (slosh.t < 0 && (toSlosh -= dt) <= 0) {
+            slosh = {0, 0.3f + 0.5f * rng.uniform(), 0.6f + 0.4f * rng.uniform(), 0.6f * rng.bipolar()};
+            toSlosh = (2.f + 4.f * rng.uniform()) / c.density;
+            ++events;
+        }
+        if ((toKnock -= dt) <= 0) {
+            // A hollow knock: the hull's 180 Hz resonance, damped, with a soft thud on the strike.
+            const float pan = 0.5f * rng.bipolar(), f = 170.f + 20.f * rng.uniform();
+            knock.start(f, 0.18f, 0.5f + 0.3f * rng.uniform(), pan, fsr);
+            knock2.start(f * 2.31f, 0.08f, 0.15f, pan, fsr);
+            thud.start(700.f, 1.f, 0.006f, 1.2f, pan, fsr);
+            toKnock = (8.f + 22.f * rng.uniform()) / c.density;
+        }
+        float target = 0;
+        if (slosh.t >= 0) {
+            const float u = slosh.t / slosh.dur;
+            target = u < 1.f ? slosh.amp * std::sin(kPi * u) : 0.f;
+            slosh.t += dt;
+            if (slosh.t > slosh.dur) slosh.t = -1;
+            if (u < 0.05f) panGains(slosh.pan, gl, gr);
+        }
+        hpL.set(300.f, 0.7f, fsr); hpR.set(310.f, 0.7f, fsr);
+        lpL.set(900.f + 1100.f * env, 0.8f, fsr); lpR.set(950.f + 1050.f * env, 0.8f, fsr);
+        const float de = (target - env) / (float)n;
+        for (int i = 0; i < n; ++i) {
+            env += de;
+            const float a = 0.13f + env;
+            float yl = a * (0.6f + 0.8f * gl) * lpL.low(hpL.high(pinkL.next(rng.bipolar())));
+            float yr = a * (0.6f + 0.8f * gr) * lpR.low(hpR.high(pinkR.next(rng.bipolar())));
+            if (knock.on()) { const float k = knock.next() + knock2.next(); yl += k * knock.gl; yr += k * knock.gr; }
+            if (thud.on()) { const float k = thud.next(rng); yl += k * thud.gl; yr += k * thud.gr; }
+            l[i] += yl; r[i] += yr;
+        }
+    }
+};
+
+// ---------------------------------------------------------------- A distant outboard crossing the bay
+class Boat final : public AmbienceSource {
+    FastRandom rng;
+    SVF lp1, lp2, washHp, washLp;
+    Pink pinkW;
+    double t = -1;
+    float untilNext = 200, dur = 15, dir = 1, f = 75, ph = 0, pulse = 0, washDur = 7, washPan = 0;
+
+public:
+    explicit Boat(uint64_t seed) : rng(seed) { direct = 1.f; send = 0.35f; }
+    float interval(const AmbienceContext &c) { return (150.f + 250.f * rng.uniform()) / c.density; }
+    void wake(const AmbienceContext &c) override { untilNext = interval(c) * (0.15f + 0.35f * rng.uniform()); }
+    void start(const AmbienceContext &c) {
+        t = 0; dur = 13.f + 7.f * rng.uniform(); dir = rng.uniform() < 0.5f ? -1.f : 1.f; f = 60.f + 30.f * rng.uniform();
+        washDur = 6.f + 3.f * rng.uniform(); washPan = 0.6f * dir;
+        untilNext = interval(c);
+        ++events;
+    }
+    void render(float *l, float *r, int n, const AmbienceContext &c) override {
+        const float fsr = c.sr, dt = (float)n / fsr, invSr = 1.f / fsr;
+        if (t < 0 && (untilNext -= dt) <= 0) start(c);
+        if (t < 0) return;
+        untilNext -= dt;   // the next pass is timed from this one's start
+        lp1.set(320.f, 0.7f, fsr); lp2.set(320.f, 0.7f, fsr);
+        washHp.set(300.f, 0.7f, fsr); washLp.set(1500.f, 0.7f, fsr);
+        const float x0 = (float)t / dur;
+        // A little Doppler: the note sinks as the boat passes.
+        const float hz = f * (1.f + 0.025f * (1.f - 2.f * std::min(1.f, x0)));
+        float gl, gr; panGains(0.9f * dir * (2.f * std::min(1.f, x0) - 1.f), gl, gr);
+        float wl, wr; panGains(washPan, wl, wr);
+        const float washStart = 0.6f * dur;
+        for (int i = 0; i < n; ++i) {
+            const float tf = (float)t, x = tf / dur;
+            float y = 0;
+            if (x < 1.f) {
+                const float env = std::sin(kPi * x);
+                advanceTone(ph, hz * invSr);
+                advanceTone(pulse, 25.f * invSr);
+                const float p = 0.5f + 0.5f * sin2pi(pulse), throb = 0.3f + 0.7f * p * p;
+                const float saw = 2.f * ph - 1.f;
+                y = env * throb * lp2.low(lp1.low(saw));
+            }
+            l[i] += y * gl; r[i] += y * gr;
+            const float u = (tf - washStart) / washDur;
+            if (u > 0.f && u < 1.f) {
+                // The wake arrives: a soft wash in slow waves.
+                const float s = std::sin(kPi * u), wave = 0.55f + 0.45f * sin2pi(0.7f * tf);
+                const float w = 0.35f * s * wave * washLp.low(washHp.high(pinkW.next(rng.bipolar())));
+                l[i] += w * wl; r[i] += w * wr;
+            }
+            t += 1.0 / (double)fsr;
+        }
+        if (t > (double)(washStart + washDur) && t > (double)dur) t = -1;
+    }
+};
+
 } // namespace amb
 
 using namespace amb;
@@ -1323,6 +1537,12 @@ Ambience::Ambience(double sampleRate, uint64_t seed) : sr(sampleRate), room(samp
     sources[ISD_AMB_STREET] = std::make_unique<Street>(s(22));
     sources[ISD_AMB_DRIPS] = std::make_unique<Drips>(s(23));
     sources[ISD_AMB_CLOCK] = std::make_unique<Clock>(s(24));
+    sources[ISD_AMB_ICE_GROAN] = std::make_unique<IceGroan>(s(25));
+    sources[ISD_AMB_WATERFALL] = std::make_unique<Waterfall>(s(26));
+    sources[ISD_AMB_LAPPING] = std::make_unique<Lapping>(s(27));
+    auto boatSource = std::make_unique<Boat>(s(28));
+    boat = boatSource.get();
+    sources[ISD_AMB_BOAT] = std::move(boatSource);
     for (int i : {ISD_AMB_SHIP_HUM, ISD_AMB_AIR_FLOW, ISD_AMB_CHIME, ISD_AMB_HULL_TICKS}) sources[i]->indoor = true;
     closeness.init(sampleRate, 300.0);
     closeness.snap(0.5f);
@@ -1343,6 +1563,11 @@ void Ambience::triggerThunder(float distance) { thunder->trigger(distance); }
 void Ambience::startKettle() {
     if (ramps[ISD_AMB_KETTLE].silent()) kettle->wake(ctx);
     kettle->start(ctx);
+}
+
+void Ambience::startBoat() {
+    if (ramps[ISD_AMB_BOAT].silent()) boat->wake(ctx);
+    boat->start(ctx);
 }
 
 void Ambience::triggerWave(float strength) {
@@ -1489,8 +1714,8 @@ struct ISDAmbience {
     std::atomic<int> waveSeq{0};
     int waveSeen = 0;
     std::atomic<float> indoors{0.f}, wetness{0.f}, snowOnGlass{0.f};
-    std::atomic<int> kettleSeq{0};
-    int kettleSeen = 0;
+    std::atomic<int> kettleSeq{0}, boatSeq{0};
+    int kettleSeen = 0, boatSeen = 0;
     ISDAmbience(double sr, uint64_t seed) : engine(sr, seed) {
         for (int i = 0; i < ISD_AMB_COUNT; ++i) { levels[i].store(0.f); applied[i] = 0.f; }
     }
@@ -1535,6 +1760,7 @@ void isd_ambience_set_indoors(ISDAmbience *a, float v) { if (a && std::isfinite(
 void isd_ambience_set_wetness(ISDAmbience *a, float v) { if (a && std::isfinite(v)) a->wetness.store(isd::clamp01(v), std::memory_order_relaxed); }
 void isd_ambience_set_snow_on_glass(ISDAmbience *a, float v) { if (a && std::isfinite(v)) a->snowOnGlass.store(isd::clamp01(v), std::memory_order_relaxed); }
 void isd_ambience_debug_start_kettle(ISDAmbience *a) { if (a) a->kettleSeq.fetch_add(1, std::memory_order_release); }
+void isd_ambience_debug_start_boat(ISDAmbience *a) { if (a) a->boatSeq.fetch_add(1, std::memory_order_release); }
 int isd_ambience_debug_events(const ISDAmbience *a, ISDAmbienceSource source) { return a ? a->engine.events((int)source) : 0; }
 
 void isd_ambience_render(ISDAmbience *a, float *left, float *right, int frames) {
@@ -1559,6 +1785,8 @@ void isd_ambience_render(ISDAmbience *a, float *left, float *right, int frames) 
     a->engine.setSnowOnGlass(a->snowOnGlass.load(std::memory_order_relaxed));
     const int kettles = a->kettleSeq.load(std::memory_order_acquire);
     if (kettles != a->kettleSeen) { a->kettleSeen = kettles; a->engine.startKettle(); }
+    const int boats = a->boatSeq.load(std::memory_order_acquire);
+    if (boats != a->boatSeen) { a->boatSeen = boats; a->engine.startBoat(); }
     a->engine.render(left, right, frames);
 }
 

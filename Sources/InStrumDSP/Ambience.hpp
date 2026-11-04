@@ -1,4 +1,4 @@
-// Ambience: twenty-four sources generated live (never loops), each gliding to its level over 2.5 s, through a
+// Ambience: twenty-eight sources generated live (never loops), each gliding to its level over 2.5 s, through a
 // small room whose amount follows "closeness", ducking under the instrument while you play. Outdoor sources can be
 // heard through a window ("indoors"): darker and quieter, while the indoor ones stay close.
 // Everything is preallocated; the setters are lock-free atomics read at the start of each render.
@@ -38,7 +38,7 @@ public:
 };
 
 class Thunder;
-namespace amb { class Surf; class Kettle; }
+namespace amb { class Surf; class Kettle; class Boat; }
 
 class Ambience {
 public:
@@ -58,6 +58,8 @@ public:
     void setWetness(float v) { wetTarget = clamp01(v); }
     void setSnowOnGlass(float v) { snowTarget = clamp01(v); }
     void startKettle();
+    /// A boat passes now (tests).
+    void startBoat();
     /// Events a source has started (tests; read when not rendering).
     int events(int source) const { return source >= 0 && source < ISD_AMB_COUNT && sources[source] ? sources[source]->events : 0; }
     void render(float *left, float *right, int frames);
@@ -87,6 +89,7 @@ private:
     std::unique_ptr<Thunder> thunder;
     amb::Surf *surf = nullptr;
     amb::Kettle *kettle = nullptr;
+    amb::Boat *boat = nullptr;
     float speedTarget = 0, indoorsTarget = 0, indoors = 0, indoorsApplied = -1, wetTarget = 0, snowTarget = 0;
     float windowA1 = 1, windowA2 = 0, windowA3 = 0, windowGain = 1;
     Ramp ramps[ISD_AMB_COUNT];
