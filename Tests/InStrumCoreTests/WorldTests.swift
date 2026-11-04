@@ -1160,3 +1160,238 @@ extension WorldTests {
         XCTAssertTrue(w.ripples.isEmpty, "Galaxy Warp replaces the ripples")
     }
 }
+
+// MARK: Zen Rock Garden
+
+extension WorldTests {
+    private func gardenStep(_ model: inout ZenRockGardenModel, seconds: Double, dt: Double = 1.0 / 30,
+                            state: ThemeState = ThemeState()) -> ZenGardenFrame {
+        let p = ThemeRegistry.parameterSet(for: ZenRockGardenModel.id, state: state)
+        var frame: ZenGardenFrame?
+        for _ in 0..<max(1, Int((seconds / dt).rounded())) {
+            frame = model.step(dt: dt, params: p, roles: RoleValues(), inputs: InputFrame(), quality: .high)
+        }
+        return frame!
+    }
+
+    /// A sky over the garden: the sun's altitude, the local hour, the day of the year, and the hemisphere (Kyoto's
+    /// latitude in the north, Melbourne's in the south).
+    private func gardenSky(sun altitude: Double, hour: Double, day: Int = 105, south: Bool = false) -> SkyState {
+        var s = SkyState()
+        s.sun = SkyDirection(azimuth: 100, altitude: altitude)
+        s.hourOfDay = hour
+        s.dayOfYear = day
+        s.latitude = south ? -37.81 : 35.01
+        s.hemisphere = south ? -1 : 1
+        return s
+    }
+
+    func testGardenDefaults() throws {
+        XCTAssertEqual(ZenRockGardenModel.id, "zen-rock-garden")
+        XCTAssertEqual(ThemeRegistry.resolve(ZenRockGardenModel.id), ZenRockGardenModel.id)
+        XCTAssertTrue(ThemeRegistry.all.contains { $0.id == ZenRockGardenModel.id && $0.name == "Zen Rock Garden" })
+        XCTAssertTrue(ThemeRegistry.isWorld(ZenRockGardenModel.id))
+        assertValidParameters(ZenRockGardenModel.parameters)
+        let params = ThemeRegistry.parameterSet(for: ZenRockGardenModel.id, state: ThemeState())
+        XCTAssertEqual(ZenRockGardenModel.visuals, ["Rake Lines", "Galaxy Warp"])
+        XCTAssertEqual(params.choice("visual"), "Rake Lines")
+        XCTAssertEqual(params.choice("light.hold"), "Follow the sky")
+        XCTAssertEqual(params.choice("aurora.mode"), "Follow the sky")
+        XCTAssertEqual(params.number("ridge"), 0.6, accuracy: 1e-9)
+        XCTAssertEqual(params.number("moss"), 0.5, accuracy: 1e-9)
+        XCTAssertEqual(params.choice("season"), "Follow the date")
+        XCTAssertEqual(ZenRockGardenModel.seasons, ["Follow the date", "Spring", "Summer", "Autumn", "Winter"])
+        XCTAssertEqual(params.number("keys.show"), 1)
+        XCTAssertEqual(params.number("keys.height"), 0.12, accuracy: 1e-9)
+        let ridge = try XCTUnwrap(ZenRockGardenModel.parameters.first { $0.id == "ridge" })
+        XCTAssertTrue(ridge.hero)
+        XCTAssertEqual(ridge.name, "Rake depth")
+        XCTAssertEqual(ZenRockGardenModel.parameters.first { $0.id == "moss" }?.name, "Moss")
+        XCTAssertEqual(Mood.orderedCalm, Mood(energy: 0.15, warmth: 0.45, brightness: 0.55, space: 0.5, motion: 0.15))
+
+        // A still garden shows the morning's pattern and has nothing new to upload.
+        var model = ZenRockGardenModel()
+        model.setSky(gardenSky(sun: 20, hour: 9))
+        let still = gardenStep(&model, seconds: 1)
+        XCTAssertEqual(still.field.heights.count, RakeField.width * RakeField.height)
+        XCTAssertEqual(still.field.heights, RakeLines.morning)
+        XCTAssertEqual(still.field.version, 0)
+        XCTAssertFalse(still.field.dirty)
+        XCTAssertEqual(still.keys.count, 88)
+        XCTAssertNil(still.wave)
+        XCTAssertNil(still.warp)
+        // A note rakes a ring round the tall stone, and the field moves on a version.
+        model.handle(.noteOn(note: 60, velocity: 0.8))
+        let raked = gardenStep(&model, seconds: 1.0 / 30)
+        XCTAssertEqual(raked.rings.count, 1)
+        XCTAssertEqual(raked.rings.first?.stone, 2)
+        XCTAssertEqual(raked.field.version, 1)
+        XCTAssertTrue(raked.field.dirty)
+        XCTAssertTrue(raked.keys.contains { $0.key.note == 60 && $0.pressed })
+        // Galaxy Warp streaks instead of raking.
+        model.handle(.noteOn(note: 67, velocity: 0.8))
+        let warped = gardenStep(&model, seconds: 0.5, state: ThemeState(values: ["visual": .choice("Galaxy Warp")]))
+        XCTAssertNotNil(warped.warp)
+        XCTAssertEqual(warped.rings.count, 1, "no new ring")
+
+        // Rain darkens the gravel at once; snow fills the grooves over minutes and melts in the sun.
+        var rainy = ZenRockGardenModel()
+        var wet = gardenSky(sun: 20, hour: 11)
+        wet.rain = 0.8
+        wet.wetness = 0.1
+        rainy.setSky(wet)
+        XCTAssertEqual(gardenStep(&rainy, seconds: 0.1).wetness, 0.48, accuracy: 1e-6)
+        var snowy = ZenRockGardenModel()
+        var snow = gardenSky(sun: 5, hour: 9, day: 20)
+        snow.snow = 1
+        snowy.setSky(snow)
+        let early = gardenStep(&snowy, seconds: 10, dt: 0.25).snowCover
+        XCTAssertTrue(early > 0 && early < 0.1, "\(early)")
+        let deep = gardenStep(&snowy, seconds: 600, dt: 0.25).snowCover
+        XCTAssertTrue(deep > 0.9 && deep <= 1, "\(deep)")
+        snow.snow = 0
+        snow.sun = SkyDirection(azimuth: 180, altitude: 30)
+        snowy.setSky(snow)
+        XCTAssertLessThan(gardenStep(&snowy, seconds: 900, dt: 0.25).snowCover, 0.1, "it melts in the sun")
+        // Humid nights bring fireflies over the moss: more moss, more fireflies.
+        var humid = gardenSky(sun: -20, hour: 23, day: 200)
+        humid.fireflies = 0.8
+        var bare = ZenRockGardenModel(), lush = ZenRockGardenModel()
+        bare.setSky(humid)
+        lush.setSky(humid)
+        XCTAssertEqual(gardenStep(&bare, seconds: 0.1, state: ThemeState(values: ["moss": .number(0)])).fireflies, 0.24, accuracy: 1e-6)
+        XCTAssertEqual(gardenStep(&lush, seconds: 0.1, state: ThemeState(values: ["moss": .number(1)])).fireflies, 0.8, accuracy: 1e-6)
+
+        // The water-knocker fills and clacks every 15–40 s at a neutral mood, its swing always within 0…1.
+        var garden = ZenRockGardenModel()
+        garden.setSky(gardenSky(sun: 20, hour: 9))
+        let p = ThemeRegistry.parameterSet(for: ZenRockGardenModel.id, state: ThemeState())
+        var clacks: [Double] = []
+        var previous: Float = 0, lowest: Float = 1, highest: Float = 0
+        for i in 1...(200 * 30) {
+            let k = garden.step(dt: 1.0 / 30, params: p, roles: RoleValues(), inputs: InputFrame(), quality: .high).knocker
+            lowest = min(lowest, k.fill, k.tip, k.clack, k.phase)
+            highest = max(highest, k.fill, k.tip, k.clack, k.phase)
+            if k.clack > 0, previous == 0 { clacks.append(Double(i) / 30) }
+            previous = k.clack
+        }
+        XCTAssertGreaterThanOrEqual(lowest, 0)
+        XCTAssertLessThanOrEqual(highest, 1)
+        XCTAssertGreaterThanOrEqual(clacks.count, 4)
+        for (a, b) in zip(clacks, clacks.dropFirst()) { XCTAssertTrue((15.8...40.9).contains(b - a), "\(b - a) s between clacks") }
+    }
+
+    func testSeasonFollowsTheDateAndHemisphere() throws {
+        // 15 January through the real sky: midsummer in Melbourne, midwinter in Kyoto.
+        let at = try XCTUnwrap(ISO8601DateFormatter().date(from: "2027-01-15T03:00:00Z"))
+        func frame(_ city: String, season: String = ZenRockGardenModel.followTheDate) -> ZenGardenFrame {
+            var settings = SkySettings()
+            settings.timeMode = .realTime
+            settings.cityID = city
+            var model = ZenRockGardenModel()
+            model.setSky(LivingSky(settings: settings).step(now: at, dt: 0))
+            return gardenStep(&model, seconds: 0.1, state: ThemeState(values: ["season": .choice(season)]))
+        }
+        let melbourne = frame("melbourne"), kyoto = frame("kyoto")
+        XCTAssertEqual(melbourne.sky.dayOfYear, 15)
+        XCTAssertEqual(kyoto.sky.dayOfYear, 15)
+        XCTAssertEqual(melbourne.sky.hemisphere, -1)
+        XCTAssertEqual(kyoto.sky.hemisphere, 1)
+        XCTAssertEqual(melbourne.season, .summer)
+        XCTAssertEqual(kyoto.season, .winter)
+        XCTAssertGreaterThan(melbourne.maple.y, melbourne.maple.x, "a green maple in summer")
+        XCTAssertLessThan(kyoto.mapleLeaves, 0.2, "bare in winter")
+        // Chosen, the setting decides: autumn in Melbourne's January, and a red maple.
+        let autumn = frame("melbourne", season: "Autumn")
+        XCTAssertEqual(autumn.season, .autumn)
+        XCTAssertGreaterThan(autumn.maple.x, 2 * autumn.maple.y, "red in autumn")
+        XCTAssertEqual(frame("kyoto", season: "Summer").season, .summer)
+
+        // The calendar's edges (non-leap day numbers): spring from 1 March, summer from 1 June, autumn from 1
+        // September, winter from 1 December; the other way round in the south.
+        let north: [(day: Int, season: GardenSeason)] = [(1, .winter), (59, .winter), (60, .spring), (151, .spring),
+                                                         (152, .summer), (243, .summer), (244, .autumn), (334, .autumn),
+                                                         (335, .winter), (366, .winter)]
+        for (day, season) in north {
+            XCTAssertEqual(ZenRockGardenModel.season(dayOfYear: day, southern: false), season, "day \(day) in the north")
+        }
+        let south: [(day: Int, season: GardenSeason)] = [(15, .summer), (60, .autumn), (152, .winter), (244, .spring),
+                                                         (308, .spring), (335, .summer)]
+        for (day, season) in south {
+            XCTAssertEqual(ZenRockGardenModel.season(dayOfYear: day, southern: true), season, "day \(day) in the south")
+        }
+        XCTAssertEqual(ZenRockGardenModel.season(dayOfYear: 308, southern: false), .autumn, "early November in Kyoto")
+        // Through autumn the maple turns from green to gold to red, carrying on from summer's green.
+        let green = ZenRockGardenModel.maple(.autumn, progress: 0).colour
+        let gold = ZenRockGardenModel.maple(.autumn, progress: 0.35).colour
+        let red = ZenRockGardenModel.maple(.autumn, progress: 0.8).colour
+        XCTAssertGreaterThan(green.y, green.x)
+        XCTAssertGreaterThan(gold.x, green.x)
+        XCTAssertGreaterThan(red.x, 2 * red.y)
+        XCTAssertLessThan(simd_distance(ZenRockGardenModel.maple(.summer, progress: 1).colour, green), 0.05)
+        XCTAssertEqual(ZenRockGardenModel.maple(.autumn, progress: 1).leaves, ZenRockGardenModel.maple(.winter, progress: 0).leaves,
+                       accuracy: 1e-6, "the last leaves fall early in winter")
+        XCTAssertLessThan(simd_distance(ZenRockGardenModel.maple(.autumn, progress: 1).colour, ZenRockGardenModel.maple(.winter, progress: 0).colour), 1e-6)
+        XCTAssertLessThan(ZenRockGardenModel.maple(.winter, progress: 0.5).leaves, 0.2)
+    }
+
+    func testGardenAmbience() {
+        func scene(_ sky: SkyState, season: String = ZenRockGardenModel.followTheDate, mood: Mood = .neutral) -> AmbienceScene {
+            var model = ZenRockGardenModel()
+            model.mood = mood
+            model.setSky(sky)
+            return gardenStep(&model, seconds: 0.1, state: ThemeState(values: ["season": .choice(season)])).ambience
+        }
+        // A spring morning in Kyoto (mid-April, 07:00, the sun 12° up): the warbler sings by the water-knocker.
+        let springMorning = gardenSky(sun: 12, hour: 7, day: 105)
+        let a = scene(springMorning, mood: .orderedCalm)
+        XCTAssertEqual(a.level(.waterKnocker), 0.6, accuracy: 1e-9)
+        XCTAssertEqual(a.level(.warbler), 0.5, accuracy: 1e-9)
+        XCTAssertEqual(a.level(.breeze), 0.25, accuracy: 1e-9)
+        XCTAssertEqual(a.level(.templeBell), 0.3, accuracy: 1e-9)
+        XCTAssertEqual(a.level(.crickets), 0)
+        XCTAssertEqual(a.level(.dawnChorus), 0, accuracy: 1e-9, "the sun is up past the dawn chorus")
+        XCTAssertEqual(a.level(.rainOnWater), 0)
+        XCTAssertEqual(a.closeness, MoodLook.ambienceCloseness(base: 0.55, .orderedCalm), accuracy: 1e-9)
+        XCTAssertEqual(a.density, MoodLook.ambienceDensity(.orderedCalm), accuracy: 1e-9)
+        XCTAssertEqual(a.indoors, 0)
+        // Summer mornings too, in the north (July) and the south (January).
+        XCTAssertEqual(scene(gardenSky(sun: 12, hour: 7, day: 198)).level(.warbler), 0.5, accuracy: 1e-9)
+        XCTAssertEqual(scene(gardenSky(sun: 12, hour: 7, day: 15, south: true)).level(.warbler), 0.5, accuracy: 1e-9)
+        // Only then: not in autumn or winter, not in the afternoon, not at night. The knocker, always.
+        let quiet: [(name: String, sky: SkyState)] = [
+            ("autumn", gardenSky(sun: 12, hour: 7, day: 300)),
+            ("winter", gardenSky(sun: 12, hour: 7, day: 15)),
+            ("a southern winter", gardenSky(sun: 12, hour: 7, day: 198, south: true)),
+            ("a spring afternoon", gardenSky(sun: 40, hour: 15, day: 105)),
+            ("a spring night", gardenSky(sun: -20, hour: 23, day: 105)),
+        ]
+        for (name, sky) in quiet {
+            let s = scene(sky)
+            XCTAssertEqual(s.level(.warbler), 0, name)
+            XCTAssertEqual(s.level(.waterKnocker), 0.6, accuracy: 1e-9, "\(name): the knocker always")
+            XCTAssertEqual(s.level(.templeBell), 0.3, accuracy: 1e-9, name)
+        }
+        // A chosen season decides over the date.
+        XCTAssertEqual(scene(gardenSky(sun: 12, hour: 7, day: 300), season: "Spring").level(.warbler), 0.5, accuracy: 1e-9)
+        XCTAssertEqual(scene(springMorning, season: "Winter").level(.warbler), 0)
+        // Summer nights' crickets; the dawn chorus at first light; rain in the basin, drips after; rime's hush.
+        XCTAssertEqual(scene(gardenSky(sun: -20, hour: 23, day: 198)).level(.crickets), 0.4, accuracy: 1e-9)
+        XCTAssertEqual(scene(gardenSky(sun: -20, hour: 23, day: 105)).level(.crickets), 0, "crickets are summer's")
+        XCTAssertEqual(scene(gardenSky(sun: -1, hour: 5.5, day: 105)).level(.dawnChorus), 0.3, accuracy: 1e-9)
+        var rain = gardenSky(sun: 30, hour: 13)
+        rain.rain = 0.6
+        rain.wind = 0.3
+        let r = scene(rain)
+        XCTAssertEqual(r.level(.rainOnWater), 0.3, accuracy: 1e-6)
+        XCTAssertEqual(r.level(.breeze), 0.55, accuracy: 1e-6)
+        XCTAssertEqual(r.level(.drips), 0)
+        var after = gardenSky(sun: 30, hour: 13)
+        after.wetness = 0.5
+        XCTAssertEqual(scene(after).level(.drips), 0.5, accuracy: 1e-6)
+        XCTAssertEqual(scene(after).wetness, 0.5, accuracy: 1e-6)
+        var rimed = gardenSky(sun: 5, hour: 8)
+        rimed.rime = 0.9
+        XCTAssertEqual(scene(rimed).indoors, 0.15, accuracy: 1e-9)
+    }
+}
