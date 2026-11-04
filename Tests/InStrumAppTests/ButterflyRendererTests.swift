@@ -87,10 +87,10 @@ final class PreviewRenderTests: XCTestCase {
             let image = try XCTUnwrap(InspiredByCardTests.render(c, at: 2.4))
             try PreviewRenderer.writePNG(image, to: url.appendingPathComponent("card-\(c.id).png"))
         }
-        // The place cards (sets born from their place, no song).
-        let teaHouse = try XCTUnwrap(InspiredByCardTests.render(place: InspiredByCardTests.teaHouse, at: 2.4))
-        try PreviewRenderer.writePNG(teaHouse, to: url.appendingPathComponent("card-place-tea-house-snow.png"))
-        let garden = try XCTUnwrap(InspiredByCardTests.render(place: InspiredByCardTests.garden, at: 2.4))
-        try PreviewRenderer.writePNG(garden, to: url.appendingPathComponent("card-place-zen-rock-garden.png"))
+        // The place cards (sets born from their place, no song): card-place-tea-house-snow, card-place-zen-rock-garden.
+        for set in SetLibrary.all where set.creditID == nil {
+            let image = try XCTUnwrap(InspiredByCardTests.render(place: set, at: 2.4), set.id)
+            try PreviewRenderer.writePNG(image, to: url.appendingPathComponent("card-place-\(set.id).png"))
+        }
     }
 }
