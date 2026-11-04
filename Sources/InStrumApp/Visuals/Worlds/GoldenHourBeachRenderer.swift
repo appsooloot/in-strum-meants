@@ -183,6 +183,7 @@ final class GoldenHourBeachRenderer: ThemeRenderer {
         skyU.withUnsafeBytes { e.setFragmentBytes($0.baseAddress!, length: $0.count, index: 0) }
         beachU.withUnsafeBytes { e.setFragmentBytes($0.baseAddress!, length: $0.count, index: 1) }
         oceanU.withUnsafeBytes { e.setFragmentBytes($0.baseAddress!, length: $0.count, index: 2) }
+        sky.bindStars(e)
         e.drawPrimitives(type: .triangle, vertexStart: 0, vertexCount: 3)
 
         weather.draw(e)

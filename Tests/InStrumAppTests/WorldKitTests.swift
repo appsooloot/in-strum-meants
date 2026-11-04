@@ -179,6 +179,267 @@ final class WorldKitTests: XCTestCase {
         XCTAssertEqual(w.particleCount, 0)
     }
 
+    // MARK: - The aurora, real stars and constellation lines, light pillars, fireflies and diamond dust
+
+    /// An equatorial unit vector (RA, Dec in degrees) turned into east-north-up with the shader's own basis (the
+    /// transpose of `eq`, whose columns are east, north and up in equatorial coordinates).
+    private func enu(ra: Float, dec: Float, _ s: SkyState) -> SIMD3<Float> {
+        let a = Double(ra) * .pi / 180, d = Double(dec) * .pi / 180
+        let v = SIMD3<Float>(Float(cos(d) * cos(a)), Float(cos(d) * sin(a)), Float(sin(d)))
+        let b = SkyLayer.equatorialBasis(siderealDegrees: s.siderealDegrees, latitude: s.latitude)
+        return SIMD3(simd_dot(v, b.east), simd_dot(v, b.north), simd_dot(v, b.up))
+    }
+
+    /// Points the sky's camera straight at an east-north-up direction (it lands at the frame's centre).
+    private func aim(_ sky: SkyLayer, at e: SIMD3<Float>) {
+        let alt = asin(Double(min(1, max(-1, e.z))))
+        sky.viewAzimuth = atan2(Double(e.x), Double(e.y)) * 180 / .pi
+        sky.horizonY = Float(-tan(alt) / tan(sky.verticalFOV * .pi / 360))
+    }
+
+    /// The NDC point of an east-north-up direction through the sky's camera.
+    private func screenPoint(_ d: SIMD3<Float>, sky: SkyLayer, latitude: Double) -> (x: Double, y: Double) {
+        let cam = sky.camera(latitude: latitude, aspect: 640.0 / 360)
+        let f = simd_dot(d, cam.forward)
+        return (Double(simd_dot(d, cam.right) / f / cam.tanH), Double(simd_dot(d, cam.up) / f / cam.tanV))
+    }
+
+    /// Renders a forced state with the sky's camera set up by `configure` (surface none, so the horizon stays put).
+    private func renderConfigured(_ state: SkyState, time: Float = 0,
+                                  _ configure: (SkyOnlyRenderer) -> Void) throws -> (image: CGImage, sky: SkyLayer) {
+        guard let device = MTLCreateSystemDefaultDevice() else { throw XCTSkip("No Metal device") }
+        let preview = try XCTUnwrap(PreviewRenderer(width: 640, height: 360))
+        let r = try XCTUnwrap(SkyOnlyRenderer(device: device))
+        configure(r)
+        r.update(state, quality: .high, size: CGSize(width: 640, height: 360), dt: 1.0 / 30, time: time, surface: .none)
+        return (try XCTUnwrap(preview.capture(r)), r.sky)
+    }
+
+    /// A clear, moonless night at Melbourne with every new sky value zeroed (tests switch on the one they need).
+    private func darkNight() -> SkyState {
+        var s = frozen(2)
+        s.sun = SkyDirection(azimuth: 0, altitude: -40)
+        s.moon = SkyDirection(azimuth: 0, altitude: -30); s.moonLit = 0
+        let c = SkyPalette.colours(sunAltitude: -40, cloud: 0, mist: 0, moonlight: 0)
+        s.zenith = c.zenith; s.horizon = c.horizon
+        s.starVisibility = 1; s.cloudCover = 0; s.mist = 0; s.halo = 0; s.rainbow = 0
+        s.aurora = 0; s.auroraStorm = 0; s.auroraAltitude = 0; s.fireflies = 0; s.diamondDust = 0; s.pillar = 0
+        s.constellationLines = 0
+        return s
+    }
+
+    /// Tromsø-like: the band's base 45° up toward the pole. Looking pole-ward, the sky 30–60° up is far brighter with the
+    /// aurora on; facing away it is unchanged.
+    func testAuroraLightsThePoleSky() throws {
+        var s = darkNight()
+        s.latitude = 69.6; s.hemisphere = 1; s.auroraAltitude = 45; s.auroraStorm = 0.3
+        func patch(aurora: Float, view: Double) throws -> Double {
+            var st = s; st.aurora = aurora
+            let (image, sky) = try renderConfigured(st) { r in
+                r.sky.viewAzimuth = view
+                r.sky.horizonY = Float(-tan(45 * Double.pi / 180) / tan(r.sky.verticalFOV * .pi / 360))   // looking 45° up
+            }
+            let lo = screenPoint(SkyDirection(azimuth: view, altitude: 32), sky: sky, latitude: st.latitude).y
+            let hi = screenPoint(SkyDirection(azimuth: view, altitude: 58), sky: sky, latitude: st.latitude).y
+            return luma(FramePatch.meanRGB(image, x: -0.3...0.3, y: lo...hi))
+        }
+        let poleOn = try patch(aurora: 1, view: 0), poleOff = try patch(aurora: 0, view: 0)
+        XCTAssertGreaterThanOrEqual(poleOn, 1.4 * poleOff, "pole-ward \(poleOff) → \(poleOn)")
+        let awayOn = try patch(aurora: 1, view: 180), awayOff = try patch(aurora: 0, view: 180)
+        XCTAssertEqual(awayOn, awayOff, accuracy: max(0.1 * awayOff, 0.5 / 255), "facing away \(awayOff) → \(awayOn)")
+        // In the south the band lies the other way.
+        var south = s; south.latitude = -60; south.hemisphere = -1; south.aurora = 1
+        let (image, sky) = try renderConfigured(south) { r in
+            r.sky.viewAzimuth = 180
+            r.sky.horizonY = Float(-tan(45 * Double.pi / 180) / tan(r.sky.verticalFOV * .pi / 360))
+        }
+        let lo = screenPoint(SkyDirection(azimuth: 180, altitude: 32), sky: sky, latitude: -60).y
+        let hi = screenPoint(SkyDirection(azimuth: 180, altitude: 58), sky: sky, latitude: -60).y
+        XCTAssertGreaterThanOrEqual(luma(FramePatch.meanRGB(image, x: -0.3...0.3, y: lo...hi)), 1.4 * poleOff, "australis")
+    }
+
+    /// Sirius from Melbourne, 37° up: its screen point (from its catalogue RA/Dec through the shader's basis and the
+    /// sky's camera) is among the brightest 0.1% of the frame; with no stars it is just sky.
+    func testRealStarsShow() throws {
+        let sirius = try XCTUnwrap(StarCatalogue.star(hip: 32349))
+        var s = darkNight()
+        s.siderealDegrees = Double(sirius.ra) + 55   // 55° past the meridian
+        let e = enu(ra: sirius.ra, dec: sirius.dec, s)
+        XCTAssertGreaterThan(asin(Double(e.z)) * 180 / .pi, 30, "Sirius is well up")
+        func peak(visibility: Float) throws -> (local: Double, top: Double) {
+            var st = s; st.starVisibility = visibility
+            let (image, sky) = try renderConfigured(st) { r in
+                XCTAssertTrue(r.sky.awaitStars(), "the star texture arrives")
+                aim(r.sky, at: e)
+            }
+            let p = screenPoint(e, sky: sky, latitude: st.latitude)
+            let l = FramePatch.luminance(image)
+            let w = image.width, h = image.height
+            let cx = Int((p.x + 1) / 2 * Double(w)), cy = Int((1 - p.y) / 2 * Double(h))
+            var local = 0.0
+            for y in max(0, cy - 3)...min(h - 1, cy + 3) { for x in max(0, cx - 3)...min(w - 1, cx + 3) { local = max(local, l[y * w + x]) } }
+            let sorted = l.sorted(by: >)
+            return (local, sorted[max(0, sorted.count / 1000 - 1)])
+        }
+        let on = try peak(visibility: 1)
+        XCTAssertGreaterThanOrEqual(on.local, on.top, "Sirius \(on.local) against the top 0.1% \(on.top)")
+        XCTAssertGreaterThan(on.local, 0.5)
+        let off = try peak(visibility: 0)
+        XCTAssertLessThan(off.local, 0.2, "no stars: \(off.local)")
+    }
+
+    /// The Acrux–Gacrux line: its midpoint is brighter with the lines on; with them off the frame matches one drawn
+    /// from a texture that has no lines at all.
+    func testConstellationLinesCanBeTurnedOff() throws {
+        guard let device = MTLCreateSystemDefaultDevice() else { throw XCTSkip("No Metal device") }
+        let acrux = try XCTUnwrap(StarCatalogue.star(hip: 60718)), gacrux = try XCTUnwrap(StarCatalogue.star(hip: 61084))
+        var s = darkNight()
+        s.siderealDegrees = Double(acrux.ra + gacrux.ra) / 2 + 40
+        let mid = simd_normalize(enu(ra: acrux.ra, dec: acrux.dec, s) + enu(ra: gacrux.ra, dec: gacrux.dec, s))
+        XCTAssertGreaterThan(asin(Double(mid.z)) * 180 / .pi, 20, "Crux is up")
+        let bare = try XCTUnwrap(StarTextureCache.makeTexture(device: device, bytes: StarTexture.build(lines: false)))
+        let a = enu(ra: acrux.ra, dec: acrux.dec, s), b = enu(ra: gacrux.ra, dec: gacrux.dec, s)
+        func frame(lines: Float, texture: MTLTexture? = nil) throws -> (image: CGImage, sky: SkyLayer) {
+            var st = s; st.constellationLines = lines
+            return try renderConfigured(st) { r in
+                XCTAssertTrue(r.sky.awaitStars())
+                r.sky.starTextureOverride = texture
+                aim(r.sky, at: mid)
+            }
+        }
+        let on = try frame(lines: 1), off = try frame(lines: 0), noLines = try frame(lines: 1, texture: bare)
+        // The line's middle stretch (35–65% of the way from Acrux to Gacrux): at nine points along it, the brightest
+        // pixel within 2 px (the line is a pixel or two wide); the median ignores any star that happens to sit there.
+        func lineLight(_ f: (image: CGImage, sky: SkyLayer)) -> Double {
+            let l = FramePatch.luminance(f.image), w = f.image.width, h = f.image.height
+            var samples: [Double] = []
+            for i in 0..<9 {
+                let t = Float(0.35 + 0.3 * Double(i) / 8)
+                let p = screenPoint(simd_normalize(a * (1 - t) + b * t), sky: f.sky, latitude: s.latitude)
+                let cx = Int((p.x + 1) / 2 * Double(w)), cy = Int((1 - p.y) / 2 * Double(h))
+                var best = 0.0
+                for y in max(0, cy - 2)...min(h - 1, cy + 2) { for x in max(0, cx - 2)...min(w - 1, cx + 2) { best = max(best, l[y * w + x]) } }
+                samples.append(best)
+            }
+            return samples.sorted()[4]
+        }
+        let lOn = lineLight(on), lOff = lineLight(off)
+        XCTAssertGreaterThanOrEqual(lOn, 1.15 * lOff, "along the line \(lOff) → \(lOn)")
+        let diff = FramePatch.difference(off.image, noLines.image, x: -1...1, y: -1...1)
+        let mean = PreviewRenderer.stats(noLines.image).meanLuminance
+        XCTAssertLessThanOrEqual(diff, max(0.02 * mean, 0.5 / 255), "lines 0 leaves no trace: \(diff)")
+    }
+
+    /// Diamond dust with the sun 4° up: a column stands 6° above it, brighter than the sky 6° beside the column.
+    func testPillarsStandOverTheLowSun() throws {
+        var s = frozen(13)
+        let view = SkyLayer.defaultViewAzimuth(latitude: s.latitude)
+        s.sun = SkyDirection(azimuth: view, altitude: 4)
+        s.moon = SkyDirection(azimuth: view + 180, altitude: -30)
+        let c = SkyPalette.colours(sunAltitude: 4, cloud: 0, mist: 0, moonlight: 0)
+        s.zenith = c.zenith; s.horizon = c.horizon
+        s.starVisibility = 0; s.cloudCover = 0; s.mist = 0; s.halo = 0; s.rainbow = 0
+        s.diamondDust = 0   // the pillar alone (the crystals are the weather layer's, tested below)
+        func ratio(pillar: Float) throws -> Double {
+            var st = s; st.pillar = pillar
+            let (image, sky) = try renderSky(st, viewAzimuth: view)
+            let above = screenPoint(SkyDirection(azimuth: view, altitude: 10), sky: sky, latitude: st.latitude)
+            let beside = screenPoint(SkyDirection(azimuth: view + 6, altitude: 10), sky: sky, latitude: st.latitude)
+            return luma(rgb(image, at: above, radius: 2)) / max(1e-6, luma(rgb(image, at: beside, radius: 2)))
+        }
+        let on = try ratio(pillar: 1), off = try ratio(pillar: 0)
+        XCTAssertGreaterThanOrEqual(on, 1.3, "pillar against beside: \(on)")
+        XCTAssertEqual(off, 1, accuracy: 0.1, "no pillar: \(off)")
+    }
+
+    func testFirefliesAndCrystalsFollowTheirWeathers() throws {
+        guard let device = MTLCreateSystemDefaultDevice() else { throw XCTSkip("No Metal device") }
+        let w = try XCTUnwrap(WeatherLayer(device: device))
+        let size = CGSize(width: 640, height: 360)
+        var s = darkNight()
+        s.rain = 0; s.snow = 0
+        s.fireflies = 1
+        w.update(s, quality: .high, size: size, dt: 1.0 / 30, surface: .ground(horizonY: -0.3))
+        XCTAssertEqual(w.fireflyCount, WeatherLayer.fireflyCap(.high))
+        XCTAssertEqual(w.crystalCount, 0, "no dust, no crystals")
+        w.update(s, quality: .high, size: size, dt: 1.0 / 30, surface: .water(horizonY: -0.3))
+        XCTAssertGreaterThan(w.fireflyCount, 0)
+        w.update(s, quality: .high, size: size, dt: 1.0 / 30, surface: .glass)
+        XCTAssertEqual(w.fireflyCount, 0, "none on glass")
+        w.update(s, quality: .high, size: size, dt: 1.0 / 30, surface: .none)
+        XCTAssertEqual(w.fireflyCount, 0, "none without a surface")
+        s.fireflies = 0.5
+        w.update(s, quality: .ultra, size: size, dt: 1.0 / 30, surface: .ground(horizonY: -0.3))
+        XCTAssertEqual(w.fireflyCount, WeatherLayer.fireflyCap(.ultra) / 2)
+        s.fireflies = 0
+        w.update(s, quality: .high, size: size, dt: 1.0 / 30, surface: .ground(horizonY: -0.3))
+        XCTAssertEqual(w.fireflyCount, 0)
+
+        s.diamondDust = 1
+        for q in QualityLevel.allCases {
+            w.update(s, quality: q, size: size, dt: 1.0 / 30, surface: .glass)
+            XCTAssertEqual(w.crystalCount, WeatherLayer.crystalCap(q), "\(q)")
+            XCTAssertEqual(w.fireflyCount, 0)
+        }
+        XCTAssertLessThan(WeatherLayer.crystalCap(.lite), WeatherLayer.crystalCap(.high))
+        XCTAssertLessThan(WeatherLayer.crystalCap(.high), WeatherLayer.crystalCap(.ultra))
+        XCTAssertLessThan(WeatherLayer.fireflyCap(.lite), WeatherLayer.fireflyCap(.high))
+        XCTAssertLessThan(WeatherLayer.fireflyCap(.high), WeatherLayer.fireflyCap(.ultra))
+        XCTAssertLessThanOrEqual(WeatherLayer.fireflyCap(.lite), 60, "Smooth stays light")
+        XCTAssertLessThanOrEqual(WeatherLayer.crystalCap(.lite), 150, "Smooth stays light")
+        s.diamondDust = 0
+        w.update(s, quality: .high, size: size, dt: 1.0 / 30, surface: .glass)
+        XCTAssertEqual(w.crystalCount, 0)
+
+        // Both draw (a frame with them is brighter than one without) and live in the shared ring buffer.
+        var both = darkNight(); both.fireflies = 1; both.diamondDust = 1
+        let lit = PreviewRenderer.stats(try render(both, weather: .ground(horizonY: -0.33), frames: 10)).meanLuminance
+        let dark = PreviewRenderer.stats(try render(darkNight(), weather: .ground(horizonY: -0.33), frames: 10)).meanLuminance
+        XCTAssertGreaterThan(lit, dark)
+    }
+
+    /// Review focus 4: the star texture arrives late (a background build). Every sky and world renders without it
+    /// (the procedural stars, a placeholder bound at texture 0) and with it, and no frame waits for it.
+    func testSkyRendersBeforeAndAfterTheStarTexture() throws {
+        guard let device = MTLCreateSystemDefaultDevice() else { throw XCTSkip("No Metal device") }
+        let cache = StarTextureCache.shared
+        defer { cache.withheld = false }
+        let r = try XCTUnwrap(SkyOnlyRenderer(device: device))
+        XCTAssertEqual(r.sky.uniforms.count, SkyLayer.uniformCount)
+        XCTAssertEqual(SkyLayer.uniformCount, 24)
+
+        cache.withheld = true
+        XCTAssertNil(r.sky.starTexture)
+        XCTAssertEqual(r.sky.uniforms[8].w, 0, "the shader is told to use the procedural stars")
+        let before = try render(darkNight())
+        XCTAssertGreaterThan(PreviewRenderer.stats(before).variance, 0, "procedural stars before the texture")
+        var lake = SkySettings(); lake.timeMode = .frozen; lake.frozenHour = 22; lake.cityID = "melbourne"
+        lake.weatherMode = .pick; lake.weather = .clear
+        let preview = try XCTUnwrap(PreviewRenderer(width: 640, height: 360))
+        for id in [MoonlitLakeModel.id, GoldenHourBeachModel.id, CoastRoadModel.id, SnowboundCabinModel.id, BedroomDawnModel.id] {
+            let image = try XCTUnwrap(preview.render(themeID: id, at: [0.5], sky: lake).first, id)
+            XCTAssertGreaterThan(PreviewRenderer.stats(image).variance, 0, "\(id) without the stars")
+        }
+
+        cache.withheld = false
+        XCTAssertTrue(r.sky.awaitStars(), "the texture arrives within seconds")
+        XCTAssertNotNil(r.sky.starTexture)
+        XCTAssertEqual(r.sky.uniforms[8].w, 1)
+        XCTAssertEqual(r.sky.starTexture?.width, StarTexture.width)
+        XCTAssertEqual(r.sky.starTexture?.height, StarTexture.height)
+        XCTAssertEqual(r.sky.starTexture?.pixelFormat, MTLPixelFormat.rgba8Unorm)
+        XCTAssertEqual(cache.builds, 1, "built once per process")
+        let after = try render(darkNight())
+        XCTAssertGreaterThan(PreviewRenderer.stats(after).variance, 0, "real stars after")
+        XCTAssertGreaterThan(FramePatch.difference(before, after, x: -1...1, y: -1...1), 0, "the real stars change the sky")
+        for id in [MoonlitLakeModel.id, GoldenHourBeachModel.id, CoastRoadModel.id, SnowboundCabinModel.id, BedroomDawnModel.id] {
+            let image = try XCTUnwrap(preview.render(themeID: id, at: [0.5], sky: lake).first, id)
+            XCTAssertGreaterThan(PreviewRenderer.stats(image).variance, 0, "\(id) with the stars")
+        }
+        _ = SkyOnlyRenderer(device: device)
+        XCTAssertEqual(cache.builds, 1, "a new sky shares the texture")
+    }
+
     func testRainyNightRendersAndLightningIsLimited() throws {
         var s = frozen(2, weather: .storm)
         s.rain = 1; s.cloudCover = 1; s.lightning = 1
@@ -756,6 +1017,21 @@ final class CoastRoadRendererTests: XCTestCase {
             let hits = pattern.numberOfMatches(in: source, range: NSRange(source.startIndex..., in: source))
             XCTAssertEqual(hits, 0, name)
         }
+        // The worlds built on the sky alone (their reflections call skyRadiance, with the aurora, stars and pillars).
+        for (name, full) in [("lake", MoonlitLakeShaders.source), ("cabin", SnowboundCabinShaders.source),
+                             ("bedroom", BedroomDawnShaders.source)] {
+            let source = String(full.dropFirst(SkyShaders.common.count))
+            let hits = pattern.numberOfMatches(in: source, range: NSRange(source.startIndex..., in: source))
+            XCTAssertEqual(hits, 0, name)
+        }
+        // Any pow() in the new sky code takes a base that cannot be negative: none at all in the aurora, the real stars
+        // and the pillars.
+        for fn in ["float3 realStars(", "float3 auroraLight(", "float lightPillar("] {
+            let start = try XCTUnwrap(SkyShaders.common.range(of: fn), fn)
+            let tail = SkyShaders.common[start.lowerBound...]
+            let end = tail.range(of: "\n}\n")?.upperBound ?? tail.endIndex   // the function's closing brace (column 0)
+            XCTAssertFalse(tail[..<end].contains("pow("), fn)
+        }
     }
 
     func testLightBudgetFollowsQuality() {
@@ -955,6 +1231,65 @@ final class SkyPreviewTests: XCTestCase {
             let r = try XCTUnwrap(SkyOnlyRenderer(device: device))
             r.sky.viewAzimuth = view
             for i in 0..<10 { r.update(st, quality: .high, size: CGSize(width: 1280, height: 720), dt: 1.0 / 30, time: Float(i) / 30, surface: .none) }
+            let image = try XCTUnwrap(preview.capture(r))
+            try PreviewRenderer.writePNG(image, to: url.appendingPathComponent("\(name).png"))
+        }
+
+        // Night-sky additions: the aurora (south from Melbourne, overhead in the north), the real stars and their lines,
+        // diamond dust's pillars, a humid night's fireflies (forced states, so each shows its feature).
+        var night = state(hour: 23.5, phase: 0.05, weather: .clear)
+        night.sun = SkyDirection(azimuth: 0, altitude: -40); night.moon = SkyDirection(azimuth: 0, altitude: -30); night.moonLit = 0
+        let nightColours = SkyPalette.colours(sunAltitude: -40, cloud: 0, mist: 0, moonlight: 0)
+        night.zenith = nightColours.zenith; night.horizon = nightColours.horizon
+        night.starVisibility = 1; night.cloudCover = 0; night.mist = 0; night.constellationLines = 0.35
+        /// A star's east-north-up direction with the shader's basis.
+        func enu(ra: Float, dec: Float, _ s: SkyState) -> SIMD3<Float> {
+            let a = Double(ra) * .pi / 180, d = Double(dec) * .pi / 180
+            let v = SIMD3<Float>(Float(cos(d) * cos(a)), Float(cos(d) * sin(a)), Float(sin(d)))
+            let b = SkyLayer.equatorialBasis(siderealDegrees: s.siderealDegrees, latitude: s.latitude)
+            return SIMD3(simd_dot(v, b.east), simd_dot(v, b.north), simd_dot(v, b.up))
+        }
+        /// (view azimuth, horizon y) that centre the camera on a direction.
+        func aim(_ e: SIMD3<Float>, fov: Double = 60) -> (Double, Float) {
+            let alt = asin(Double(min(1, max(-1, e.z))))
+            return (atan2(Double(e.x), Double(e.y)) * 180 / .pi, Float(-tan(alt) / tan(fov * .pi / 360)))
+        }
+        var australis = night
+        australis.aurora = 0.85; australis.auroraAltitude = 14; australis.auroraStorm = 0.55; australis.hemisphere = -1
+        var borealis = night
+        borealis.latitude = 69.6; borealis.hemisphere = 1
+        borealis.aurora = 1; borealis.auroraAltitude = 78; borealis.auroraStorm = 0.9
+        let acrux = try XCTUnwrap(StarCatalogue.star(hip: 60718)), gacrux = try XCTUnwrap(StarCatalogue.star(hip: 61084))
+        var crux = night
+        crux.siderealDegrees = Double(acrux.ra + gacrux.ra) / 2 + 30
+        let cruxDir = simd_normalize(enu(ra: acrux.ra, dec: acrux.dec, crux) + enu(ra: gacrux.ra, dec: gacrux.dec, crux))
+        let betelgeuse = try XCTUnwrap(StarCatalogue.star(hip: 27989))
+        var orion = night
+        orion.siderealDegrees = Double(betelgeuse.ra) + 10; orion.constellationLines = 1
+        let orionDir = enu(ra: betelgeuse.ra - 4, dec: betelgeuse.dec - 8, orion)
+        var pillars = state(hour: 13, phase: 0.5, weather: .diamondDust)
+        pillars.sun = SkyDirection(azimuth: ahead, altitude: 4)
+        let pillarColours = SkyPalette.colours(sunAltitude: 4, cloud: 0.05, mist: 0.2, moonlight: 0)
+        pillars.zenith = pillarColours.zenith; pillars.horizon = pillarColours.horizon
+        pillars.halo = 1; pillars.diamondDust = 1; pillars.pillar = 1; pillars.starVisibility = 0
+        var humid = state(hour: 23.5, phase: 0.3, weather: .humid)
+        humid.fireflies = 1
+        let ground = WeatherSurface.ground(horizonY: -0.33)
+        let nightCases: [(String, SkyState, (Double, Float)?, WeatherSurface)] = [
+            ("sky-aurora-australis", australis, (180, -0.33), .none),
+            ("sky-aurora-borealis-overhead", borealis, (5, -1.6), .none),
+            ("sky-real-stars-crux", crux, aim(cruxDir), .none),
+            ("sky-constellation-lines", orion, aim(orionDir), .none),
+            ("sky-diamond-dust-pillars", pillars, (ahead, -0.33), ground),
+            ("sky-humid-fireflies", humid, nil, ground),
+        ]
+        for (name, st, view, surface) in nightCases {
+            let r = try XCTUnwrap(SkyOnlyRenderer(device: device))
+            XCTAssertTrue(r.sky.awaitStars())
+            if let view { r.sky.viewAzimuth = view.0; r.sky.horizonY = view.1 }   // a ground surface sets its own horizon
+            for i in 0..<45 {
+                r.update(st, quality: .high, size: CGSize(width: 1280, height: 720), dt: 1.0 / 30, time: Float(i) / 30, surface: surface)
+            }
             let image = try XCTUnwrap(preview.capture(r))
             try PreviewRenderer.writePNG(image, to: url.appendingPathComponent("\(name).png"))
         }

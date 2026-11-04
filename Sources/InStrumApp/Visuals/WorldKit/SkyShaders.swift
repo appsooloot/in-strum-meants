@@ -1,6 +1,7 @@
-/// Metal source for the Living Sky (dome, sun, moon, stars, Milky Way, clouds) and the weather layer
-/// (rain, snow, splash rings, drops on glass). Compiled at runtime.
-/// Smooth-quality rules: no ray marching, at most 3 noise octaves (2 on Smooth).
+/// Metal source for the Living Sky (dome, sun, moon, real and procedural stars, constellation lines, the Milky Way,
+/// the aurora, light pillars, clouds) and the weather layer (rain, snow, splash rings, drops on glass, fireflies,
+/// diamond-dust crystals). Compiled at runtime.
+/// Smooth-quality rules: no ray marching, at most 3 noise octaves (2 on Smooth); the real stars are one texture sample.
 enum SkyShaders {
     /// Noise, the sky uniforms and skyRadiance(): shared by the dome and by anything that reflects the sky.
     static let common = """
@@ -51,7 +52,23 @@ enum SkyShaders {
         float4 eq0, eq1, eq2;
         float4 weather;     // mist, wind, octaves, pixel angle (rad)
         float4 extra;       // halo, dawn pastel, gust, wetness
+        float4 night;       // aurora, aurora storm, constellation lines, fireflies
+        float4 aurora;      // pole-ward azimuth unit vector (east, north), band base altitude (degrees), hemisphere
+        float4 dust;        // diamond dust, pillar, aurora hue shift (−1 cool … +1 warm), aurora glow 0…1
+        float4 ripples[8];  // along the band 0…1, age (s), strength, width
     };
+    // eq0.w is 1 when the real star texture is bound (0: a 1×1 placeholder, the procedural stars carry the sky).
+
+    // The real stars: equirectangular, x = RA (wraps), y = Dec +90 → −90 (clamped).
+    constexpr sampler skyStarSampler(filter::linear, s_address::repeat, t_address::clamp_to_edge);
+    // Sirius's peak (1.0 in the texture) shows at the brightest procedural star's scale (starField's mag reaches ~9.25).
+    constant float kRealStarGain = 9.0;
+    // The sun's pillar: the spec's 0.35 of its (HDR, 9–14) colour is lost against the bright low sky after the tone
+    // curve, so it is 1.2 (a column 6° above a 4° sun reads about 1.39× the sky beside it); the moon's keeps 0.35.
+    constant float kPillarGain = 1.2;
+    // Constellation lines: the spec's 0.06 all but vanishes where a figure crosses the Milky Way (Crux, Scorpius,
+    // Cygnus), so 0.1: a clear blue trace at full strength, a faint one at the default 35%.
+    constant float kLineGain = 0.1;
 
     // ---------------------------------------------------------------- optics (mirrors HaloOptics)
     float toDeg(float r) { return r * 57.2957795; }
@@ -124,9 +141,105 @@ enum SkyShaders {
         return float3(0.92, 0.88, 1.0) * glow * 0.22 * visibility;
     }
 
-    /// The sky's light in direction `d` (alt ≥ 0): gradient, sunset band, stars, Milky Way, moon, clouds, sun.
-    /// `moonMask` returns how much of the moon disc covers the ray. Shared by the dome and by reflections.
-    float3 skyRadiance(float3 d, constant SkyU& u, thread float& moonMask) {
+    /// The real stars and the constellation lines along equatorial direction `v` (one bilinear sample). The texture
+    /// stores the square root of the light, so it is squared back here.
+    float3 realStars(float3 v, texture2d<float> stars, float time, float lines, float visibility) {
+        float ra = atan2(v.y, v.x);
+        ra = ra < 0.0 ? ra + 6.2831853 : ra;
+        float dec = asin(clamp(v.z, -1.0, 1.0));
+        float2 uv = float2(ra / 6.2831853, 0.5 - dec / 3.14159265);
+        float4 t = stars.sample(skyStarSampler, uv, level(0.0));
+        float3 light = t.rgb * t.rgb;
+        // A twinkle hashed over the sky in cells smaller than a degree and smoothed between them (so a star's footprint
+        // never splits on a cell edge, and RA 0/360 has no seam): 0.8–1.0, flickering at a few hertz.
+        float twinkle = 0.8 + 0.2 * vnoise3(v * 80.0 + float3(0.0, 0.0, time * 3.0));
+        float3 col = light * kRealStarGain * twinkle * visibility;
+        col += float3(0.55, 0.65, 0.9) * t.a * kLineGain * lines * visibility;
+        return col;
+    }
+
+    /// The pole-ward aurora (spec §6.3). The band's base is a great circle through the points 90° either side of the
+    /// pole-ward azimuth, tilted up to the base altitude A over the pole-ward horizon (so it stands A° up there and
+    /// comes down to the horizon at the band's ends; at A near 90° it arches through the zenith). Two thin curtains
+    /// rise from it with an exponential profile, striped by vertical rays (noise along the band only).
+    float3 auroraLight(float3 d, constant SkyU& u, float time, int octaves) {
+        float2 ph = u.aurora.xy;
+        float3 P = float3(ph / max(length(ph), 1e-4), 0.0);
+        float3 W = float3(P.y, -P.x, 0.0);
+        float A = toRad(clamp(u.aurora.z, 0.5, 89.0));
+        float3 B = P * cos(A) + float3(0.0, 0.0, sin(A));
+        float3 U = float3(0.0, 0.0, cos(A)) - P * sin(A);
+        float along = atan2(dot(d, W), dot(d, B));            // 0 mid-band, ±π/2 at its ends on the horizon
+        float ends = 1.0 - smoothstep(1.2, 1.5708, abs(along));
+        if (ends <= 0.0) return float3(0);
+        float h = toDeg(asin(clamp(dot(d, U), -1.0, 1.0)));     // degrees above the base
+        float crown = 1.0 - smoothstep(55.0, 80.0, h);
+        if (crown <= 0.0 || h < -14.0) return float3(0);   // well below the base the light is gone
+        float pos = 0.5 + along / 3.14159265;                    // 0…1 along the band
+        float storm = saturate(u.night.y);
+        float hueShift = clamp(u.dust.z, -1.0, 1.0), glow = saturate(u.dust.w);
+        float warm = max(hueShift, 0.0), cool = max(-hueShift, 0.0);
+
+        // Ripples: each a bulge and a brightness pulse travelling outward both ways from where it started.
+        float pulse = 0.0;
+        for (int i = 0; i < 8; i++) {
+            float4 r = u.ripples[i];
+            if (r.z < 0.001) continue;
+            float w = max(r.w, 0.01), travel = 0.12 * max(r.y, 0.0);
+            float a = (pos - (r.x - travel)) / w, b = (pos - (r.x + travel)) / w;
+            pulse += max(exp(-a * a), exp(-b * b)) * r.z;
+        }
+        pulse = min(pulse, 1.0);
+
+        float t = time;
+        float wobble = (vnoise3(float3(along * 3.0, t * 0.04, 7.3)) - 0.5) * 5.0;   // one octave, degrees
+        float scale = 8.0 + 6.0 * storm;
+        float sharp = saturate(0.35 + 0.45 * storm + 0.35 * glow);
+        float3 green = mix(float3(0.25, 1.0, 0.45), float3(0.35, 0.55, 1.0), 0.6 * cool);
+        float3 top = mix(float3(0.95, 0.25, 0.4), float3(0.55, 0.35, 1.0), cool);
+        float topW = storm + 0.7 * warm + 0.5 * cool;
+        float3 fringe = mix(mix(float3(0.6, 0.35, 1.0), float3(1.0, 0.78, 0.3), warm), float3(0.45, 0.4, 1.0), cool);
+        float fringeW = storm * storm + 0.6 * warm + 0.4 * cool;
+
+        float3 col = float3(0);
+        float nearRays = 0.5;
+        for (int c = 0; c < 2; c++) {
+            float seed = c == 0 ? 0.0 : 31.0;
+            // The second curtain stands 7° higher, behind the first; a ripple pushes the base down 3° (a bulge).
+            float hb = h - (c == 0 ? 0.0 : 7.0) - wobble * (c == 0 ? 1.0 : 0.7) + 3.0 * pulse;
+            float profile = hb < 0.0 ? exp(hb / 1.2) : exp(-hb / scale);
+            float topP = hb > 0.0 ? smoothstep(2.0, scale, hb) * exp(-hb / (scale * 2.2)) : 0.0;
+            float f = hb + 0.8;
+            float fringeP = exp(-(f * f) / 1.5);
+            // Rays: fbm along the band (3 octaves, 2 on Smooth); the far curtain takes one octave of its own above
+            // Smooth and shares the near one's on Smooth.
+            float n = c == 0 ? fbm3(float3(along * 38.0 + t * 0.05, t * 0.12, seed), octaves)
+                             : (octaves > 2 ? vnoise3(float3(along * 30.0 - t * 0.04, t * 0.1, seed)) : nearRays);
+            if (c == 0) nearRays = n;
+            float rays = mix(0.6 + 0.4 * n, smoothstep(0.42, 0.68, n), sharp);
+            float3 sheet = green * profile + top * (topW * topP) + fringe * (fringeW * fringeP);
+            col += sheet * rays * (c == 0 ? 1.0 : 0.5);
+        }
+        // A full aurora peaks near 0.2 linear (about 0.35 of a day sky's luminance); the glow lifts it up to 1.6×, a
+        // ripple's pulse up to 1.6× where it passes (Curtain Lights sends them through the flash limiter).
+        return col * 0.25 * u.night.x * ends * crown * (1.0 + 0.6 * glow) * (1.0 + 0.6 * pulse);
+    }
+
+    /// A light pillar: a column through a light of angular radius `radius`, 1.5× as wide, fading exp(−|Δalt|/6°)
+    /// from the light's edge.
+    float lightPillar(float3 d, float alt, float3 L, float radius) {
+        float lAlt = asin(clamp(L.z, -1.0, 1.0));
+        float dAz = atan2(d.x, d.y) - atan2(L.x, L.y);
+        dAz -= 6.2831853 * floor((dAz + 3.14159265) / 6.2831853);
+        float x = dAz * cos(alt) / max(radius * 1.5, 1e-4);
+        float dy = max(abs(alt - lAlt) - radius, 0.0);
+        return exp(-x * x) * exp(-toDeg(dy) / 6.0);
+    }
+
+    /// The sky's light in direction `d` (alt ≥ 0): gradient, sunset band, stars, Milky Way, aurora, moon, pillars,
+    /// clouds, sun. `moonMask` returns how much of the moon disc covers the ray. Shared by the dome and by reflections.
+    /// `stars` is the real star texture (fragment texture 0; a 1×1 placeholder while it builds, with u.eq0.w = 0).
+    float3 skyRadiance(float3 d, constant SkyU& u, thread float& moonMask, texture2d<float> stars) {
         float alt = asin(clamp(d.z, -1.0, 1.0));
         int octaves = int(u.weather.z + 0.5);
         float rainbow = (u.weather.z - float(octaves)) / 0.45;   // the fraction carries the rainbow
@@ -151,7 +264,19 @@ enum SkyShaders {
         float3 v = eq * d;
         float above = smoothstep(0.0, 0.17, alt);
         if (starVis > 0.001 && alt > 0.0) {
-            col += (starField(v, u.weather.w, time, starVis) + milkyWay(v, octaves, starVis)) * above;
+            float3 procedural = starField(v, u.weather.w, time, starVis);
+            float3 catalogue = float3(0);
+            if (u.eq0.w > 0.5) {
+                // The real stars lead; the procedural field stays as the faint background.
+                catalogue = realStars(v, stars, time, saturate(u.night.z), starVis);
+                procedural *= 0.45;
+            }
+            col += (procedural + catalogue + milkyWay(v, octaves, starVis)) * above;
+        }
+
+        // The aurora, pole-ward, in front of the stars (clouds hide it below).
+        if (u.night.x > 0.001 && alt > 0.0) {
+            col += auroraLight(d, u, time, octaves) * above;
         }
 
         // Moon: a lit sphere with its phase terminator toward the sun, plus earthshine.
@@ -198,6 +323,21 @@ enum SkyShaders {
                 float3 h = haloRing(ang, 22.0) * 0.10 + sundogs(d, M, moonAlt) * 0.35;
                 float l = dot(h, float3(0.2126, 0.7152, 0.0722));
                 col += mix(float3(l), h, 0.25) * float3(0.85, 0.9, 1.0) * halo * smoothstep(0.6, 0.9, u.moonInfo.x) * (0.3 + skyLum);
+            }
+        }
+
+        // Light pillars in diamond dust: over and under a low sun (−2°…12°), and a bright moon (lit > 0.3).
+        float pillar = u.dust.y;
+        if (pillar > 0.001) {
+            float sunW = smoothstep(-2.0, -1.0, sunAlt) * (1.0 - smoothstep(11.0, 12.0, sunAlt));
+            if (sunW > 0.0) {
+                float3 sunCol = mix(float3(9.0, 4.5, 2.0), float3(14.0, 12.5, 10.5), saturate(sunAlt / 12.0));
+                col += sunCol * (kPillarGain * pillar * sunW) * lightPillar(d, alt, S, u.moonInfo.w) * (1.0 - moonMask);
+            }
+            float moonW = smoothstep(0.3, 0.4, u.moonInfo.x) * saturate(M.z * 10.0 + 0.5);
+            if (moonW > 0.0) {
+                float3 moonCol = float3(1.0, 0.97, 0.9) * 1.6 * u.moonInfo.x;
+                col += moonCol * (0.35 * pillar * moonW) * lightPillar(d, alt, M, u.moonInfo.z) * (1.0 - moonMask);
             }
         }
 
@@ -269,10 +409,11 @@ enum SkyShaders {
         return o;
     }
 
-    fragment ColorDepth sky_dome_fragment(SkyOut in [[stage_in]], constant SkyU& u [[buffer(0)]]) {
+    fragment ColorDepth sky_dome_fragment(SkyOut in [[stage_in]], constant SkyU& u [[buffer(0)]],
+                                          texture2d<float> stars [[texture(0)]]) {
         float3 d = normalize(u.forward.xyz + u.right.xyz * in.ndc.x * u.right.w + u.up.xyz * in.ndc.y * u.up.w);
         float moonMask = 0.0;
-        float3 col = d.z < 0.0 ? u.horizon.rgb * 0.6 : skyRadiance(d, u, moonMask);
+        float3 col = d.z < 0.0 ? u.horizon.rgb * 0.6 : skyRadiance(d, u, moonMask, stars);
         ColorDepth out;
         out.color = float4(col, 1.0);
         out.depth = float4(1.0, 0, 0, 1);
@@ -281,7 +422,7 @@ enum SkyShaders {
 
     // ---------------------------------------------------------------- weather
     // instance: pos.xy (NDC), size.x (length or radius), size.y (alpha); kind: 0 rain streak, 1 snow, 2 bead on glass,
-    // 3 a ground streamer (blowing snow)
+    // 3 a ground streamer (blowing snow), 4 a firefly (radius of its soft glow), 5 a diamond-dust crystal
     struct Particle { float4 posSize; };
     struct WeatherU { float4 params; };   // x aspect, y kind, z tilt (dx per dy), w brightness
     struct WeatherOut { float4 pos [[position]]; float2 uv; float alpha; float kind; };
@@ -299,7 +440,7 @@ enum SkyShaders {
             float2 side = float2(-dir.y, dir.x);
             offset = dir * q.y * len * 0.5 + side * q.x * w;
             offset.x /= u.params.x;
-        } else if (kind > 2.5) {
+        } else if (kind > 2.5 && kind < 3.5) {
             offset = float2(q.x * p.z * 0.5, q.y * 0.0035);
         } else {
             offset = q * p.z;
@@ -323,6 +464,16 @@ enum SkyShaders {
             float r = length(in.uv);
             a = smoothstep(1.0, 0.3, r) * in.alpha;
             col = float3(0.95, 0.97, 1.0);
+        } else if (in.kind > 4.5) {      // a diamond-dust crystal: a hard glint with a faint cross
+            float r2 = dot(in.uv, in.uv);
+            float spikes = exp(-in.uv.x * in.uv.x * 40.0) * exp(-in.uv.y * in.uv.y * 2.0)
+                         + exp(-in.uv.y * in.uv.y * 40.0) * exp(-in.uv.x * in.uv.x * 2.0);
+            a = saturate(exp(-r2 * 9.0) + 0.25 * spikes) * smoothstep(1.0, 0.8, sqrt(r2)) * in.alpha;
+            col = float3(0.82, 0.9, 1.0);
+        } else if (in.kind > 3.5) {      // a firefly: a warm core in a soft glow
+            float r2 = dot(in.uv, in.uv);
+            a = saturate(exp(-r2 * 16.0) + 0.35 * exp(-r2 * 4.0)) * smoothstep(1.0, 0.85, sqrt(r2)) * in.alpha;
+            col = float3(1.0, 0.95, 0.45);
         } else if (in.kind > 2.5) {      // a ground streamer: a long thin wisp, thickest at its head
             float along = 0.5 + 0.5 * in.uv.x;
             a = (1.0 - in.uv.y * in.uv.y) * smoothstep(0.0, 0.35, along) * smoothstep(1.0, 0.75, along) * in.alpha;

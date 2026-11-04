@@ -403,6 +403,7 @@ final class BedroomDawnRenderer: ThemeRenderer {
         let skyU = sky.uniforms
         func bindUniforms(_ e: MTLRenderCommandEncoder, vertex: Bool = false) {
             skyU.withUnsafeBytes { e.setFragmentBytes($0.baseAddress!, length: $0.count, index: 0) }
+            sky.bindStars(e)
             bedU.withUnsafeBytes {
                 e.setFragmentBytes($0.baseAddress!, length: $0.count, index: 1)
                 if vertex { e.setVertexBytes($0.baseAddress!, length: $0.count, index: 1) }

@@ -24,6 +24,10 @@ final class PreviewRenderer {
         stack.resize(width: width, height: height)
         self.width = width; self.height = height
         self.device = device; self.queue = queue; self.stack = stack; self.target = target
+        // Previews show the real stars: wait for the shared background build (once per process), so no frame
+        // changes halfway through a comparison when it lands.
+        StarTextureCache.shared.request(device: device)
+        StarTextureCache.shared.awaitTexture()
     }
 
     /// Simulates the demo performance at 60 fps through the app's SceneDirector and captures
