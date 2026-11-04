@@ -19,6 +19,8 @@ public struct Mood: Codable, Equatable {
     public static let hushedWarm = Mood(energy: 0.2, warmth: 0.85, brightness: 0.3, space: 0.35, motion: 0.2)
     /// Bedroom Window at Dawn: soft, waking.
     public static let softWaking = Mood(energy: 0.25, warmth: 0.6, brightness: 0.65, space: 0.55, motion: 0.3)
+    /// Aurora Fjord: awe-struck, cold, electric.
+    public static let electricAwe = Mood(energy: 0.45, warmth: 0.25, brightness: 0.45, space: 0.95, motion: 0.6)
 
     /// The built-in instruments' hidden mood parameters (Audio Unit identifiers can't contain dots).
     public static let parameterIdentifiers: Set<String> = ["moodEnergy", "moodWarmth", "moodBrightness", "moodSpace", "moodMotion"]

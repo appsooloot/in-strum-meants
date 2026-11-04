@@ -804,3 +804,143 @@ extension WorldTests {
         XCTAssertEqual(f.glow, 0, accuracy: 1e-6, "Curtain Light rests while Frost Grow plays")
     }
 }
+
+// MARK: - Aurora Fjord
+
+extension WorldTests {
+    private func fjordStep(_ model: inout AuroraFjordModel, seconds: Double, state: ThemeState = ThemeState()) -> FjordFrame {
+        let p = ThemeRegistry.parameterSet(for: AuroraFjordModel.id, state: state)
+        var frame: FjordFrame?
+        for _ in 0..<max(1, Int((seconds * 30).rounded())) {
+            frame = model.step(dt: 1.0 / 30, params: p, roles: RoleValues(), inputs: InputFrame(), quality: .high)
+        }
+        return frame!
+    }
+
+    private func fjordSkyState(sun altitude: Double, hour: Double) -> SkyState {
+        var s = SkyState(); s.sun = SkyDirection(azimuth: 0, altitude: altitude); s.hourOfDay = hour
+        return s
+    }
+
+    func testFjordTurnsRainToSleetAndStormsToBlizzards() {
+        var rain = fjordSkyState(sun: -20, hour: 22); rain.rain = 0.6; rain.weather = .rain; rain.nextWeather = .rain
+        rain.lightning = 0.5; rain.wetness = 0.4; rain.fireflies = 0.3
+        let sleet = AuroraFjordModel.fjordSky(rain)
+        XCTAssertEqual(sleet.rain, 0.3, accuracy: 1e-6, "half the rain stays rain")
+        XCTAssertEqual(sleet.snow, 0.3, accuracy: 1e-6, "and half falls as snow")
+        XCTAssertEqual(sleet.weather, .sleet)
+        XCTAssertEqual(sleet.lightning, 0)
+        XCTAssertEqual(sleet.fireflies, 0, "no fireflies in the cold")
+        XCTAssertEqual(sleet.wetness, 0.2, accuracy: 1e-6)
+        var drizzle = fjordSkyState(sun: 10, hour: 13); drizzle.rain = 0.3; drizzle.weather = .drizzle
+        XCTAssertEqual(AuroraFjordModel.fjordSky(drizzle).weather, .sleet)
+        XCTAssertEqual(AuroraFjordModel.fjordSky(drizzle).snow, 0.15, accuracy: 1e-6)
+
+        var storm = fjordSkyState(sun: 10, hour: 13); storm.rain = 1; storm.wind = 0.9; storm.gust = 0.6; storm.weather = .storm
+        storm.lightning = 1
+        let blizzard = AuroraFjordModel.fjordSky(storm)
+        XCTAssertEqual(blizzard.weather, .blizzard)
+        XCTAssertEqual(blizzard.snow, 1)
+        XCTAssertEqual(blizzard.rain, 0, "a blizzard, not sleet")
+        XCTAssertEqual(blizzard.wind, 1)
+        XCTAssertEqual(blizzard.lightning, 0)
+        XCTAssertEqual(blizzard.wetness, 0)
+        // Half-way out of a storm into rain: part blizzard, part sleet, and every value in range.
+        var gliding = storm; gliding.nextWeather = .rain; gliding.weatherBlend = 0.5
+        let mid = AuroraFjordModel.fjordSky(gliding)
+        XCTAssertEqual(mid.rain, 0.25, accuracy: 1e-6)
+        XCTAssertGreaterThanOrEqual(mid.snow, 0.5)
+        XCTAssertEqual(mid.nextWeather, .sleet)
+        for v in [mid.rain, mid.snow, mid.wind, mid.gust, mid.mist, mid.frost, mid.wetness] { XCTAssertTrue((0...1).contains(v)) }
+        // Snow and diamond dust are left as they are.
+        var dust = fjordSkyState(sun: -20, hour: 23); dust.weather = .diamondDust; dust.nextWeather = .diamondDust; dust.pillar = 1
+        XCTAssertEqual(AuroraFjordModel.fjordSky(dust).weather, .diamondDust)
+        XCTAssertEqual(AuroraFjordModel.fjordSky(dust).pillar, 1)
+        // The model shows the fjord's sky.
+        var model = AuroraFjordModel(); model.setSky(rain)
+        XCTAssertEqual(fjordStep(&model, seconds: 0.1).sky, sleet)
+    }
+
+    func testFjordAmbience() {
+        var model = AuroraFjordModel()
+        var s = fjordSkyState(sun: -20, hour: 22); s.wind = 0.5; s.wetness = 0.4
+        model.setSky(s)
+        let a = fjordStep(&model, seconds: 0.1).ambience
+        XCTAssertEqual(a.level(.iceGroan), 0.8, accuracy: 1e-6, "the ice groans more at night")
+        XCTAssertEqual(a.level(.waterfall), 0.35, accuracy: 1e-9)
+        XCTAssertEqual(a.level(.water), 0.5, accuracy: 1e-9)
+        XCTAssertEqual(a.level(.wind), 0.2 + 0.8 * 0.5, accuracy: 1e-6)
+        XCTAssertEqual(a.level(.lapping), 0.3, accuracy: 1e-9)
+        XCTAssertEqual(a.level(.breeze), 0.2, accuracy: 1e-9)
+        XCTAssertEqual(a.level(.crickets), 0)
+        XCTAssertEqual(a.level(.owl), 0)
+        XCTAssertEqual(a.level(.drips), 0.2, accuracy: 1e-6, "drips after the sleet")
+        XCTAssertEqual(a.wetness, 0.2, accuracy: 1e-6)
+        XCTAssertEqual(a.closeness, MoodLook.ambienceCloseness(base: 0.45, .neutral), accuracy: 1e-9)
+        XCTAssertEqual(a.indoors, 0)
+        XCTAssertNil(a.thunder, "the cold sky has no lightning")
+        var day = AuroraFjordModel()
+        day.setSky(fjordSkyState(sun: 20, hour: 13))
+        XCTAssertEqual(fjordStep(&day, seconds: 0.1).ambience.level(.iceGroan), 0.5, accuracy: 1e-6)
+        var blizzard = AuroraFjordModel()
+        var b = fjordSkyState(sun: 10, hour: 13); b.rain = 1; b.weather = .storm; b.gust = 0.6
+        blizzard.setSky(b)
+        XCTAssertGreaterThanOrEqual(fjordStep(&blizzard, seconds: 0.1).ambience.level(.wind), 0.9, "a blizzard howls")
+    }
+
+    func testFjordDefaults() {
+        XCTAssertEqual(ThemeRegistry.resolve(AuroraFjordModel.id), AuroraFjordModel.id)
+        XCTAssertEqual(AuroraFjordModel.id, "aurora-fjord")
+        XCTAssertTrue(ThemeRegistry.all.contains { $0.id == AuroraFjordModel.id && $0.name == "Aurora Fjord" })
+        XCTAssertTrue(ThemeRegistry.isWorld(AuroraFjordModel.id))
+        assertValidParameters(AuroraFjordModel.parameters)
+        let params = ThemeRegistry.parameterSet(for: AuroraFjordModel.id, state: ThemeState())
+        XCTAssertEqual(params.choice("light.hold"), "Deep night")
+        XCTAssertEqual(params.choice("aurora.mode"), "Always")
+        XCTAssertEqual(params.choice("visual"), "Curtain Lights")
+        XCTAssertEqual(AuroraFjordModel.visuals, ["Curtain Lights", "Galaxy Warp"])
+        XCTAssertEqual(params.number("floes"), 0.6, accuracy: 1e-9)
+        XCTAssertEqual(params.number("village"), 0.7, accuracy: 1e-9)
+        XCTAssertEqual(params.number("swell"), 0.4, accuracy: 1e-9)
+        XCTAssertEqual(params.number("keys.show"), 1)
+        XCTAssertEqual(params.number("keys.height"), 0.12, accuracy: 1e-9)
+        XCTAssertTrue(AuroraFjordModel.parameters.first { $0.id == "floes" }?.hero ?? false)
+        XCTAssertEqual(Mood.electricAwe, Mood(energy: 0.45, warmth: 0.25, brightness: 0.45, space: 0.95, motion: 0.6))
+    }
+
+    func testFjordFrameCarriesRipplesAndFloes() {
+        var model = AuroraFjordModel()
+        model.setSky(fjordSkyState(sun: -30, hour: 23))
+        for n: UInt8 in [60, 67] { model.handle(.noteOn(note: n, velocity: 0.8)) }
+        let f = fjordStep(&model, seconds: 2)
+        XCTAssertEqual(f.ripples.count, 2)
+        XCTAssertTrue((AuroraFjordModel.minFloes...AuroraFjordModel.maxFloes).contains(f.floes.count), "\(f.floes.count)")
+        XCTAssertGreaterThan(f.glow, 0.3, "held notes swell the curtain")
+        XCTAssertTrue(f.villageLit)
+        XCTAssertEqual(f.keys.count, 88)
+        XCTAssertNil(f.warp)
+        for r in f.ripples { XCTAssertTrue(r.position.isFinite && r.age.isFinite && r.strength.isFinite && r.width.isFinite) }
+        for fl in f.floes {
+            XCTAssertTrue(fl.x.isFinite && fl.depth.isFinite && fl.size.isFinite && fl.angle.isFinite && fl.drift.isFinite)
+            XCTAssertTrue((0...1).contains(fl.x) && (0...1).contains(fl.depth))
+        }
+        XCTAssertTrue(f.glow.isFinite && f.hueShift.isFinite && f.tensePulse.isFinite)
+        // The floes drift, deterministically from a fresh world.
+        var again = AuroraFjordModel()
+        again.setSky(fjordSkyState(sun: -30, hour: 23))
+        XCTAssertEqual(fjordStep(&again, seconds: 2).floes, f.floes)
+        XCTAssertNotEqual(fjordStep(&again, seconds: 3).floes, f.floes, "they keep drifting")
+        // The setting sets how many: 6 at none, 14 at most.
+        var few = AuroraFjordModel(), many = AuroraFjordModel()
+        XCTAssertEqual(fjordStep(&few, seconds: 0.1, state: ThemeState(values: ["floes": .number(0)])).floes.count, 6)
+        XCTAssertEqual(fjordStep(&many, seconds: 0.1, state: ThemeState(values: ["floes": .number(1)])).floes.count, 14)
+        // By day the village is dark; Galaxy Warp streaks instead of rippling.
+        var day = AuroraFjordModel()
+        day.setSky(fjordSkyState(sun: 20, hour: 13))
+        day.handle(.noteOn(note: 60, velocity: 0.9))
+        let w = fjordStep(&day, seconds: 0.5, state: ThemeState(values: ["visual": .choice("Galaxy Warp")]))
+        XCTAssertFalse(w.villageLit)
+        XCTAssertNotNil(w.warp)
+        XCTAssertTrue(w.ripples.isEmpty, "Galaxy Warp replaces the ripples")
+    }
+}
