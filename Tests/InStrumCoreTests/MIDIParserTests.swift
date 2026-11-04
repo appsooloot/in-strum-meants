@@ -74,7 +74,7 @@ final class MIDIMessageBytesTests: XCTestCase {
     func testDemoPhrasesAreOriginalAndPlayable() {
         for phrase in [DemoPhrases.feltGlass, DemoPhrases.orbitPad, DemoPhrases.honeyTape, DemoPhrases.hazeBells,
                        DemoPhrases.cabinFelt, DemoPhrases.morningBox, DemoPhrases.polarChoir, DemoPhrases.planktonKeys,
-                       DemoPhrases.teaHouseKoto] {
+                       DemoPhrases.teaHouseKoto, DemoPhrases.zenShakuhachi] {
             XCTAssertGreaterThan(phrase.last?.time ?? 0, 18)
             XCTAssertEqual(phrase.map(\.time), phrase.map(\.time).sorted())
             var held = Set<UInt8>()
@@ -140,5 +140,48 @@ final class MIDIMessageBytesTests: XCTestCase {
         XCTAssertEqual(Int(fifth[1]) - Int(fifth[0]), 7, "an open fifth")
         XCTAssertLessThan(struck[1] - struck[0], 0.05, "struck together")
         XCTAssertGreaterThanOrEqual((phrase.last?.time ?? 0) - struck[1], 3, "and left to ring")
+    }
+
+    /// The shakuhachi's demo keeps to its five notes, D, F, G, A and C, inside D4–D6 (so nothing folds), in long breaths
+    /// with two silences between them; it has one muraiki accent (velocity 112 or more: the burst's threshold at a neutral
+    /// mood) and three meri presses on channel pressure, one of them a full meri. The pressure reaches every sounding note,
+    /// so it only moves while one note sounds alone, and it is let go before the next note starts (a new note hears the
+    /// pressure as it is). The wheel is never moved.
+    func testZenShakuhachiDemoBreathesAndSinks() {
+        let phrase = DemoPhrases.zenShakuhachi
+        var held = Set<UInt8>(), started: [UInt8: Double] = [:], allUp: Double? = nil
+        var pressure: UInt8 = 0, presses = 0, deepest: UInt8 = 0, accents = 0, longNotes = 0
+        var rests: [Double] = []
+        for (t, m) in phrase {
+            switch m {
+            case let .noteOn(_, n, v):
+                XCTAssertTrue([2, 5, 7, 9, 0].contains(Int(n) % 12), "note \(n) at \(t) s is not one of D, F, G, A, C")
+                XCTAssertTrue((62...86).contains(Int(n)), "note \(n) at \(t) s is outside D4–D6 and would fold")
+                XCTAssertEqual(pressure, 0, "the note at \(t) s starts under pressure")
+                if v >= 112 { accents += 1 }
+                if held.isEmpty, let rest = allUp { rests.append(t - rest) }
+                held.insert(n)
+                started[n] = t
+            case let .noteOff(_, n, _):
+                held.remove(n)
+                if let start = started[n], t - start >= 2.4 { longNotes += 1 }
+                if held.isEmpty { allUp = t }
+            case let .channelPressure(_, p):
+                XCTAssertEqual(held.count, 1, "the pressure at \(t) s sinks one note alone")
+                if pressure == 0, p > 0 { presses += 1 }
+                pressure = p
+                deepest = max(deepest, p)
+            default:
+                XCTFail("unexpected \(m) at \(t) s")
+            }
+        }
+        XCTAssertEqual(accents, 1, "one muraiki accent")
+        XCTAssertEqual(presses, 3, "three meri presses")
+        XCTAssertEqual(deepest, 127, "one press goes all the way (a full meri)")
+        XCTAssertEqual(pressure, 0)
+        XCTAssertTrue(held.isEmpty)
+        XCTAssertGreaterThanOrEqual(longNotes, 3, "long breathed notes")
+        XCTAssertEqual(rests.filter { $0 >= 1.5 }.count, 2, "two silences between the three breaths: \(rests)")
+        XCTAssertEqual(phrase.last?.time ?? 0, 22, accuracy: 1.5, "about 22 s")
     }
 }

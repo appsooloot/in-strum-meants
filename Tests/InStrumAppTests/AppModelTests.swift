@@ -914,6 +914,31 @@ final class AppModelTests: XCTestCase {
         XCTAssertEqual(BuiltInEngine.teaHouseKoto.displayName, "Tea House Koto")
     }
 
+    /// Zen Shakuhachi is born from its place (Zen Rock Garden), not a song: its presets carry no credit, so their names
+    /// are plain (spec §4.4's values).
+    func testZenShakuhachiPresetsHaveNoCredit() {
+        let presets = PatchLibrary.patches(for: .zenShakuhachi)
+        XCTAssertEqual(presets.map(\.id), ["zen-shakuhachi", "mountain-breath", "hollow-bamboo", "still-air"])
+        XCTAssertEqual(presets.map(\.displayName), ["Zen Shakuhachi", "Mountain Breath", "Hollow Bamboo", "Still Air"])
+        for p in presets {
+            XCTAssertNil(p.creditID, p.id)
+            XCTAssertNil(p.credit, p.id)
+            XCTAssertEqual(p.displayName, p.name, p.id)
+        }
+        XCTAssertEqual(PatchLibrary.defaultPatch(for: .zenShakuhachi).id, "zen-shakuhachi")
+        let dials = ["breath", "air", "bend", "bamboo", "yuri", "echo", "space", "width"]
+        XCTAssertEqual(Set(presets.flatMap { $0.values.keys }), Set(dials))
+        let expected: [String: [Double]] = ["zen-shakuhachi": [0.45, 0.55, 0.60, 0.50, 0.40, 0.30, 0.40, 0.45],
+                                            "mountain-breath": [0.60, 0.70, 0.70, 0.45, 0.50, 0.70, 0.60, 0.55],
+                                            "hollow-bamboo": [0.30, 0.35, 0.40, 0.85, 0.30, 0.15, 0.25, 0.40],
+                                            "still-air": [0.75, 0.90, 0.50, 0.40, 0.25, 0.40, 0.55, 0.50]]
+        for p in presets {
+            let values = dials.map { p.values[$0] ?? -1 }
+            XCTAssertEqual(values, expected[p.id], p.id)
+        }
+        XCTAssertEqual(BuiltInEngine.zenShakuhachi.displayName, "Zen Shakuhachi")
+    }
+
     func testHoneyTapePresetsCarryTheirCredit() {
         let presets = PatchLibrary.patches(for: .honeyTape)
         XCTAssertEqual(presets.map(\.id), ["honey-tape", "sea-flute", "velvet-strings", "old-reel"])

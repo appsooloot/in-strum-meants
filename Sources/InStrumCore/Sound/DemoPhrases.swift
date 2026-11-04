@@ -224,6 +224,34 @@ public enum DemoPhrases {
         return m.sorted
     }()
 
+    /// The five notes D, F, G, A, C for about 22 s, in three long breaths with silence between them (where the mountain
+    /// echo answers), all inside D4–D6 so nothing folds: a low D rising out of air, F, and a G pressed into meri; a hard D
+    /// an octave up bursting with breath (muraiki, the demo's one accent), C, and a long A sunk a full meri and let back
+    /// up; then up to the high C and down to a D that sinks once more before the breath runs out. Each meri press is
+    /// channel pressure eased in and out while one note sounds alone (the pressure reaches every sounding note), and is
+    /// let go before the next note starts (a new note hears the pressure as it is). The wheel is never moved.
+    public static let zenShakuhachi: Phrase = {
+        var m = Builder()
+        // The first breath.
+        m.note(0.30, 62, 72, 2.45)                                                        // D4 (ro)
+        m.note(2.95, 65, 64, 0.80)                                                        // F4
+        m.note(3.85, 67, 70, 2.70)                                                        // G4, meri
+        m.pressure(4.40, from: 0, to: 0.75, over: 0.45); m.pressure(5.45, from: 0.75, to: 0, over: 0.45)
+        // The second, after a silence.
+        m.note(8.25, 74, 122, 1.70)                                                       // D5, muraiki
+        m.note(10.05, 72, 74, 0.70)                                                       // C5
+        m.note(10.85, 69, 80, 2.70)                                                       // A4, a full meri
+        m.pressure(11.60, from: 0, to: 1, over: 0.50); m.pressure(12.70, from: 1, to: 0, over: 0.50)
+        // The third, after another.
+        m.note(15.60, 79, 70, 0.75)                                                       // G5
+        m.note(16.45, 81, 76, 0.75)                                                       // A5
+        m.note(17.30, 84, 82, 1.30)                                                       // C6
+        m.note(18.70, 81, 70, 0.55)                                                       // A5
+        m.note(19.30, 74, 74, 3.30)                                                       // D5, meri
+        m.pressure(19.90, from: 0, to: 0.70, over: 0.55); m.pressure(21.00, from: 0.70, to: 0, over: 0.60)
+        return m.sorted
+    }()
+
     private struct Builder {
         var events: Phrase = []
         mutating func note(_ t: Double, _ n: UInt8, _ v: UInt8, _ length: Double) {
