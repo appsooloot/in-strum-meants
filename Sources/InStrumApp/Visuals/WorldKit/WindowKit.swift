@@ -5,7 +5,7 @@ import InStrumCore
 /// A window between a room and its view (spec §7): panes in rows and columns, bars between them, a frame around.
 struct WindowSpec: Equatable {
     enum Material: Equatable {
-        case logWood, paintedSash
+        case logWood, paintedSash, paperScreen
         /// The porthole's brass ring (with `Shape.round`): 12 bolts and a rubber gasket.
         case brass
     }
@@ -233,6 +233,7 @@ final class WindowGlassLayer {
         let material: Float = spec.material == .logWood ? 0 : 1
         let qualityCode: Float = quality == .lite ? 0 : 1
         u[5] = SIMD4(Float(shown.count), Float(min(bars.count, Self.maxBars)), material, clean(spec.frameWidth, 0.5))
+        if spec.material == .paperScreen { u[5].z = 3 }   // paper is material 3 in the shader (its branches stand alone)
         u[6] = SIMD4(self.aspect, qualityCode, clean(sparkle, 2), 0)
         for i in 0..<Self.maxBars { u[7 + i] = i < bars.count ? bars[i] : .zero }
         for i in 0..<Self.maxPatches {

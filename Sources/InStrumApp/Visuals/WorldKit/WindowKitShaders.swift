@@ -67,6 +67,37 @@ enum WindowKitShaders {
         return clamp(t * 1.05 + (vn2(w * cells / 9.0) - 0.5) * 0.08, 0.0, 1.0);
     }
 
+    // ---------------------------------------------------------------- paper (material 3: Tea House Snow's screens)
+    // No glass: nothing behind to scatter or show through, no room to reflect. The frost reads as ice crystals grown on
+    // the paper's panes, cooler than the paper's own glow behind them (`outside`) and lit from the room (`inside`): a
+    // little shadow along each crystal's edge, the fern veins and the fronts' ribs brightest, and glints.
+    float4 paperIce(float2 pos, float cover, float age, float vein, float streak, float arrival, float3 inside, float3 outside,
+                    float time, float sparkleScale, float outsideGlint) {
+        float3 ice = float3(0.84, 0.92, 1.0);
+        float ribs = 0.5 + 0.5 * sin(arrival * 260.0 + streak * 3.0);
+        float rim = cover * (1.0 - cover) * 4.0;
+        float3 lit = outside * 0.92 + inside * 0.65 + 0.004;
+        float3 col = ice * lit * (0.94 + 0.1 * ribs * age) * (0.9 + 0.55 * vein) * (1.0 - 0.3 * rim);
+        float alpha = cover * mix(0.4, 0.86, age) * mix(0.7 + 0.3 * streak, 1.0, vein);
+        float2 gp = floor(pos * 0.5);
+        float hsh = h21(gp + 0.5);
+        float tw = 0.5 + 0.5 * sin(time * (1.3 + 2.7 * h21(gp + 7.7)) + hsh * 40.0);
+        tw *= tw; tw *= tw; tw *= tw;
+        float sparkle = step(0.985, hsh) * tw * cover * age * sparkleScale;
+        float3 glints = (inside * 1.3 + outside * outsideGlint * 1.2) * sparkle * 1.6;
+        return float4(col * alpha + glints, alpha);
+    }
+
+    // The paper screens' kumiko and stiles (material 3): pale planed wood lit from the room; the paper's glow behind
+    // wraps the thin members' edges, so by day they read a little darker than the paper and at night warm against it.
+    float3 paperLattice(float across, float along, float3 inside, float3 behind) {
+        float rnd = sqrt(saturate(1.0 - across * across));
+        float grain = vn2(float2(along * 3.0, across * 6.0)) * 0.6 + vn2(float2(along * 9.0, across * 14.0) + 2.3) * 0.4;
+        float3 albedo = mix(float3(0.70, 0.63, 0.52), float3(0.80, 0.72, 0.60), grain);
+        float3 col = albedo * inside * (0.62 + 0.38 * rnd) + behind * (0.16 * smoothstep(0.55, 1.0, abs(across)));
+        return col * mix(1.0, 0.8, smoothstep(0.9, 1.0, abs(across)));
+    }
+
     // ---------------------------------------------------------------- glass
     struct GlassOut { float4 pos [[position]]; float2 win; };
 
@@ -126,6 +157,7 @@ enum WindowKitShaders {
         float edge = frostLevel - arrival + (streak - 0.5) * 0.035;
         float cover = smoothstep(-0.012, 0.02, edge) * smoothstep(0.0, 0.02, frostLevel);
         float age = smoothstep(0.0, 0.22, edge);
+        if (u.b.z > 2.5) return paperIce(in.pos.xy, cover, age, vein, streak, arrival, inside, outside, time, u.c.z, u.glint.w);
 
         // What the frost scatters: the blurred view itself (High/Ultra), or the scene's average light (Smooth).
         float3 scatter = outside;
@@ -267,6 +299,12 @@ enum WindowKitShaders {
         }
         across = clamp(across, -1.0, 1.0);
         float3 inside = u.glint.rgb;
+        if (u.b.z > 2.5) {
+            ColorDepth po;
+            po.color = float4(paperLattice(across, along, inside, u.light.rgb), 1);
+            po.depth = float4(0.02, 0, 0, 1);
+            return po;
+        }
         // The room's light comes from low and to the left (the fire), or evenly (morning light).
         float2 sp = saturate((p + 1.0) * 0.5);
         float roomFall = 1.15 - 0.55 * sp.x - 0.35 * sp.y;

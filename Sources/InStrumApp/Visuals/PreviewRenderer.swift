@@ -53,6 +53,7 @@ final class PreviewRenderer {
         var bedroom: BedroomDawnRenderer?
         var fjord: AuroraFjordRenderer?
         var bay: BioluminescentBayRenderer?
+        var teaHouse: TeaHouseSnowRenderer?
         var zenGarden: ZenRockGardenRenderer?
         var images: [CGImage] = []
         for t in times.sorted() {
@@ -115,6 +116,13 @@ final class PreviewRenderer {
                     if bay == nil { bay = BioluminescentBayRenderer(device: device) }
                     bay?.update(y, params: director.parameters, quality: quality, gentle: gentle, dt: dt, size: size)
                     current = bay
+                } else if let h = frame as? TeaHouseFrame {
+                    if teaHouse == nil {
+                        teaHouse = TeaHouseSnowRenderer(device: device)
+                        teaHouse?.awaitField()   // Frost Grow shows the grown frost, not the fallback
+                    }
+                    teaHouse?.update(h, params: director.parameters, quality: quality, gentle: gentle, dt: dt, size: size)
+                    current = teaHouse
                 } else if let z = frame as? ZenGardenFrame {
                     if zenGarden == nil { zenGarden = ZenRockGardenRenderer(device: device) }
                     zenGarden?.update(z, params: director.parameters, quality: quality, gentle: gentle, dt: dt, size: size)
@@ -138,6 +146,7 @@ final class PreviewRenderer {
         case var f as BedroomFrame: edit(&f.sky); return f
         case var f as FjordFrame: edit(&f.sky); return f
         case var f as BayFrame: edit(&f.sky); return f
+        case var f as TeaHouseFrame: edit(&f.sky); return f
         case var f as ZenGardenFrame: edit(&f.sky); return f
         default: return frame
         }
