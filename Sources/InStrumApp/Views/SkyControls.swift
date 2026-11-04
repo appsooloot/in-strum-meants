@@ -217,6 +217,7 @@ struct SkyControls: View {
         case .humid: return "Humid night"
         case .diamondDust: return "Diamond dust"
         case .rime: return "Rime frost"
+        case .seaSmoke: return "Sea smoke"
         }
     }
 }

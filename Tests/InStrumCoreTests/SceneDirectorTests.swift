@@ -150,6 +150,60 @@ final class SceneDirectorTests: XCTestCase {
         XCTAssertEqual(lake.parameters.choice("aurora.mode"), "", "a missing parameter reads as no choice")
     }
 
+    /// A world whose meteors are always on (as a world may choose).
+    struct MeteorProbe: ThemeModel, SkyAware {
+        static let id = "meteor-probe", displayName = "Meteor probe"
+        static let parameters: [ParamSpec] = [MeteorMode.spec(default: .always)]
+        static let macroTargets: [Macro: [(id: String, weight: Double)]] = [:]
+        var sky: SkyState?
+        init() {}
+        mutating func handle(_ e: PerformanceEvent) {}
+        mutating func setSky(_ s: SkyState) { sky = s }
+        mutating func step(dt: Double, params: ParameterSet, roles: RoleValues, inputs: InputFrame, quality: QualityLevel) -> SkyState? { sky }
+    }
+
+    /// The director passes the world's meteor mode each step (spec §7.1): "Never" gives no meteors at all; a world
+    /// without the parameter follows the calendar; leaving an "Always" world leaves its shower behind.
+    func testMeteorModeReachesTheSky() throws {
+        var s = SkySettings(); s.timeMode = .frozen; s.frozenHour = 21; s.frozenPhase = 0; s.cityID = "tokyo"
+        s.weatherMode = .pick; s.weather = .clear; s.meteorRate = 10
+        let lull = try XCTUnwrap(ISO8601DateFormatter().date(from: "2027-01-20T03:00:00Z"))   // no shower in the calendar
+        func director(_ entry: ThemeEntry, _ state: ThemeState = ThemeState()) -> SceneDirector {
+            let d = SceneDirector(entry: entry, state: state, reaction: ReactionPresets.expressivePianist)
+            d.sky.reset(settings: s)
+            d.clock = { lull }
+            return d
+        }
+        let always = director(ThemeEntry.make(MeteorProbe.self))
+        for i in 1...120 { _ = always.step(dt: 1, t: Double(i), quality: .high) }
+        XCTAssertEqual(always.lastSky?.shower?.code, "ALW")
+        XCTAssertGreaterThan(always.lastSky?.meteorRate ?? 0, 100)
+        XCTAssertGreaterThan(always.sky.meteorSky.tally[MeteorShowers.alwaysIndex] ?? 0, 0)
+        // Never: no meteors, not even sporadic ones.
+        let never = director(ThemeEntry.make(MeteorProbe.self), ThemeState(values: ["meteors.mode": .choice("Never")]))
+        var any = false
+        for i in 1...120 {
+            _ = never.step(dt: 1, t: Double(i), quality: .high)
+            any = any || !(never.lastSky?.meteors.isEmpty ?? true)
+        }
+        XCTAssertFalse(any)
+        XCTAssertNil(never.lastSky?.shower)
+        XCTAssertEqual(never.lastSky?.meteorRate, 0)
+        XCTAssertTrue(never.sky.meteorSky.tally.isEmpty)
+        // A world without the parameter follows the calendar: this night, only sporadic meteors.
+        let plain = director(ThemeEntry.make(Probe.self))
+        _ = plain.step(dt: 1, t: 1, quality: .high)
+        XCTAssertEqual(plain.parameters.choice("meteors.mode"), "", "a missing parameter reads as no choice")
+        XCTAssertNil(plain.lastSky?.shower)
+        XCTAssertGreaterThan(plain.lastSky?.meteorRate ?? 0, 0)
+        XCTAssertLessThan(plain.lastSky?.meteorRate ?? 999, always.lastSky?.meteorRate ?? 0)
+        // Leaving the "Always" world for the lake (which follows the calendar) leaves its shower behind.
+        always.switchTheme(to: MoonlitLakeModel.id, state: ThemeState())
+        _ = always.step(dt: 1, t: 121, quality: .high)
+        XCTAssertEqual(always.parameters.choice("meteors.mode"), "Follow the calendar")
+        XCTAssertNil(always.lastSky?.shower)
+    }
+
     func testMoodLookIsNeutralAtHalf() {
         let n = Mood.neutral
         XCTAssertEqual(MoodLook.exposure(n), 1, accuracy: 1e-6)

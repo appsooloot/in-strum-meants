@@ -237,7 +237,7 @@ extension LivingSkyTests {
     }
 
     func testNewWeatherValues() {
-        XCTAssertEqual(WeatherKind.allCases, [.clear, .lightCloud, .overcast, .mist, .drizzle, .rain, .storm, .snow, .blizzard, .afterRain, .sunShower, .fogBank, .sleet, .monsoon, .hail, .smokeHaze, .iceFog, .thunderheads, .dustStorm, .flurries, .freezingDrizzle, .squall, .dryLightning, .humid, .diamondDust, .rime])
+        XCTAssertEqual(WeatherKind.allCases, [.clear, .lightCloud, .overcast, .mist, .drizzle, .rain, .storm, .snow, .blizzard, .afterRain, .sunShower, .fogBank, .sleet, .monsoon, .hail, .smokeHaze, .iceFog, .thunderheads, .dustStorm, .flurries, .freezingDrizzle, .squall, .dryLightning, .humid, .diamondDust, .rime, .seaSmoke])
         // cloud, rain, snow, mist, wind, halo, frost, gust (spec §6.1)
         let table: [WeatherKind: [Float]] = [
             .clear: [0, 0, 0, 0.1, 0.1, 0, 0.15, 0],
@@ -266,6 +266,7 @@ extension LivingSkyTests {
             .humid: [0.15, 0, 0, 0.35, 0.05, 0, 0, 0],
             .diamondDust: [0.05, 0, 0, 0.2, 0.02, 1, 0.9, 0],
             .rime: [0.3, 0, 0, 0.85, 0.08, 0.2, 1, 0],
+            .seaSmoke: [0.1, 0, 0, 0.35, 0.06, 0.3, 0.9, 0],
         ]
         for k in WeatherKind.allCases {
             let v = k.values
@@ -695,6 +696,24 @@ extension LivingSkyTests {
         XCTAssertEqual(wrong.weather, .rime)
         var extras = SkySettings(); extras.iridescence = 0.3; extras.rimeSpeed = 2.5; extras.weather = .rime
         XCTAssertEqual(try JSONDecoder().decode(SkySettings.self, from: JSONEncoder().encode(extras)), extras)
+        // Sets 11 & 12 (Review focus 4): settings saved before the meteors load the default rate (2), wild or wrong
+        // values fall back on their own, sea smoke decodes, and stored weather lists without it still load.
+        XCTAssertEqual(blizzard.meteorRate, 2)
+        XCTAssertEqual(unknown.meteorRate, 2)
+        XCTAssertEqual(night.meteorRate, 2)
+        let showers = try JSONDecoder().decode(SkySettings.self, from: Data(#"{"meteorRate":7.5,"weather":"rime"}"#.utf8))
+        XCTAssertEqual(showers.meteorRate, 7.5)
+        XCTAssertEqual(showers.weather, .rime)
+        let many = try JSONDecoder().decode(SkySettings.self, from: Data(#"{"meteorRate":99,"iridescence":0.4}"#.utf8))
+        XCTAssertEqual([many.meteorRate, many.iridescence], [10, 0.4], "clamped to 10; the rest kept")
+        XCTAssertEqual(try JSONDecoder().decode(SkySettings.self, from: Data(#"{"meteorRate":0}"#.utf8)).meteorRate, 0.5, "at least 0.5")
+        XCTAssertEqual(try JSONDecoder().decode(SkySettings.self, from: Data(#"{"meteorRate":"lots","weather":"snow"}"#.utf8)).meteorRate, 2)
+        XCTAssertEqual(try JSONDecoder().decode(SkySettings.self, from: Data(#"{"weather":"seaSmoke","weatherMode":"pick"}"#.utf8)).weather, .seaSmoke)
+        let older = try JSONDecoder().decode(SkySettings.self, from: Data(#"{"randomExcluded":["rime","hail","diamondDust"]}"#.utf8))
+        XCTAssertEqual(older.randomExcluded, [.rime, .hail, .diamondDust], "a list saved before sea smoke")
+        XCTAssertEqual(try JSONDecoder().decode(SkySettings.self, from: Data(#"{"randomExcluded":["seaSmoke"]}"#.utf8)).randomExcluded, [.seaSmoke])
+        var meteors = SkySettings(); meteors.meteorRate = 6.5; meteors.weather = .seaSmoke; meteors.randomExcluded = [.seaSmoke]
+        XCTAssertEqual(try JSONDecoder().decode(SkySettings.self, from: JSONEncoder().encode(meteors)), meteors)
     }
 
     func testTheLoungeHasNoWeather() {
@@ -707,6 +726,16 @@ extension LivingSkyTests {
         XCTAssertEqual([space.aurora, space.auroraStorm, space.fireflies, space.diamondDust, space.pillar], [0, 0, 0, 0, 0])
         XCTAssertEqual([space.rime, space.iridescence], [0, 0], "no rime and no iridescent cloud in space")
         XCTAssertEqual(space.dayOfYear, 308, "the calendar carries on")
+        // Sets 11 & 12: no sea smoke, and no air for meteors to burn in.
+        var shower = SkyState(); shower.steam = 1; shower.meteorFlash = 0.08; shower.meteorRate = 120; shower.solarLongitude = 262.2
+        shower.meteors = [Meteor(start: SIMD3(0, 1, 0), end: SIMD3(0, 0, 1), born: 1, duration: 0.5, magnitude: -5)]
+        shower.shower = ShowerNow(code: "GEM", name: "Geminids", zhr: 150, radiantAltitude: 60, radiantAzimuth: 90,
+                                  daysToPeak: 0, radiantRises: nil, radiantHighest: 87)
+        let empty = SpaceshipLoungeModel.weatherless(shower)
+        XCTAssertEqual([empty.steam, empty.meteorFlash, empty.meteorRate], [0, 0, 0])
+        XCTAssertTrue(empty.meteors.isEmpty)
+        XCTAssertNil(empty.shower)
+        XCTAssertEqual(empty.solarLongitude, 262.2, "the calendar carries on")
     }
 }
 
@@ -820,7 +849,8 @@ extension LivingSkyTests {
 
 extension LivingSkyTests {
     func testRimeValues() {
-        XCTAssertEqual(WeatherKind.allCases.last, .rime, "appended at the end, so every saved weather keeps its meaning")
+        XCTAssertEqual(Array(WeatherKind.allCases.suffix(2)), [.rime, .seaSmoke],
+                       "appended at the end (sea smoke after it), so every saved weather keeps its meaning")
         let v = WeatherKind.rime.values
         // cloud, rain, snow, mist, wind, halo, frost, gust, rime (spec §6.1)
         XCTAssertEqual([v.cloud, v.rain, v.snow, v.mist, v.wind, v.halo, v.frost, v.gust, v.rime], [0.3, 0, 0, 0.85, 0.08, 0.2, 1, 0, 1])
@@ -1024,5 +1054,59 @@ extension LivingSkyTests {
         var hand = SkySettings(); hand.iridescence = 0; hand.rimeSpeed = 4
         hand.resetAdvanced()
         XCTAssertEqual(hand, SkySettings())
+        // Sets 11 & 12 (spec §6.5): the Meteors rate, 2 by default; Gentle 1.5, Dramatic 4, Dreamy 2.5; Reset 2.
+        XCTAssertEqual(d.meteorRate, 2)
+        let rates: [(SkySettings.AdvancedPreset, Double)] = [(.gentle, 1.5), (.dramatic, 4), (.dreamy, 2.5)]
+        for (look, rate) in rates {
+            var s = SkySettings(); s.meteorRate = 9
+            s.applyAdvanced(look)
+            XCTAssertEqual(s.meteorRate, rate, "\(look)")
+            s.resetAdvanced()
+            XCTAssertEqual(s.meteorRate, 2, "Reset after \(look)")
+        }
+    }
+}
+
+// MARK: - Sets 11 & 12: sea smoke, and the meteors in the sky
+
+extension LivingSkyTests {
+    /// Sea smoke (spec §6.1): the table's values, appended at the end, not wet, rough or flashing, and frost all day; the
+    /// sky carries its steam, the cold worlds keep it, and the swell lies down to 0.4.
+    func testSeaSmokeValues() {
+        XCTAssertEqual(WeatherKind.allCases.last, .seaSmoke, "appended at the end, so every saved weather keeps its meaning")
+        XCTAssertEqual(WeatherKind.seaSmoke.rawValue, "seaSmoke")
+        let v = WeatherKind.seaSmoke.values
+        // cloud, rain, snow, mist, wind, halo, frost, gust, steam
+        XCTAssertEqual([v.cloud, v.rain, v.snow, v.mist, v.wind, v.halo, v.frost, v.gust, v.steam], [0.1, 0, 0, 0.35, 0.06, 0.3, 0.9, 0, 1])
+        XCTAssertEqual([v.fireflies, v.pillar, v.rime], [0, 0, 0])
+        XCTAssertEqual(WeatherKind.seaSmoke.beautyWeight, 0.5)
+        XCTAssertFalse(WeatherKind.seaSmoke.isWet)
+        XCTAssertFalse(WeatherKind.seaSmoke.isRough)
+        XCTAssertFalse(WeatherKind.seaSmoke.flashes)
+        XCTAssertFalse(WeatherKind.seaSmoke.frostFormsOnlyAtNight, "the cold is bitter all day")
+        for k in WeatherKind.allCases where k != .seaSmoke { XCTAssertEqual(k.values.steam, 0, "\(k)") }
+        XCTAssertEqual(WeatherValues.mix(WeatherKind.clear.values, v, 0.5).steam, 0.5, accuracy: 1e-6, "it blends like the rest")
+        // In the sky, by day and by night: the steam, frost on the glass, a faint mist and halo; no rain, snow or gusts.
+        for hour in [2.0, 8, 13] {
+            let st = sky(.seaSmoke, hour: hour).step(now: start, dt: 0)
+            XCTAssertEqual(st.steam, 1, accuracy: 1e-6, "at \(hour):00")
+            XCTAssertEqual(st.frost, 0.9, accuracy: 1e-4)
+            XCTAssertEqual(st.mist, 0.35, accuracy: 1e-4)
+            XCTAssertEqual(st.halo, 0.3, accuracy: 1e-4)
+            XCTAssertEqual([st.rain, st.snow, st.gust, st.lightning], [0, 0, 0, 0])
+        }
+        XCTAssertEqual(sky(.clear, hour: 8).step(now: start, dt: 0).steam, 0)
+        // It glides in with the weather.
+        let arriving = sky(.clear, hour: 7)
+        pick(arriving, .seaSmoke)
+        var steps: [Float] = []
+        run(arriving, seconds: 20) { steps.append($0.steam) }
+        XCTAssertTrue(steps.first ?? 1 < 0.2 && (steps.last ?? 0) > 0.99, "\(steps.first ?? -1) → \(steps.last ?? -1)")
+        // The cold worlds keep it (it is at home in the cold), and the sea lies still under it.
+        var still = SkyState(); still.weather = .seaSmoke; still.nextWeather = .seaSmoke; still.steam = 1
+        XCTAssertEqual(WorldWeather.cold(still).weather, .seaSmoke)
+        XCTAssertEqual(WorldWeather.cold(still).steam, 1)
+        XCTAssertEqual(AuroraFjordModel.fjordSky(still).weather, .seaSmoke)
+        XCTAssertEqual(OceanSwell.weatherScale(still), 0.4, accuracy: 1e-6)
     }
 }

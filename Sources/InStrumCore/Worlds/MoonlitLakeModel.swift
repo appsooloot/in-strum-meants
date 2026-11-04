@@ -117,7 +117,7 @@ public struct MoonlitLakeModel: ThemeModel, MoodAware, SkyAware {
         let activity = min(1, 0.6 * roles[.energy] + 0.4 * roles[.density])
         return AmbienceScene(levels: levels, nightCool: nightCool, activity: activity, thunder: thunder,
                              closeness: MoodLook.ambienceCloseness(base: 0.5, mood), density: MoodLook.ambienceDensity(mood),
-                             wetness: Double(sky.wetness))
+                             indoors: WeatherAmbience.indoorsLift(sky), wetness: Double(sky.wetness))
     }
 
     static func smooth(_ a: Double, _ b: Double, _ x: Double) -> Double {
@@ -135,6 +135,7 @@ extension MoonlitLakeModel {
     public static let parameters: [ParamSpec] = [
         ParamSpec(id: "visual", name: "Visual", group: "Visual", help: "What your playing draws on the lake",
                   kind: .choice(visuals), defaultValue: .choice("Lake Ripples")),
+        MeteorMode.spec(default: .follow),
         slider("ripples.size", "Ripple size", "Lake Ripples", 0...1, 0.5, hero: true, surprise: 0.2...0.9,
                help: "How far each note's ring spreads"),
         slider("ripples.linger", "Ripples linger", "Lake Ripples", 0...1, 0.5, hero: true, surprise: 0.2...0.9,

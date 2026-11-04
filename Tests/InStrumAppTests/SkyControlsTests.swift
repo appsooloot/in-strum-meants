@@ -40,5 +40,7 @@ final class SkyControlsTests: XCTestCase {
         XCTAssertEqual(SkyControls.weatherName(.humid), "Humid night")
         XCTAssertEqual(SkyControls.weatherName(.diamondDust), "Diamond dust")
         XCTAssertEqual(SkyControls.weatherName(.rime), "Rime frost")
+        XCTAssertEqual(SkyControls.weatherName(.seaSmoke), "Sea smoke")
+        XCTAssertEqual(names.last, "Sea smoke")
     }
 }

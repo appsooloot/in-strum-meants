@@ -1,12 +1,13 @@
 /// What the weather adds to any outdoor world's soundscape: drips while things are wet after the rain, and a
-/// howling wind in a blizzard's gusts, and birdsong when a rainbow stands; and rime frost's hush.
+/// howling wind in a blizzard's gusts, and birdsong when a rainbow stands; and the hush of rime frost and sea smoke.
 public enum WeatherAmbience {
     public static func levels(_ sky: SkyState, base levels: inout [AmbienceSource: Double]) {
         if sky.rain < 0.05, sky.wetness > 0 { levels[.drips] = Double(sky.wetness) }
         // Birds sing up as the sun comes out through a shower, while the rainbow stands.
         if sky.rainbow > 0.05, sky.rain < 0.5 { levels[.dawnChorus] = max(levels[.dawnChorus] ?? 0, 0.4 * Double(sky.rainbow)) }
-        // Rime frost is still, freezing fog: the wind drops (a blizzard's howl, below, still comes through).
-        if inRime(sky), let wind = levels[.wind] { levels[.wind] = min(wind, 0.15) }
+        // Rime frost is still, freezing fog, and sea smoke needs still, bitter air: the wind drops (a blizzard's howl,
+        // below, still comes through).
+        if inRime(sky) || inSeaSmoke(sky), let wind = levels[.wind] { levels[.wind] = min(wind, 0.15) }
         // A humid night is loud with insects; diamond dust is still, cold air (and silent itself).
         if sky.fireflies > 0.3 { levels[.crickets] = max(levels[.crickets] ?? 0, 0.6 * Double(sky.fireflies)) }
         if sky.diamondDust > 0.3, let wind = levels[.wind] { levels[.wind] = min(wind, 0.2) }
@@ -16,16 +17,21 @@ public enum WeatherAmbience {
     /// In rime: the world is rimed past 0.3, or rime-frost weather is more than 0.3 of the sky.
     public static func inRime(_ sky: SkyState) -> Bool { sky.rime > 0.3 || rimeWeather(sky) > 0.3 }
 
+    /// In sea smoke (spec §5): the steam off the water is past 0.3.
+    public static func inSeaSmoke(_ sky: SkyState) -> Bool { sky.steam.isFinite && sky.steam > 0.3 }
+
     /// How much rime-frost weather is in the sky, 0…1 (the weather machine's smoothstep glide between the kinds).
     public static func rimeWeather(_ sky: SkyState) -> Float {
         let t = sky.weatherBlend.isFinite ? min(max(sky.weatherBlend, 0), 1) : 0, glide = t * t * (3 - 2 * t)
         return sky.weather.values.rime * (1 - glide) + sky.nextWeather.values.rime * glide
     }
 
-    /// Rimed trees and stones soak up sound, so a world's outdoor sources come through a little muffled: worlds may
-    /// add this to their `indoors` (0.15 × min(1, rime / 0.6): the full hush once the world is 0.6 rimed).
+    /// Rimed trees and stones soak up sound, and sea smoke lies like a mist over the water, so a world's outdoor
+    /// sources come through a little muffled: worlds may add this to their `indoors` (0.15 × min(1, rime / 0.6), or
+    /// as much for the steam, whichever is more: the full hush once the world is 0.6 rimed or the sea smoke 0.6 thick).
     public static func indoorsLift(_ sky: SkyState) -> Double {
         let rime = sky.rime.isFinite ? min(max(Double(sky.rime), 0), 1) : 0
-        return 0.15 * min(1, rime / 0.6)
+        let steam = sky.steam.isFinite ? min(max(Double(sky.steam), 0), 1) : 0
+        return 0.15 * min(1, max(rime, steam) / 0.6)
     }
 }

@@ -179,6 +179,7 @@ extension TeaHouseSnowModel {
                   kind: .choice(visuals), defaultValue: .choice("Steam Lines")),
         SkyHold.spec(default: .follow),
         AuroraMode.spec(default: .follow),
+        MeteorMode.spec(default: .follow),
         slider("screens", "Screens open", "Tea House", 0...1, 0.5, hero: true, surprise: 0.2...1,
                help: "How far the paper screens are slid open on the snow garden; closed, the room is all paper light"),
         slider("steam", "Tea steam", "Steam Lines", 0...1, 0.6, hero: true, surprise: 0.3...1,

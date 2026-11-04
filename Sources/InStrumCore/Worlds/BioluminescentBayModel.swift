@@ -179,7 +179,7 @@ public struct BioluminescentBayModel: ThemeModel, MoodAware, SkyAware {
         let activity = min(1, 0.6 * roles[.energy] + 0.4 * roles[.density])
         return AmbienceScene(levels: levels, nightCool: nightCool, activity: activity, thunder: thunder,
                              closeness: MoodLook.ambienceCloseness(base: 0.6, mood), density: MoodLook.ambienceDensity(mood),
-                             wetness: Double(sky.wetness))
+                             indoors: WeatherAmbience.indoorsLift(sky), wetness: Double(sky.wetness))
     }
 }
 
@@ -194,6 +194,7 @@ extension BioluminescentBayModel {
                   kind: .choice(visuals), defaultValue: .choice("Glow Wake")),
         SkyHold.spec(default: .deepNight),
         AuroraMode.spec(default: .follow),
+        MeteorMode.spec(default: .follow),
         slider("glow", "Plankton glow", "Glow Wake", 0...1, 0.7, hero: true, surprise: 0.3...1,
                help: "How brightly the plankton lights where your notes fall and along the waterline"),
         slider("lantern", "Boat lantern", "Bay", 0...1, 0.6, surprise: 0.2...1,
