@@ -18,6 +18,7 @@ final class ThemeCanvas: NSObject, MTKViewDelegate {
     private var road: CoastRoadRenderer?
     private var cabin: SnowboundCabinRenderer?
     private var bedroom: BedroomDawnRenderer?
+    private var bay: BioluminescentBayRenderer?
     private var autoQuality: AutoQuality
     private var lastTime: CFTimeInterval = 0
     private var seenVersion = -1
@@ -126,6 +127,10 @@ final class ThemeCanvas: NSObject, MTKViewDelegate {
             if bedroom == nil { bedroom = BedroomDawnRenderer(device: device) }
             bedroom?.update(b, params: director.parameters, quality: level, gentle: model.gentleVisuals, dt: dt, size: size)
             renderer = bedroom
+        } else if let y = frame as? BayFrame {
+            if bay == nil { bay = BioluminescentBayRenderer(device: device) }
+            bay?.update(y, params: director.parameters, quality: level, gentle: model.gentleVisuals, dt: dt, size: size)
+            renderer = bay
         } else {
             renderer = nil
         }

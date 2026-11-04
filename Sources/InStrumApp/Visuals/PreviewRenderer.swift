@@ -49,6 +49,7 @@ final class PreviewRenderer {
         var lounge: SpaceshipLoungeRenderer?, beach: GoldenHourBeachRenderer?, road: CoastRoadRenderer?
         var cabin: SnowboundCabinRenderer?
         var bedroom: BedroomDawnRenderer?
+        var bay: BioluminescentBayRenderer?
         var images: [CGImage] = []
         for t in times.sorted() {
             var current: ThemeRenderer?
@@ -101,6 +102,10 @@ final class PreviewRenderer {
                     }
                     bedroom?.update(b, params: director.parameters, quality: quality, gentle: gentle, dt: dt, size: size)
                     current = bedroom
+                } else if let y = frame as? BayFrame {
+                    if bay == nil { bay = BioluminescentBayRenderer(device: device) }
+                    bay?.update(y, params: director.parameters, quality: quality, gentle: gentle, dt: dt, size: size)
+                    current = bay
                 }
                 if time + dt > t { break }
             }
