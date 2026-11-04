@@ -237,7 +237,7 @@ extension LivingSkyTests {
     }
 
     func testNewWeatherValues() {
-        XCTAssertEqual(WeatherKind.allCases, [.clear, .lightCloud, .overcast, .mist, .drizzle, .rain, .storm, .snow, .blizzard, .afterRain, .sunShower, .fogBank, .sleet, .monsoon, .hail, .smokeHaze, .iceFog, .thunderheads, .dustStorm, .flurries, .freezingDrizzle, .squall, .dryLightning, .humid, .diamondDust])
+        XCTAssertEqual(WeatherKind.allCases, [.clear, .lightCloud, .overcast, .mist, .drizzle, .rain, .storm, .snow, .blizzard, .afterRain, .sunShower, .fogBank, .sleet, .monsoon, .hail, .smokeHaze, .iceFog, .thunderheads, .dustStorm, .flurries, .freezingDrizzle, .squall, .dryLightning, .humid, .diamondDust, .rime])
         // cloud, rain, snow, mist, wind, halo, frost, gust (spec §6.1)
         let table: [WeatherKind: [Float]] = [
             .clear: [0, 0, 0, 0.1, 0.1, 0, 0.15, 0],
@@ -265,6 +265,7 @@ extension LivingSkyTests {
             .dryLightning: [0.85, 0, 0, 0.1, 0.5, 0, 0, 0.4],
             .humid: [0.15, 0, 0, 0.35, 0.05, 0, 0, 0],
             .diamondDust: [0.05, 0, 0, 0.2, 0.02, 1, 0.9, 0],
+            .rime: [0.3, 0, 0, 0.85, 0.08, 0.2, 1, 0],
         ]
         for k in WeatherKind.allCases {
             let v = k.values
@@ -666,6 +667,19 @@ extension LivingSkyTests {
         XCTAssertEqual(bad.weather, .snow)
         var round = SkySettings(); round.constellationLines = 0.6; round.auroraScale = 1.4
         XCTAssertEqual(try JSONDecoder().decode(SkySettings.self, from: JSONEncoder().encode(round)), round)
+        // Sets 9 & 10: rime frost decodes (picked, or left out of random); settings saved before it load the two new
+        // dials at their defaults, and wild or wrong values fall back on their own.
+        XCTAssertEqual(try JSONDecoder().decode(SkySettings.self, from: Data(#"{"weather":"rime","weatherMode":"pick"}"#.utf8)).weather, .rime)
+        XCTAssertEqual(try JSONDecoder().decode(SkySettings.self, from: Data(#"{"randomExcluded":["rime","hail"]}"#.utf8)).randomExcluded, [.rime, .hail])
+        XCTAssertEqual([blizzard.iridescence, blizzard.rimeSpeed], [1, 1])
+        XCTAssertEqual([unknown.iridescence, unknown.rimeSpeed], [1, 1])
+        let wild = try JSONDecoder().decode(SkySettings.self, from: Data(#"{"iridescence":9,"rimeSpeed":0.01}"#.utf8))
+        XCTAssertEqual([wild.iridescence, wild.rimeSpeed], [1.5, 0.25], "clamped")
+        let wrong = try JSONDecoder().decode(SkySettings.self, from: Data(#"{"iridescence":"pearly","rimeSpeed":null,"weather":"rime"}"#.utf8))
+        XCTAssertEqual([wrong.iridescence, wrong.rimeSpeed], [1, 1])
+        XCTAssertEqual(wrong.weather, .rime)
+        var extras = SkySettings(); extras.iridescence = 0.3; extras.rimeSpeed = 2.5; extras.weather = .rime
+        XCTAssertEqual(try JSONDecoder().decode(SkySettings.self, from: JSONEncoder().encode(extras)), extras)
     }
 
     func testTheLoungeHasNoWeather() {
@@ -673,8 +687,11 @@ extension LivingSkyTests {
         let lounge = SpaceshipLoungeModel.weatherless(st)
         XCTAssertEqual([lounge.halo, lounge.frost, lounge.wetness, lounge.gust], [0, 0, 0, 0])
         var night = SkyState(); night.aurora = 1; night.auroraStorm = 0.8; night.fireflies = 1; night.diamondDust = 1; night.pillar = 1
+        night.rime = 0.9; night.iridescence = 0.7; night.dayOfYear = 308
         let space = SpaceshipLoungeModel.weatherless(night)
         XCTAssertEqual([space.aurora, space.auroraStorm, space.fireflies, space.diamondDust, space.pillar], [0, 0, 0, 0, 0])
+        XCTAssertEqual([space.rime, space.iridescence], [0, 0], "no rime and no iridescent cloud in space")
+        XCTAssertEqual(space.dayOfYear, 308, "the calendar carries on")
     }
 }
 
@@ -779,6 +796,217 @@ extension LivingSkyTests {
         }
         // Reset restores the night-sky dials from any hand-set value too.
         var hand = SkySettings(); hand.constellationLines = 1; hand.auroraScale = 2
+        hand.resetAdvanced()
+        XCTAssertEqual(hand, SkySettings())
+    }
+}
+
+// MARK: - Sets 9 & 10: rime frost, iridescent clouds, the day of the year
+
+extension LivingSkyTests {
+    func testRimeValues() {
+        XCTAssertEqual(WeatherKind.allCases.last, .rime, "appended at the end, so every saved weather keeps its meaning")
+        let v = WeatherKind.rime.values
+        // cloud, rain, snow, mist, wind, halo, frost, gust, rime (spec §6.1)
+        XCTAssertEqual([v.cloud, v.rain, v.snow, v.mist, v.wind, v.halo, v.frost, v.gust, v.rime], [0.3, 0, 0, 0.85, 0.08, 0.2, 1, 0, 1])
+        XCTAssertEqual([v.fireflies, v.pillar], [0, 0])
+        XCTAssertEqual(WeatherKind.rime.beautyWeight, 0.5)
+        XCTAssertFalse(WeatherKind.rime.isWet)
+        XCTAssertFalse(WeatherKind.rime.isRough)
+        XCTAssertFalse(WeatherKind.rime.flashes)
+        XCTAssertFalse(WeatherKind.rime.frostFormsOnlyAtNight, "rime forms any time it is cold and foggy")
+        for k in WeatherKind.allCases where k != .rime { XCTAssertEqual(k.values.rime, 0, "\(k)") }
+        XCTAssertEqual(WeatherValues.mix(WeatherKind.fogBank.values, v, 0.25).rime, 0.25, accuracy: 1e-6, "it blends like the rest")
+        // In the sky: frost on the glass by day as well as by night, a faint halo, and no rain, snow, gusts or lightning.
+        for hour in [2.0, 13] {
+            let st = sky(.rime, hour: hour).step(now: start, dt: 0)
+            XCTAssertEqual(st.frost, 1, accuracy: 1e-4, "at \(hour):00")
+            XCTAssertEqual(st.mist, 0.85, accuracy: 1e-4)
+            XCTAssertEqual(st.halo, 0.2, accuracy: 1e-4)
+            XCTAssertEqual([st.rain, st.snow, st.gust, st.lightning], [0, 0, 0, 0])
+        }
+        // The cold worlds keep it (a rimed world and all), and the sea lies calm under it.
+        var still = SkyState(); still.weather = .rime; still.nextWeather = .rime; still.rime = 0.7
+        XCTAssertEqual(WorldWeather.cold(still).weather, .rime)
+        XCTAssertEqual(WorldWeather.cold(still).rime, 0.7)
+        XCTAssertEqual(AuroraFjordModel.fjordSky(still).weather, .rime)
+        XCTAssertEqual(OceanSwell.weatherScale(still), 0.3, accuracy: 1e-6)
+    }
+
+    /// Rime builds over 10–20 minutes of freezing fog (τ 12 min), melts within minutes in sun once the fog has gone
+    /// (τ 6 min) and lingers in the dark (τ 40 min) (spec §6.2).
+    func testRimeBuildsInFogAndMeltsInSun() {
+        let morning = sky(.rime, hour: 7)
+        XCTAssertEqual(morning.step(now: start, dt: 0).rime, 0, "a new sky starts bare")
+        let rimed = run(morning, seconds: 20 * 60)
+        XCTAssertGreaterThan(rimed.rime, 0.6, "20 minutes of freezing fog at 07:00")
+        XCTAssertLessThan(rimed.rime, 0.9, "built over minutes, not at once")
+        // The fog clears and it is 13:00: the sun melts it.
+        var noon = morning.settings; noon.frozenHour = 13; noon.weather = .clear; morning.settings = noon
+        let sunny = run(morning, seconds: 20 * 60)
+        XCTAssertGreaterThan(sunny.sun.altitude, 2)
+        XCTAssertLessThan(sunny.rime, 0.2, "20 minutes of sun")
+        // At 02:00 it lingers: 40 minutes of fog, then 20 minutes clear.
+        let night = sky(.rime, hour: 2)
+        let deep = run(night, seconds: 40 * 60)
+        XCTAssertGreaterThan(deep.rime, 0.9)
+        pick(night, .clear)
+        let after = run(night, seconds: 20 * 60)
+        XCTAssertLessThan(after.sun.altitude, 2)
+        XCTAssertGreaterThan(after.rime, 0.5, "the dark keeps it")
+        XCTAssertLessThan(after.rime, deep.rime - 0.2, "but it does go, slowly")
+    }
+
+    /// The Advanced "Rime speed" (0.25…4) scales how fast rime builds and how fast it melts (spec §6.4).
+    func testRimeSpeedScales() {
+        func built(_ speed: Double, minutes: Double) -> Float {
+            let s = sky(.rime, hour: 7)
+            var tuned = s.settings; tuned.rimeSpeed = speed; s.settings = tuned
+            return run(s, seconds: minutes * 60).rime
+        }
+        for speed in [0.5, 1, 2] {
+            XCTAssertEqual(built(speed, minutes: 10), Float(1 - exp(-speed * 600 / 720)), accuracy: 0.01, "\(speed)×")
+        }
+        XCTAssertEqual(built(99, minutes: 2), Float(1 - exp(-4 * 120.0 / 720)), accuracy: 0.01, "at most 4×")
+        XCTAssertEqual(built(0, minutes: 10), Float(1 - exp(-0.25 * 600 / 720)), accuracy: 0.01, "at least a quarter")
+        // Melting too: rime it through (4× for 20 minutes), then five minutes of sun at each speed.
+        func melted(_ speed: Double) -> Float {
+            let s = sky(.rime, hour: 7)
+            var tuned = s.settings; tuned.rimeSpeed = 4; s.settings = tuned
+            XCTAssertGreaterThan(run(s, seconds: 20 * 60).rime, 0.99)
+            tuned.rimeSpeed = speed; tuned.frozenHour = 13; tuned.weather = .clear; s.settings = tuned
+            return run(s, seconds: 5 * 60).rime
+        }
+        for speed in [0.5, 1, 2] {
+            XCTAssertEqual(melted(speed), Float(exp(-speed * 300 / 360)), accuracy: 0.03, "\(speed)×")
+        }
+    }
+
+    /// Review focus 3: six hours of alternating 20-minute fog and clear spells, through quick days and nights at the
+    /// fastest rime speed, keep the rime in 0…1 while it builds through and melts away again; a reset clears it.
+    func testRimeStaysInRangeForHours() {
+        var s = SkySettings(); s.timeMode = .quick; s.dayMinutes = 30; s.cityID = "melbourne"; s.weatherMode = .pick
+        s.weather = .rime; s.rimeSpeed = 4
+        let sky = LivingSky(settings: s, seed: 5, homeZone: melbourneZone)
+        _ = sky.step(now: start, dt: 0)
+        var lowest: Float = 1, highest: Float = 0, inRange = true
+        for i in 1...(6 * 3600) {
+            if i % 1200 == 0 { s.weather = s.weather == .rime ? .clear : .rime; sky.settings = s }
+            let rime = sky.step(now: start.addingTimeInterval(Double(i)), dt: 1).rime
+            if !(rime.isFinite && rime >= 0 && rime <= 1) { inRange = false }
+            highest = max(highest, rime)
+            if i > 1200 { lowest = min(lowest, rime) }   // after the first fog
+        }
+        XCTAssertTrue(inRange)
+        XCTAssertGreaterThan(highest, 0.98, "the fog rimes it through")
+        XCTAssertLessThan(lowest, 0.02, "and the sun takes it all again")
+        sky.reset(settings: s)
+        XCTAssertEqual(sky.step(now: start, dt: 0).rime, 0, "a reset sky starts bare")
+        // Any step, however long or odd, stays in range.
+        XCTAssertEqual(LivingSky.rimeStep(0.5, fog: 1, sunAltitude: 30, speed: 4, dt: 1e9), 1, accuracy: 1e-6)
+        XCTAssertEqual(LivingSky.rimeStep(0.5, fog: 0, sunAltitude: 30, speed: 4, dt: 1e9), 0, accuracy: 1e-6)
+        XCTAssertEqual(LivingSky.rimeStep(.nan, fog: .nan, sunAltitude: .nan, speed: .nan, dt: 1), 0)
+    }
+
+    /// Iridescence at the sky's level (spec §6.3): a picked light cloud gives 0.6 × the setting with the sun 20° up;
+    /// none under overcast or a clear sky, on cloud too thin, with the sun below 5° (golden hour sits at 5°) or past 50°.
+    func testIridescenceOnlyInThinCloudNearAHighSun() throws {
+        let hour = try XCTUnwrap(stride(from: 7.5, to: 11, by: 1.0 / 60).first {
+            abs(sky(.lightCloud, hour: $0).step(now: start, dt: 0).sun.altitude - 20) < 0.5
+        }, "Melbourne's morning sun passes 20°")
+        let thin = sky(.lightCloud, hour: hour).step(now: start, dt: 0)
+        XCTAssertEqual(thin.cloudCover, 0.35, accuracy: 1e-4)
+        XCTAssertEqual(thin.iridescence, 0.6, accuracy: 1e-4)
+        for setting in [0, 0.5, 1.5, 9] {
+            let s = sky(.lightCloud, hour: hour)
+            var tuned = s.settings; tuned.iridescence = setting; s.settings = tuned
+            XCTAssertEqual(s.step(now: start, dt: 0).iridescence, Float(0.6 * min(1.5, setting)), accuracy: 1e-4, "setting \(setting)")
+        }
+        XCTAssertEqual(sky(.overcast, hour: hour).step(now: start, dt: 0).iridescence, 0, "thick cloud")
+        XCTAssertEqual(sky(.clear, hour: hour).step(now: start, dt: 0).iridescence, 0, "no cloud")
+        for hold in [SkyHold.goldenHour, .pastelDawn, .blueHour, .deepNight] {
+            XCTAssertEqual(sky(.lightCloud, hour: hour).step(now: start, dt: 0, hold: hold).iridescence, 0, "\(hold): the sun below 5°")
+        }
+        let noon = sky(.lightCloud, hour: 13.4).step(now: start, dt: 0)
+        XCTAssertGreaterThan(noon.sun.altitude, 50.5)
+        XCTAssertEqual(noon.iridescence, 0, "the sun past 50°")
+        // Light cloud thinned below 0.15 by the Advanced cloud dial shows none either.
+        let wisps = sky(.lightCloud, hour: hour)
+        var w = wisps.settings; w.cloudScale = 0.3; wisps.settings = w
+        XCTAssertEqual(wisps.step(now: start, dt: 0).iridescence, 0)
+    }
+
+    /// About one random light-cloud spell in two is iridescent, each with its own strength 0.3…1, the rest none; a
+    /// picked light cloud is 0.6 (spec §6.3).
+    func testRandomIridescenceSpells() {
+        var s = SkySettings(); s.weatherMode = .randomBeautiful
+        var m = WeatherMachine(settings: s, seed: 3)
+        var values: [Float] = []
+        for _ in 0..<2000 {
+            m.step(dt: 1300, settings: s)   // one whole spell change per step
+            if m.current == .lightCloud { values.append(m.iridescence) }
+        }
+        let shown = values.filter { $0 > 0 }
+        XCTAssertGreaterThan(values.count, 100)
+        XCTAssertTrue(values.allSatisfy { $0 == 0 || (0.3...1).contains($0) }, "\(values)")
+        let share = Double(shown.count) / Double(values.count)
+        XCTAssertTrue(share > 0.35 && share < 0.65, "\(share) of the light-cloud spells iridesce")
+        XCTAssertGreaterThan(Set(shown).count, 20, "each spell rolls its own")
+        XCTAssertGreaterThan(shown.max() ?? 0, 0.9)
+        XCTAssertLessThan(shown.min() ?? 1, 0.4)
+        // Picked light cloud: 0.6, and switching from random to pick settles it there.
+        var p = SkySettings(); p.weatherMode = .pick; p.weather = .lightCloud
+        XCTAssertEqual(WeatherMachine(settings: p, seed: 3).iridescence, 0.6)
+        m.step(dt: 1, settings: p)
+        XCTAssertEqual(m.iridescence, 0.6)
+    }
+
+    /// The sky's day of the year is the city's own date (spec §6.2): Melbourne's 4 November 2026 is day 308 from just
+    /// after its midnight to just before the next (while UTC's date is still the 3rd, or already the 4th), when Tokyo's
+    /// is still the 3rd; frozen mode shows today's, and quick mode turns a new day with every cycle.
+    func testDayOfYearFollowsTheCity() throws {
+        func day(_ mode: TimeMode, _ city: String, _ iso: String) throws -> Int {
+            var s = SkySettings(); s.timeMode = mode; s.cityID = city
+            let at = try XCTUnwrap(ISO8601DateFormatter().date(from: iso))
+            return LivingSky(settings: s, homeZone: melbourneZone).step(now: at, dt: 0).dayOfYear
+        }
+        XCTAssertEqual(try day(.realTime, "melbourne", "2026-11-03T13:30:00Z"), 308, "00:30 on the 4th in Melbourne")
+        XCTAssertEqual(try day(.realTime, "melbourne", "2026-11-04T12:30:00Z"), 308, "23:30 on the 4th")
+        XCTAssertEqual(try day(.realTime, "tokyo", "2026-11-03T13:30:00Z"), 307, "22:30 on the 3rd in Tokyo")
+        XCTAssertEqual(try day(.frozen, "melbourne", "2026-11-03T13:30:00Z"), 308, "frozen at any hour: today's date")
+        // The calendar arithmetic over leap years and the turn of the year (days counted from 1970-01-01).
+        XCTAssertEqual(LivingSky.dayOfYear(localDay: 0), 1)
+        XCTAssertEqual(LivingSky.dayOfYear(localDay: -1), 365, "31 December 1969")
+        XCTAssertEqual(LivingSky.dayOfYear(localDay: 19_782), 60, "29 February 2024")
+        XCTAssertEqual(LivingSky.dayOfYear(localDay: 20_088), 366, "31 December 2024")
+        XCTAssertEqual(LivingSky.dayOfYear(localDay: 20_761), 308, "4 November 2026")
+        XCTAssertEqual(LivingSky.dayOfYear(localDay: 20_819), 1, "1 January 2027")
+        XCTAssertEqual(LivingSky.dayOfYear(localDay: 47_541), 60, "1 March 2100 (no leap day in 2100)")
+        // Quick mode from noon on the 4th with a two-minute day: a new day at each quick midnight.
+        var q = SkySettings(); q.timeMode = .quick; q.dayMinutes = 2; q.cityID = "melbourne"
+        let quick = LivingSky(settings: q, homeZone: melbourneZone)
+        let noon = try XCTUnwrap(ISO8601DateFormatter().date(from: "2026-11-04T01:00:00Z"))
+        var days = [quick.step(now: noon, dt: 0).dayOfYear]
+        for i in 1...270 {   // two and a quarter cycles
+            let d = quick.step(now: noon.addingTimeInterval(Double(i)), dt: 1).dayOfYear
+            if d != days.last { days.append(d) }
+        }
+        XCTAssertEqual(days, [308, 309, 310])
+    }
+
+    /// The two new Advanced dials (spec §6.5): their defaults, the one-tap looks and Reset.
+    func testAdvancedSkyExtrasDefaults() {
+        let d = SkySettings()
+        XCTAssertEqual([d.iridescence, d.rimeSpeed], [1, 1])
+        let looks: [(SkySettings.AdvancedPreset, [Double])] = [(.gentle, [0.6, 0.7]), (.dramatic, [1.4, 1.5]), (.dreamy, [1.0, 1.0])]
+        for (look, expected) in looks {
+            var s = SkySettings(); s.iridescence = 0.1; s.rimeSpeed = 3.9
+            s.applyAdvanced(look)
+            XCTAssertEqual([s.iridescence, s.rimeSpeed], expected, "\(look)")
+            s.resetAdvanced()
+            XCTAssertEqual([s.iridescence, s.rimeSpeed], [1, 1], "Reset after \(look)")
+        }
+        var hand = SkySettings(); hand.iridescence = 0; hand.rimeSpeed = 4
         hand.resetAdvanced()
         XCTAssertEqual(hand, SkySettings())
     }

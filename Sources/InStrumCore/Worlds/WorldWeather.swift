@@ -33,7 +33,7 @@ public enum WorldWeather {
             case .storm: return .blizzard
             case .afterRain: return .lightCloud
             case .humid: return .clear
-            default: return k
+            default: return k   // diamond dust and rime frost are at home in the cold
             }
         }
         s.weather = chill(s.weather)

@@ -456,6 +456,60 @@ final class WorldTests: XCTestCase {
         XCTAssertEqual(levels[.drips] ?? -1, 0.4, accuracy: 1e-6)
         XCTAssertEqual(levels[.wind] ?? -1, 0.65, accuracy: 1e-6)
     }
+
+    /// Rime frost hushes the outdoors (spec §5): in rime (the world rimed past 0.3, or rime-frost weather more than 0.3
+    /// of the sky) the wind drops to 0.15 at most, and `indoorsLift` (0.15 × min(1, rime / 0.6)) is there for worlds to
+    /// muffle their outdoor sources with; a blizzard still howls through, and without rime nothing changes.
+    func testRimeMufflesOutdoors() {
+        var fog = daySky(); fog.weather = .rime; fog.nextWeather = .rime   // the fog has come; nothing is rimed yet
+        var rimed = daySky(); rimed.rime = 0.8                              // the fog has gone; the world stays white
+        for (name, sky) in [("fog", fog), ("rimed", rimed)] {
+            var levels: [AmbienceSource: Double] = [.wind: 0.6, .breeze: 0.4, .water: 0.8]
+            WeatherAmbience.levels(sky, base: &levels)
+            XCTAssertEqual(levels[.wind] ?? -1, 0.15, accuracy: 1e-9, name)
+            XCTAssertEqual(levels[.breeze] ?? -1, 0.4, accuracy: 1e-9, "\(name): only the wind drops")
+            XCTAssertEqual(levels[.water] ?? -1, 0.8, accuracy: 1e-9, name)
+            XCTAssertTrue(WeatherAmbience.inRime(sky), name)
+        }
+        var calm: [AmbienceSource: Double] = [.wind: 0.1, .water: 0.8]
+        WeatherAmbience.levels(rimed, base: &calm)
+        XCTAssertEqual(calm[.wind] ?? -1, 0.1, accuracy: 1e-9, "a softer wind is left as it is")
+        var hush: [AmbienceSource: Double] = [.water: 0.8]
+        WeatherAmbience.levels(rimed, base: &hush)
+        XCTAssertNil(hush[.wind], "and no wind is added")
+        // Not in rime: a light rime, the fog only arriving (its glide still under 0.3), or none at all.
+        var light = daySky(); light.rime = 0.25
+        var arriving = daySky(); arriving.weather = .clear; arriving.nextWeather = .rime; arriving.weatherBlend = 0.3
+        for (name, sky) in [("light", light), ("arriving", arriving), ("clear", daySky())] {
+            var levels: [AmbienceSource: Double] = [.wind: 0.6]
+            WeatherAmbience.levels(sky, base: &levels)
+            XCTAssertEqual(levels[.wind] ?? -1, 0.6, accuracy: 1e-9, name)
+        }
+        arriving.weatherBlend = 0.6
+        XCTAssertTrue(WeatherAmbience.inRime(arriving), "past the glide's 0.3")
+        // A blizzard's howl still comes through a rimed world.
+        var blizzard = rimed; blizzard.snow = 1; blizzard.gust = 1
+        var howl: [AmbienceSource: Double] = [.wind: 0.6]
+        WeatherAmbience.levels(blizzard, base: &howl)
+        XCTAssertGreaterThanOrEqual(howl[.wind] ?? 0, 0.95)
+        // The hush for a world to add to its indoors: 0.15 × min(1, rime / 0.6).
+        XCTAssertEqual(WeatherAmbience.indoorsLift(rimed), 0.15, accuracy: 1e-9)
+        var half = daySky(); half.rime = 0.3
+        XCTAssertEqual(WeatherAmbience.indoorsLift(half), 0.075, accuracy: 1e-6)
+        XCTAssertEqual(WeatherAmbience.indoorsLift(fog), 0, "the fog alone has rimed nothing yet")
+        XCTAssertEqual(WeatherAmbience.indoorsLift(daySky()), 0)
+        var odd = daySky(); odd.rime = .nan
+        XCTAssertEqual(WeatherAmbience.indoorsLift(odd), 0)
+        // In the worlds: a gale over a rimed lake, beach and road is held down; without the rime it blows.
+        var gale = daySky(); gale.wind = 0.9
+        for (name, scene) in scenes(gale) { XCTAssertEqual(scene.level(.wind), 0.6, accuracy: 1e-5, name) }
+        gale.rime = 1
+        for (name, scene) in scenes(gale) { XCTAssertEqual(scene.level(.wind), 0.15, accuracy: 1e-9, "\(name) in rime") }
+        // The cabin's wind round the walls drops too (the cold rule keeps the rime).
+        var cabin = SnowboundCabinModel()
+        cabin.setSky(rimed)
+        XCTAssertEqual(cabinStep(&cabin, seconds: 1.0 / 30).ambience.level(.wind), 0.15, accuracy: 1e-9)
+    }
 }
 
 // MARK: - Snowbound Cabin
