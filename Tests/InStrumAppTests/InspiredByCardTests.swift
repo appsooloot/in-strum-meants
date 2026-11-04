@@ -13,7 +13,7 @@ final class InspiredByCardTests: XCTestCase {
     }
 
     func testEverySetHasItsOwnCardColours() {
-        XCTAssertEqual(SetLibrary.all.count, 8)
+        XCTAssertEqual(SetLibrary.all.count, 10)
         let fallback = SetsGallery.tint(for: "no-such-set")
         var seen: [[Color]] = []
         for set in SetLibrary.all {
@@ -22,6 +22,11 @@ final class InspiredByCardTests: XCTestCase {
             XCTAssertFalse(seen.contains(tint), "\(set.id) shares another set's colours")
             seen.append(tint)
         }
+        // The still places (spec §11): the tea room's shadow to its lit paper; the moss's shade to the raked gravel.
+        XCTAssertEqual(SetsGallery.tint(for: SetLibrary.teaHouseSnow.id),
+                       [Color(red: 0.10, green: 0.09, blue: 0.11), Color(red: 0.86, green: 0.80, blue: 0.70)])
+        XCTAssertEqual(SetsGallery.tint(for: SetLibrary.zenRockGarden.id),
+                       [Color(red: 0.08, green: 0.10, blue: 0.08), Color(red: 0.78, green: 0.76, blue: 0.66)])
     }
 
     /// No two cards look alike.
@@ -51,21 +56,6 @@ final class InspiredByCardTests: XCTestCase {
         return renderer.cgImage
     }
 
-    /// Tea House Snow as Sets 9 & 10 will add it to `SetLibrary` (spec §2, §8.1, §10): born from its place, so no credit.
-    static var teaHouse: InStrumSet {
-        InStrumSet(id: "tea-house-snow", name: "Tea House Snow", moodName: "Delicate, hushed",
-                   mood: Mood(energy: 0.2, warmth: 0.55, brightness: 0.5, space: 0.3, motion: 0.2),
-                   worldID: "tea-house-snow", visual: "Steam Lines", patchID: "tea-house-koto",
-                   ambience: AmbienceSettings(), creditID: nil)
-    }
-
-    /// Zen Rock Garden as Sets 9 & 10 will add it to `SetLibrary` (spec §2, §9.1, §10): born from its place, so no credit.
-    static var garden: InStrumSet {
-        InStrumSet(id: "zen-rock-garden", name: "Zen Rock Garden", moodName: "Ordered calm", mood: .orderedCalm,
-                   worldID: "zen-rock-garden", visual: "Rake Lines", patchID: "zen-shakuhachi",
-                   ambience: AmbienceSettings(), creditID: nil)
-    }
-
     /// Great Barrier Reef as Sets 11 & 12 will add it to `SetLibrary` (spec §2, §9.1, §11): born from its place, so no
     /// credit. Task 13 swaps this stand-in for `SetLibrary.greatBarrierReef`.
     static var reef: InStrumSet {
@@ -77,7 +67,7 @@ final class InspiredByCardTests: XCTestCase {
 
     /// Every set shows one card: its song's, or (born from its place, no credit) its place card.
     func testEverySetHasACardOrPlaceArt() {
-        for set in SetLibrary.all + [Self.teaHouse, Self.garden, Self.reef] {
+        for set in SetLibrary.all + [Self.reef] {
             if let credit = set.creditID {
                 XCTAssertNotNil(CardArt.art(for: credit), "\(set.id) has no song card")
                 XCTAssertNil(CardArt.place(for: set.id), "\(set.id) has a song card and a place card")
@@ -85,6 +75,7 @@ final class InspiredByCardTests: XCTestCase {
                 XCTAssertNotNil(CardArt.place(for: set.id), "\(set.id) has no credit and no place card")
             }
         }
+        XCTAssertEqual(SetLibrary.all.compactMap { CardArt.place(for: $0.id) }, [.teaHouseSnow, .zenRockGarden])
         for c in CreditLibrary.all { XCTAssertFalse(CardArt.art(for: c.id)?.isPlace ?? true, c.id) }
     }
 
@@ -103,8 +94,8 @@ final class InspiredByCardTests: XCTestCase {
         XCTAssertNil(CardArt.place(for: "no-such-set"))
         for c in CreditLibrary.all { XCTAssertNotEqual(CardArt.art(for: c.id), art, c.id) }
 
-        let card = InspiredByCard(place: Self.teaHouse)
-        XCTAssertEqual(card.subject, .place(Self.teaHouse))
+        let card = InspiredByCard(place: SetLibrary.teaHouseSnow)
+        XCTAssertEqual(card.subject, .place(SetLibrary.teaHouseSnow))
         XCTAssertEqual(card.art, .teaHouseSnow)
         XCTAssertEqual(card.pulse, 60.0 / 48, accuracy: 1e-12)
         XCTAssertEqual(card.words.title, "Tea House Snow")
@@ -121,14 +112,14 @@ final class InspiredByCardTests: XCTestCase {
         XCTAssertEqual(song.pulse, 60.0 / 82, accuracy: 1e-12)
 
         // The picture: it draws, it breathes, and it looks like no song card.
-        let a = try XCTUnwrap(Self.render(place: Self.teaHouse, at: 0.2))
+        let a = try XCTUnwrap(Self.render(place: SetLibrary.teaHouseSnow, at: 0.2))
         let s = PreviewRenderer.stats(a)
         XCTAssertGreaterThan(s.meanLuminance, 0.05)
         XCTAssertGreaterThan(s.variance, 0.001)
-        let b = try XCTUnwrap(Self.render(place: Self.teaHouse, at: 2.2))
+        let b = try XCTUnwrap(Self.render(place: SetLibrary.teaHouseSnow, at: 2.2))
         let moved = PreviewRenderer.difference(a, b)
         if moved <= 0.001 { XCTFail("the tea house card moved only \(moved)") }
-        let place = try XCTUnwrap(Self.render(place: Self.teaHouse, at: 1.0))
+        let place = try XCTUnwrap(Self.render(place: SetLibrary.teaHouseSnow, at: 1.0))
         for c in CreditLibrary.all {
             let other = try XCTUnwrap(Self.render(c, at: 1.0), c.id)
             let d = PreviewRenderer.difference(place, other)
@@ -153,8 +144,8 @@ final class InspiredByCardTests: XCTestCase {
         XCTAssertEqual(CardArt.rockGardenGroups.reduce(0) { $0 + $1.stones.count }, 5, "five stones")
         for c in CreditLibrary.all { XCTAssertNotEqual(CardArt.art(for: c.id), art, c.id) }
 
-        let card = InspiredByCard(place: Self.garden)
-        XCTAssertEqual(card.subject, .place(Self.garden))
+        let card = InspiredByCard(place: SetLibrary.zenRockGarden)
+        XCTAssertEqual(card.subject, .place(SetLibrary.zenRockGarden))
         XCTAssertEqual(card.art, .zenRockGarden)
         XCTAssertEqual(card.pulse, 60.0 / 48, accuracy: 1e-12)
         XCTAssertEqual(card.words.kicker, "BORN FROM A PLACE")
@@ -165,20 +156,20 @@ final class InspiredByCardTests: XCTestCase {
         XCTAssertNil(card.words.line)
 
         // The picture: it draws, it breathes, and it looks like no song card, nor like the tea house's.
-        let a = try XCTUnwrap(Self.render(place: Self.garden, at: 0.2))
+        let a = try XCTUnwrap(Self.render(place: SetLibrary.zenRockGarden, at: 0.2))
         let s = PreviewRenderer.stats(a)
         XCTAssertGreaterThan(s.meanLuminance, 0.05)
         XCTAssertGreaterThan(s.variance, 0.001)
-        let b = try XCTUnwrap(Self.render(place: Self.garden, at: 2.2))
+        let b = try XCTUnwrap(Self.render(place: SetLibrary.zenRockGarden, at: 2.2))
         let moved = PreviewRenderer.difference(a, b)
         if moved <= 0.001 { XCTFail("the garden card moved only \(moved)") }
-        let place = try XCTUnwrap(Self.render(place: Self.garden, at: 1.0))
+        let place = try XCTUnwrap(Self.render(place: SetLibrary.zenRockGarden, at: 1.0))
         for c in CreditLibrary.all {
             let other = try XCTUnwrap(Self.render(c, at: 1.0), c.id)
             let d = PreviewRenderer.difference(place, other)
             if d <= 0.02 { XCTFail("the garden card and \(c.id) differ by only \(d)") }
         }
-        let teaHouse = try XCTUnwrap(Self.render(place: Self.teaHouse, at: 1.0))
+        let teaHouse = try XCTUnwrap(Self.render(place: SetLibrary.teaHouseSnow, at: 1.0))
         let fromTea = PreviewRenderer.difference(place, teaHouse)
         if fromTea <= 0.02 { XCTFail("the garden card and the tea house's differ by only \(fromTea)") }
     }
@@ -204,7 +195,7 @@ final class InspiredByCardTests: XCTestCase {
         XCTAssertEqual(card.subject, .place(Self.reef))
         XCTAssertEqual(card.art, .greatBarrierReef)
         XCTAssertEqual(card.pulse, 60.0 / 52, accuracy: 1e-12)
-        XCTAssertEqual(InspiredByCard(place: Self.teaHouse).pulse, 60.0 / 48, accuracy: 1e-12)
+        XCTAssertEqual(InspiredByCard(place: SetLibrary.teaHouseSnow).pulse, 60.0 / 48, accuracy: 1e-12)
         XCTAssertEqual(card.words.kicker, "BORN FROM A PLACE")
         XCTAssertEqual(card.words.title, "Great Barrier Reef")
         XCTAssertEqual(card.words.subtitle, "Colourful, alive")
@@ -227,7 +218,7 @@ final class InspiredByCardTests: XCTestCase {
             let d = PreviewRenderer.difference(picture, other)
             if d <= 0.02 { XCTFail("the reef card and \(c.id) differ by only \(d)") }
         }
-        var places = [Self.teaHouse]
+        var places: [InStrumSet] = []
         for set in SetLibrary.all where set.creditID == nil && set.id != Self.reef.id && !places.contains(where: { $0.id == set.id }) {
             places.append(set)
         }

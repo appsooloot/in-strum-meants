@@ -42,8 +42,15 @@ public enum SetLibrary {
                                                      mood: .secretGlow, worldID: BioluminescentBayModel.id, visual: "Glow Wake",
                                                      patchID: "plankton-keys", ambience: AmbienceSettings(),
                                                      creditID: CreditLibrary.happinessIsAButterfly.id)
+    /// Sets 9 and 10 ("Still Places") are born from their places, not from a song: no credit, so a place card.
+    public static let teaHouseSnow = InStrumSet(id: "tea-house-snow", name: "Tea House Snow", moodName: "Delicate, hushed",
+                                                mood: .delicate, worldID: TeaHouseSnowModel.id, visual: "Steam Lines",
+                                                patchID: "tea-house-koto", ambience: AmbienceSettings(), creditID: nil)
+    public static let zenRockGarden = InStrumSet(id: "zen-rock-garden", name: "Zen Rock Garden", moodName: "Ordered calm",
+                                                 mood: .orderedCalm, worldID: ZenRockGardenModel.id, visual: "Rake Lines",
+                                                 patchID: "zen-shakuhachi", ambience: AmbienceSettings(), creditID: nil)
     public static let all: [InStrumSet] = [moonlitLake, spaceshipLounge, goldenHourBeach, coastRoad, snowboundCabin, bedroomDawn,
-                                           auroraFjord, bioluminescentBay]
+                                           auroraFjord, bioluminescentBay, teaHouseSnow, zenRockGarden]
 
     public static func set(id: String) -> InStrumSet? { all.first { $0.id == id } }
 }
