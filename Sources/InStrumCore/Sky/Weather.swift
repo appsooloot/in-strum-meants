@@ -1,6 +1,6 @@
 import Foundation
 
-public enum WeatherKind: String, Codable, CaseIterable { case clear, lightCloud, overcast, mist, drizzle, rain, storm, snow, blizzard, afterRain, sunShower, fogBank, sleet, monsoon, hail, smokeHaze, iceFog, thunderheads, dustStorm, flurries, freezingDrizzle, squall, dryLightning }
+public enum WeatherKind: String, Codable, CaseIterable { case clear, lightCloud, overcast, mist, drizzle, rain, storm, snow, blizzard, afterRain, sunShower, fogBank, sleet, monsoon, hail, smokeHaze, iceFog, thunderheads, dustStorm, flurries, freezingDrizzle, squall, dryLightning, humid, diamondDust }
 
 /// Pick one yourself, or let the sky wander through beautiful weathers. (`.real` comes later.)
 public enum WeatherMode: String, Codable, CaseIterable { case pick, randomBeautiful }
@@ -10,11 +10,14 @@ public struct WeatherValues: Equatable {
     public var cloud, rain, snow, mist, wind: Float
     /// Ice halos and sundogs; frost on glass (some kinds only at night, see `frostFormsOnlyAtNight`); gustiness.
     public var halo: Float = 0, frost: Float = 0, gust: Float = 0
+    /// Fireflies on humid nights (scaled by darkness in the sky); diamond dust and the light pillars it throws.
+    public var fireflies: Float = 0, pillar: Float = 0
 
     static func mix(_ a: WeatherValues, _ b: WeatherValues, _ t: Float) -> WeatherValues {
         func m(_ x: Float, _ y: Float) -> Float { x + (y - x) * t }
         return WeatherValues(cloud: m(a.cloud, b.cloud), rain: m(a.rain, b.rain), snow: m(a.snow, b.snow), mist: m(a.mist, b.mist),
-                             wind: m(a.wind, b.wind), halo: m(a.halo, b.halo), frost: m(a.frost, b.frost), gust: m(a.gust, b.gust))
+                             wind: m(a.wind, b.wind), halo: m(a.halo, b.halo), frost: m(a.frost, b.frost), gust: m(a.gust, b.gust),
+                             fireflies: m(a.fireflies, b.fireflies), pillar: m(a.pillar, b.pillar))
     }
 }
 
@@ -44,13 +47,16 @@ public extension WeatherKind {
         case .squall: return WeatherValues(cloud: 1, rain: 0.9, snow: 0, mist: 0.3, wind: 1, gust: 1)
         case .dryLightning: return WeatherValues(cloud: 0.85, rain: 0, snow: 0, mist: 0.1, wind: 0.5, gust: 0.4)
         case .sunShower: return WeatherValues(cloud: 0.5, rain: 0.3, snow: 0, mist: 0.25, wind: 0.2, gust: 0.1)
+        case .humid: return WeatherValues(cloud: 0.15, rain: 0, snow: 0, mist: 0.35, wind: 0.05, fireflies: 1)
+        case .diamondDust: return WeatherValues(cloud: 0.05, rain: 0, snow: 0, mist: 0.2, wind: 0.02, halo: 1, frost: 0.9, pillar: 1)
         }
     }
 
-    /// Clear, light-cloud, overcast and misty frost forms only at night (scaled by darkness); snow's any time.
+    /// Clear, light-cloud, overcast and misty frost forms only at night (scaled by darkness); snow's any time
+    /// (and diamond dust's: still, bitter air). A humid night has none at all.
     var frostFormsOnlyAtNight: Bool {
         switch self {
-        case .clear, .lightCloud, .overcast, .mist, .fogBank: return true
+        case .clear, .lightCloud, .overcast, .mist, .fogBank, .humid: return true
         default: return false
         }
     }
@@ -87,6 +93,8 @@ public extension WeatherKind {
         case .sleet: return 0.6
         case .monsoon: return 0.4
         case .overcast: return 0
+        case .humid: return 1.2
+        case .diamondDust: return 0.5
         }
     }
 }

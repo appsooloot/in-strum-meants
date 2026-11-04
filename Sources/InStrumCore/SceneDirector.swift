@@ -172,7 +172,11 @@ public final class SceneDirector {
         lastRoles = roles
         box.setMood(mood)
         if box.wantsSky {
-            let s = sky.step(now: clock(), dt: dt, hold: SkyHold(rawValue: parameters.choice("light.hold")) ?? .follow)
+            // Both are world parameters, read every step: a world without them (choice "") follows the sky, so
+            // leaving a world whose aurora is "Always" leaves its aurora behind.
+            let hold = SkyHold(rawValue: parameters.choice("light.hold")) ?? .follow
+            let aurora = AuroraMode(rawValue: parameters.choice("aurora.mode")) ?? .follow
+            let s = sky.step(now: clock(), dt: dt, hold: hold, aurora: aurora)
             lastSky = s
             box.setSky(s)
         }

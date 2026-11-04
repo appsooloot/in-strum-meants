@@ -45,6 +45,10 @@ public struct SkySettings: Codable, Equatable {
     public var sunSize: Double = 1
     /// Advanced: the faint glow on the dark part of the moon (0…0.3, designed 0.04).
     public var earthshine: Double = 0.04
+    /// Advanced: how strongly the constellation lines are drawn (0…1), and how bright a real aurora is in
+    /// Follow-the-sky worlds (0…2; 1 as designed).
+    public var constellationLines: Double = 0.35
+    public var auroraScale: Double = 1
 
     public init() {}
 
@@ -56,10 +60,13 @@ public struct SkySettings: Codable, Equatable {
         switch p {
         case .gentle:
             calmRandom = true; windScale = 0.6; gustScale = 0.5; rainScale = 0.7; lightningFrequency = 0.5; pickBlendSeconds = 20
+            constellationLines = 0.2; auroraScale = 0.7
         case .dramatic:
             windScale = 1.4; gustScale = 1.5; lightningFrequency = 2; cloudScale = 1.3; rainScale = 1.3; frostScale = 1.2; pickBlendSeconds = 6
+            constellationLines = 0.5; auroraScale = 1.6
         case .dreamy:
             mistScale = 1.5; haloScale = 1.5; starScale = 1.4; moonSize = 1.6; windScale = 0.6; rainbowStrength = 1; pickBlendSeconds = 20
+            constellationLines = 0.35; auroraScale = 1.0
         }
     }
 
@@ -72,9 +79,10 @@ public struct SkySettings: Codable, Equatable {
         rainScale = d.rainScale; snowScale = d.snowScale; gustScale = d.gustScale; calmRandom = d.calmRandom; randomExcluded = d.randomExcluded
         lightningFrequency = d.lightningFrequency; cloudScale = d.cloudScale; starScale = d.starScale
         moonSize = d.moonSize; sunSize = d.sunSize; earthshine = d.earthshine
+        constellationLines = d.constellationLines; auroraScale = d.auroraScale
     }
 
-    enum CodingKeys: String, CodingKey { case timeMode, dayMinutes, frozenHour, frozenPhase, cityID, weatherMode, weather, pickBlendSeconds, randomBlendSeconds, spellMinutes, rainbowStrength, dryingMinutes, windScale, mistScale, haloScale, frostScale, rainScale, snowScale, gustScale, calmRandom, randomExcluded, lightningFrequency, cloudScale, starScale, moonSize, sunSize, earthshine }
+    enum CodingKeys: String, CodingKey { case timeMode, dayMinutes, frozenHour, frozenPhase, cityID, weatherMode, weather, pickBlendSeconds, randomBlendSeconds, spellMinutes, rainbowStrength, dryingMinutes, windScale, mistScale, haloScale, frostScale, rainScale, snowScale, gustScale, calmRandom, randomExcluded, lightningFrequency, cloudScale, starScale, moonSize, sunSize, earthshine, constellationLines, auroraScale }
 
     /// Each field falls back on its own, and numbers are clamped, so one bad value never loses the rest.
     public init(from decoder: Decoder) throws {
@@ -107,6 +115,8 @@ public struct SkySettings: Codable, Equatable {
         randomExcluded = (try? c.decodeIfPresent([WeatherKind].self, forKey: .randomExcluded)) ?? d.randomExcluded
         earthshine = min(0.3, max(0, (try? c.decodeIfPresent(Double.self, forKey: .earthshine)) ?? d.earthshine))
         spellMinutes = min(60, max(2, (try? c.decodeIfPresent(Double.self, forKey: .spellMinutes)) ?? d.spellMinutes))
+        constellationLines = min(1, max(0, (try? c.decodeIfPresent(Double.self, forKey: .constellationLines)) ?? d.constellationLines))
+        auroraScale = min(2, max(0, (try? c.decodeIfPresent(Double.self, forKey: .auroraScale)) ?? d.auroraScale))
     }
 }
 

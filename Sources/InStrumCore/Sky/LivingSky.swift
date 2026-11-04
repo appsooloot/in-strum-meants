@@ -40,6 +40,16 @@ public struct SkyState: Equatable {
     public var earthshine: Float = 0.04
     /// 0…1: how clearly a rainbow stands opposite the sun (sun-showers, and after the rain, with the sun 1°–42° up).
     public var rainbow: Float = 0
+    /// The aurora tonight, 0…1 (0 by day); the band's base above the pole-ward horizon (degrees); the substorm phase 0…1.
+    public var aurora: Float = 0, auroraAltitude: Float = 0, auroraStorm: Float = 0
+    /// Fireflies (a humid night's, times darkness), 0…1.
+    public var fireflies: Float = 0
+    /// Diamond dust's glittering crystals, and the light pillars it throws (only with the sun low, or at night), 0…1.
+    public var diamondDust: Float = 0, pillar: Float = 0
+    /// How strongly the constellation lines are drawn (the Advanced setting), 0…1.
+    public var constellationLines: Float = 0
+    /// +1 in the northern hemisphere, −1 in the southern (which way the pole, and the aurora, lie).
+    public var hemisphere: Float = 1
 
     public init() {}
 }
@@ -63,6 +73,7 @@ public final class LivingSky {
     private var gustRng: SeededRandom
     private var gustAge = 10.0, nextGust = 4.0
     private var dawnPastel: Float = 0
+    private var auroraMachine: AuroraMachine
 
     public init(settings: SkySettings, seed: UInt64 = 1, homeZone: TimeZone = .current) {
         self.settings = settings
@@ -71,6 +82,7 @@ public final class LivingSky {
         weather = WeatherMachine(settings: settings, seed: seed)
         rng = SeededRandom(seed: seed &+ 0x11_9E37)
         gustRng = SeededRandom(seed: seed &+ 0x6057)
+        auroraMachine = AuroraMachine(seed: seed &+ 0xA0_7A)
         clock.place(cityID: settings.cityID, homeZone: homeZone)
         nextGust = Double(gustRng.range(3, 8))
     }
@@ -87,10 +99,12 @@ public final class LivingSky {
         gustRng = SeededRandom(seed: seed &+ 0x6057)
         gustAge = 10
         nextGust = Double(gustRng.range(3, 8))
+        auroraMachine = AuroraMachine(seed: seed &+ 0xA0_7A)
     }
 
     /// `hold` keeps the sun at a chosen altitude for worlds that hold the light; everything else keeps running.
-    public func step(now: Date, dt rawDt: Double, hold: SkyHold = .follow) -> SkyState {
+    /// `aurora` is the world's aurora mode for this step (a world parameter, so it never outlives the world).
+    public func step(now: Date, dt rawDt: Double, hold: SkyHold = .follow, aurora mode: AuroraMode = .follow) -> SkyState {
         let dt = min(1, max(0, rawDt))
         let reading = clock.read(now: now, dt: dt, settings: settings)
         var s = SkyState()
@@ -180,6 +194,21 @@ public final class LivingSky {
         s.moonSize = Float(min(3, max(0.5, settings.moonSize))); s.sunSize = Float(min(3, max(0.5, settings.sunSize)))
         s.earthshine = Float(min(0.3, max(0, settings.earthshine)))
         s.starVisibility = scaled(s.starVisibility, settings.starScale, 1)
+
+        // The aurora: the machine's activity at this latitude, only in the dark, behind cloud and mist.
+        let sunAlt = Float(s.sun.altitude)
+        let a = auroraMachine.step(dt: dt, mode: mode, latitude: s.latitude)
+        let auroraNight = 1 - SkyPalette.smoothstep(-10, -6, sunAlt)
+        let auroraScale: Float = mode == .follow ? Float(min(2, max(0, settings.auroraScale))) : 1
+        s.aurora = min(1, a.visible * auroraNight * (1 - 0.9 * w.cloud) * (1 - 0.6 * w.mist) * auroraScale)
+        s.auroraAltitude = a.altitude
+        s.auroraStorm = a.storm
+        s.hemisphere = s.latitude >= 0 ? 1 : -1
+        // Fireflies need the dark; diamond dust glitters any time, its pillars only with a low sun (or the moon by night).
+        s.fireflies = w.fireflies * (1 - SkyPalette.smoothstep(-8, -2, sunAlt))
+        s.diamondDust = w.pillar
+        s.pillar = w.pillar * (1 - SkyPalette.smoothstep(10, 12, sunAlt))
+        s.constellationLines = Float(min(1, max(0, settings.constellationLines)))
         return s
     }
 
@@ -229,7 +258,7 @@ public final class LivingSky {
 /// A world can hold the light at a favourite moment: only the sun's altitude is held (its direction, the moon,
 /// the clock and the weather keep running), and the Living Sky settings are never changed.
 public enum SkyHold: String, CaseIterable, Codable {
-    case follow = "Follow the sky", goldenHour = "Golden hour", blueHour = "Blue hour", pastelDawn = "Pastel dawn"
+    case follow = "Follow the sky", goldenHour = "Golden hour", blueHour = "Blue hour", pastelDawn = "Pastel dawn", deepNight = "Deep night"
 
     /// The held sun altitude in degrees, or nil to follow the sky.
     public var altitude: Double? {
@@ -238,6 +267,7 @@ public enum SkyHold: String, CaseIterable, Codable {
         case .goldenHour: return 5
         case .blueHour: return -6
         case .pastelDawn: return 1.5
+        case .deepNight: return -30
         }
     }
 
@@ -247,7 +277,7 @@ public enum SkyHold: String, CaseIterable, Codable {
     /// The world parameter that chooses it.
     public static func spec(default d: SkyHold) -> ParamSpec {
         ParamSpec(id: "light.hold", name: "Hold the light", group: "Light",
-                  help: "Keep the world at golden hour, blue hour or a pastel dawn, or follow the Living Sky",
+                  help: "Keep the world at golden hour, blue hour, a pastel dawn or deep night, or follow the Living Sky",
                   kind: .choice(allCases.map(\.rawValue)), defaultValue: .choice(d.rawValue))
     }
 }
