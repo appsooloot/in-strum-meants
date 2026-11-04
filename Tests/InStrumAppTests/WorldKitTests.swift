@@ -1162,7 +1162,8 @@ final class CoastRoadRendererTests: XCTestCase {
         }
         // The worlds built on the sky alone (their reflections call skyRadiance, with the aurora, stars and pillars).
         for (name, full) in [("lake", MoonlitLakeShaders.source), ("cabin", SnowboundCabinShaders.source),
-                             ("bedroom", BedroomDawnShaders.source), ("fjord", AuroraFjordShaders.source)] {
+                             ("bedroom", BedroomDawnShaders.source), ("fjord", AuroraFjordShaders.source),
+                             ("garden", ZenRockGardenShaders.source)] {
             let source = String(full.dropFirst(SkyShaders.common.count))
             let hits = pattern.numberOfMatches(in: source, range: NSRange(source.startIndex..., in: source))
             XCTAssertEqual(hits, 0, name)
@@ -2405,5 +2406,303 @@ extension WorldPreviewTests {
                                                      mood: .secretGlow).first)
             try PreviewRenderer.writePNG(image, to: url.appendingPathComponent("\(name).png"))
         }
+    }
+}
+
+/// Zen Rock Garden (Set 10's world) with Rake Lines: the raked gravel's height field lit by the sun or the moon.
+@MainActor
+final class ZenRockGardenRendererTests: XCTestCase {
+    func testGardenShadersCompile() throws {
+        guard let device = MTLCreateSystemDefaultDevice() else { throw XCTSkip("No Metal device") }
+        let lib = try device.makeLibrary(source: ZenRockGardenShaders.source, options: nil)
+        for name in ["garden_vertex", "garden_fragment", "garden_keys_vertex", "garden_keys_fragment"] {
+            XCTAssertNotNil(lib.makeFunction(name: name), name)
+        }
+        let own = String(ZenRockGardenShaders.source.dropFirst(SkyShaders.common.count))
+        XCTAssertFalse(own.contains("pow("), "squares and powers are written out")
+        // The Swift uniform array matches the MSL struct byte for byte (the pipeline's own reflection says so), and the
+        // rake field is bound at texture 1 beside the stars.
+        let d = MTLRenderPipelineDescriptor()
+        d.vertexFunction = lib.makeFunction(name: "garden_vertex")
+        d.fragmentFunction = lib.makeFunction(name: "garden_fragment")
+        d.colorAttachments[0].pixelFormat = RenderStack.sceneFormat
+        d.colorAttachments[1].pixelFormat = RenderStack.depthFormat
+        var reflection: MTLAutoreleasedRenderPipelineReflection?
+        _ = try device.makeRenderPipelineState(descriptor: d, options: [.bindingInfo, .bufferTypeInfo], reflection: &reflection)
+        let bindings = reflection?.fragmentBindings ?? []
+        let buffers = bindings.compactMap { $0 as? MTLBufferBinding }
+        func size(_ index: Int) -> Int? { buffers.first { $0.index == index }?.bufferDataSize }
+        let row = MemoryLayout<SIMD4<Float>>.stride
+        XCTAssertEqual(size(0), SkyLayer.uniformCount * row, "SkyU")
+        XCTAssertEqual(size(1), ZenRockGardenRenderer.uniformCount * row, "GardenU")
+        XCTAssertTrue(bindings.contains { $0.type == .texture && $0.index == 1 }, "the rake field at texture 1")
+        XCTAssertEqual(ZenRockGardenRenderer.stoneBase, ZenRockGardenRenderer.headerCount)
+        XCTAssertEqual(ZenRockGardenRenderer.frameBase, ZenRockGardenRenderer.stoneBase + 5)
+        XCTAssertEqual(ZenRockGardenRenderer.cutBase, ZenRockGardenRenderer.frameBase + 4 * 5)
+        XCTAssertEqual(ZenRockGardenRenderer.rakeBase, ZenRockGardenRenderer.cutBase + 2 * 5)
+        XCTAssertEqual(ZenRockGardenRenderer.uniformCount, ZenRockGardenRenderer.rakeBase + ZenRockGardenRenderer.rakeCap)
+        // The shader's moss islands are the field's: five stones in three groups (0 and 1, 2, 3 and 4).
+        XCTAssertEqual(RakeLines.stones.map(\.island), [0, 0, 1, 2, 2])
+        XCTAssertEqual(ZenRockGardenRenderer.stoneRows.count, 5)
+        XCTAssertEqual(ZenRockGardenRenderer.frameRows.count, 20)
+        XCTAssertEqual(ZenRockGardenRenderer.cutRows.count, 10)
+        let r = try XCTUnwrap(ZenRockGardenRenderer(device: device))
+        XCTAssertEqual(r.uniforms.count, ZenRockGardenRenderer.uniformCount)
+        XCTAssertEqual(r.fieldUploads, 0, "nothing uploaded before the first frame")
+    }
+
+    /// Frozen Melbourne skies (the garden follows the sky): the equinox's sun at the hour, a bright moon by default.
+    nonisolated static func sky(hour: Double, weather: WeatherKind = .clear, phase: Double = 0.45) -> SkySettings {
+        var s = SkySettings(); s.timeMode = .frozen; s.frozenHour = hour; s.frozenPhase = phase; s.cityID = "melbourne"
+        s.weatherMode = .pick; s.weather = weather
+        return s
+    }
+
+    struct GardenShot {
+        var image: CGImage
+        var renderer: ZenRockGardenRenderer
+        var frame: ZenGardenFrame
+        var params: ParameterSet
+        var preview: PreviewRenderer
+    }
+
+    /// Steps the garden at 60 fps (notes go down at 0.5 s and stay held, unless `release`) and renders the frame at
+    /// `seconds`; `edit` changes each frame before the renderer sees it.
+    static func renderGarden(notes: [UInt8], velocity: Float = 0.8, release: Bool = false, at seconds: Double,
+                             state: ThemeState = ThemeState(), sky: SkySettings = ZenRockGardenRendererTests.sky(hour: 8.1),
+                             quality: QualityLevel = .high, gentle: Bool = false, width: Int = 640, height: Int = 360,
+                             edit: ((inout ZenGardenFrame) -> Void)? = nil,
+                             each: ((ZenRockGardenRenderer, ZenGardenFrame) -> Void)? = nil) throws -> GardenShot {
+        guard let device = MTLCreateSystemDefaultDevice() else { throw XCTSkip("No Metal device") }
+        let preview = try XCTUnwrap(PreviewRenderer(width: width, height: height))
+        let r = try XCTUnwrap(ZenRockGardenRenderer(device: device))
+        let d = SceneDirector(themeID: ZenRockGardenModel.id, state: state, reaction: ReactionPresets.expressivePianist)
+        let start = Date(timeIntervalSince1970: 1_793_000_000)
+        var elapsed = 0.0
+        d.clock = { start.addingTimeInterval(elapsed) }
+        d.sky.reset(settings: sky)
+        d.mood = .orderedCalm
+        var frame: ZenGardenFrame?
+        let size = CGSize(width: width, height: height)
+        for i in 1...Int(seconds * 60) {
+            let t = Double(i) / 60
+            elapsed = t
+            if i == 30, !notes.isEmpty { d.handle(notes.map { .noteOn(note: $0, velocity: velocity) }, at: t) }
+            if i == 33, release, !notes.isEmpty { d.handle(notes.map { .noteOff(note: $0) }, at: t) }
+            frame = d.step(dt: 1.0 / 60, t: t, quality: quality) as? ZenGardenFrame
+            if let edit, frame != nil { edit(&frame!) }
+            if let frame {
+                r.update(frame, params: d.parameters, quality: quality, gentle: gentle, dt: 1.0 / 60, size: size)
+                each?(r, frame)
+            }
+        }
+        let f = try XCTUnwrap(frame)
+        return GardenShot(image: try XCTUnwrap(preview.capture(r)), renderer: r, frame: f, params: d.parameters, preview: preview)
+    }
+
+    private func luma(_ c: SIMD3<Double>) -> Double { 0.2126 * c.x + 0.7152 * c.y + 0.0722 * c.z }
+
+    /// The mean and variance of the luminance inside an NDC rectangle (x0, y0, x1, y1).
+    private func patchStats(_ image: CGImage, _ rect: SIMD4<Float>) -> (mean: Double, variance: Double) {
+        let l = FramePatch.pixels(image, x: Double(rect.x)...Double(rect.z), y: Double(rect.y)...Double(rect.w)).map(luma)
+        guard !l.isEmpty else { return (0, 0) }
+        let mean = l.reduce(0, +) / Double(l.count)
+        return (mean, l.reduce(0) { $0 + ($1 - mean) * ($1 - mean) } / Double(l.count))
+    }
+
+    private struct LightCase { let name: String; let sky: SkySettings; let mean: Double; let variance: Double }
+
+    func testGardenPreviewIsStructured() throws {
+        // CPU reference renders of these frames (the shader through the MSL shim) measured means 0.32, 0.41, 0.34, 0.12
+        // and variances 0.049, 0.080, 0.057, 0.013: the floors leave room for the bloom, the keys and the real sky.
+        let cases = [
+            LightCase(name: "dawn", sky: Self.sky(hour: 8.1), mean: 0.12, variance: 0.012),
+            LightCase(name: "noon", sky: Self.sky(hour: 13.2), mean: 0.2, variance: 0.02),
+            LightCase(name: "dusk", sky: Self.sky(hour: 18.3), mean: 0.12, variance: 0.012),
+            LightCase(name: "night", sky: Self.sky(hour: 22), mean: 0.04, variance: 0.003),
+        ]
+        for q in [QualityLevel.lite, .high] {
+            for c in cases {
+                let shot = try Self.renderGarden(notes: [60, 64, 67], at: 1.2, sky: c.sky, quality: q)
+                let s = PreviewRenderer.stats(shot.image)
+                XCTAssertGreaterThan(s.meanLuminance, c.mean, "\(q) \(c.name)")
+                XCTAssertGreaterThan(s.variance, c.variance, "\(q) \(c.name)")
+                XCTAssertEqual(shot.renderer.fieldVersion, shot.frame.field.version, "\(q) \(c.name): the shader reads this frame's field")
+                XCTAssertEqual(shot.frame.rings.count, 3, "\(q) \(c.name): the notes rake their rings in any light")
+                let key = shot.renderer.uniforms[6]
+                if c.name == "night" {
+                    XCTAssertEqual(key.w, 0, "\(q): the moon lights the gravel at night")
+                    XCTAssertGreaterThan(key.z, key.x, "\(q): silver-blue moonlight")
+                } else {
+                    XCTAssertEqual(key.w, 1, "\(q) \(c.name): the sun lights it by day")
+                }
+            }
+        }
+    }
+
+    /// A low sun rakes across a fresh ring's grooves: the gravel patch on its flank varies far more than the same patch
+    /// with the field flat.
+    func testRakeLinesShowInTheLight() throws {
+        let shot = try Self.renderGarden(notes: [60], release: true, at: 1.0)
+        let sun = shot.frame.sky.sun.altitude
+        XCTAssertTrue(sun > 2 && sun < 15, "a low morning sun (\(sun)°)")
+        let ring = try XCTUnwrap(shot.frame.rings.first)
+        XCTAssertEqual(ring.stone, 2, "middle C rakes round the tall stone")
+        XCTAssertEqual(ring.radius, RakeLines.firstRingRadius(2), accuracy: 1e-4)
+        let patch = try XCTUnwrap(shot.renderer.gravelPatch())
+        let raked = patchStats(shot.image, patch)
+        var flat = shot.frame
+        flat.field = RakeField(heights: [Float](repeating: 0, count: RakeField.width * RakeField.height))
+        flat.field.version = shot.frame.field.version &+ 1
+        shot.renderer.update(flat, params: shot.params, quality: .high, gentle: false, dt: 1.0 / 60, size: CGSize(width: 640, height: 360))
+        let level = patchStats(try XCTUnwrap(shot.preview.capture(shot.renderer)), patch)
+        XCTAssertGreaterThanOrEqual(raked.variance, 1.3 * level.variance, "ring \(raked.variance), flat \(level.variance)")
+        XCTAssertGreaterThan(raked.variance, 0.002, "the ridges and their shadows show")
+    }
+
+    /// Snow fills the grooves (the gravel patch goes flat and white) and caps the stones (the tall stone's head whitens).
+    func testSnowFillsTheGrooves() throws {
+        let bare = try Self.renderGarden(notes: [], at: 1.0)
+        let snowy = try Self.renderGarden(notes: [], at: 1.0, edit: { $0.snowCover = 1 })
+        let patch = try XCTUnwrap(bare.renderer.gravelPatch())
+        let b = patchStats(bare.image, patch), s = patchStats(snowy.image, patch)
+        XCTAssertGreaterThan(b.variance, 0.002, "the morning's lines show bare")
+        XCTAssertLessThanOrEqual(s.variance, 0.4 * b.variance, "the grooves fill: \(b.variance) → \(s.variance)")
+        XCTAssertGreaterThan(s.mean, b.mean, "and whiten")
+        let top = bare.renderer.stoneTopScreen[2]
+        let head = SIMD4<Float>(top.x - 0.02, top.y - 0.055, top.x + 0.02, top.y - 0.012)
+        let bareHead = patchStats(bare.image, head).mean, snowyHead = patchStats(snowy.image, head).mean
+        XCTAssertGreaterThan(snowyHead, 1.15 * bareHead, "the tall stone is capped: \(bareHead) → \(snowyHead)")
+    }
+
+    func testGardenHonoursGentleVisuals() throws {
+        var plain: Float = 0, gentle: Float = 0
+        var plainWeather = false, gentleWeather = false
+        _ = try Self.renderGarden(notes: [60, 64, 67], at: 1.5, each: { r, _ in
+            plain = max(plain, r.waveOut); plainWeather = r.weather.gentle
+        })
+        _ = try Self.renderGarden(notes: [60, 64, 67], at: 1.5, gentle: true, each: { r, _ in
+            gentle = max(gentle, r.waveOut); gentleWeather = r.weather.gentle
+        })
+        XCTAssertGreaterThan(plain, 0.2, "a chord's wave brightens the gravel")
+        XCTAssertLessThanOrEqual(gentle, plain * 0.55, "gentle visuals calm it")
+        XCTAssertFalse(plainWeather)
+        XCTAssertTrue(gentleWeather, "and the fireflies and crystals")
+    }
+
+    func testGardenFramesAnyAspect() throws {
+        for (w, h) in [(864, 360), (360, 360)] {
+            let shot = try Self.renderGarden(notes: [21, 60, 64, 67, 108], at: 1.2, width: w, height: h)
+            let r = shot.renderer
+            XCTAssertEqual(r.keyRects.count, 88)
+            for k in r.keyRects {
+                XCTAssertGreaterThanOrEqual(k.x, -1); XCTAssertLessThanOrEqual(k.z, 1)
+                XCTAssertGreaterThanOrEqual(k.y, -1); XCTAssertLessThanOrEqual(k.w, 1)
+            }
+            let keyTop = r.keyRects.map(\.w).max() ?? -1
+            XCTAssertTrue(keyTop < r.wallFootY && r.wallFootY < r.wallTopY && r.wallTopY < r.horizonY && r.horizonY < 1,
+                          "\(w)×\(h): gravel, wall, horizon in order")
+            XCTAssertEqual(r.stoneScreen.count, 5)
+            for (i, p) in r.stoneScreen.enumerated() {
+                XCTAssertTrue(abs(p.x) < 0.95 && p.y > keyTop && p.y < r.wallFootY, "\(w)×\(h): stone \(i) at \(p)")
+                XCTAssertLessThan(r.stoneTopScreen[i].y, 0.95, "\(w)×\(h): stone \(i) stands in view")
+            }
+            let patch = try XCTUnwrap(r.gravelPatch())
+            XCTAssertTrue(patch.x > -1 && patch.z < 1 && patch.y > keyTop && patch.w < r.wallFootY, "\(w)×\(h): the gravel patch \(patch)")
+            XCTAssertEqual(Set(shot.frame.rings.map(\.stone)).count, 3, "\(w)×\(h): low, middle and high notes rake three stones")
+            XCTAssertGreaterThan(PreviewRenderer.stats(shot.image).variance, 0.008, "\(w)×\(h)")
+        }
+    }
+
+    func testGardenBurstStaysInBudget() throws {
+        guard let device = MTLCreateSystemDefaultDevice() else { throw XCTSkip("No Metal device") }
+        let preview = try XCTUnwrap(PreviewRenderer(width: 640, height: 360))
+        let r = try XCTUnwrap(ZenRockGardenRenderer(device: device))
+        let d = SceneDirector(themeID: ZenRockGardenModel.id, state: ThemeState(), reaction: ReactionPresets.expressivePianist)
+        d.sky.reset(settings: Self.sky(hour: 8.1))
+        var frames = 0
+        for q in [QualityLevel.lite, .high] {
+            let start = Date()
+            for i in 0..<60 {
+                let t = Double(i) / 60
+                d.handle((0..<34).map { k in .noteOn(note: UInt8(21 + (i * 34 + k) % 88), velocity: 0.8) }, at: t)
+                let f = try XCTUnwrap(d.step(dt: 1.0 / 60, t: t, quality: q) as? ZenGardenFrame)
+                r.update(f, params: d.parameters, quality: q, gentle: false, dt: 1.0 / 60, size: CGSize(width: 640, height: 360))
+                frames += 1
+                XCTAssertLessThanOrEqual(r.rakeCount, ZenRockGardenRenderer.rakeBudget(q))
+                XCTAssertLessThanOrEqual(f.rings.count, RakeLines.ringCap)
+                XCTAssertLessThanOrEqual(f.strokes.count, RakeLines.strokeCap)
+                XCTAssertLessThanOrEqual(r.fieldUploads, frames, "at most one upload a frame")
+                XCTAssertNotNil(preview.capture(r))
+            }
+            XCTAssertLessThan(Date().timeIntervalSince(start), 4, "\(q)")
+        }
+        XCTAssertGreaterThan(r.rakeCount, 0, "the held notes' rakes go round")
+    }
+
+    /// The field goes up as a texture only when its version moves on: once for a quiet garden, never twice in a frame,
+    /// and exactly once for each new version while you play.
+    func testFieldUploadsOnlyWhenChanged() throws {
+        guard let device = MTLCreateSystemDefaultDevice() else { throw XCTSkip("No Metal device") }
+        let r = try XCTUnwrap(ZenRockGardenRenderer(device: device))
+        let d = SceneDirector(themeID: ZenRockGardenModel.id, state: ThemeState(), reaction: ReactionPresets.expressivePianist)
+        d.sky.reset(settings: Self.sky(hour: 8.1))
+        let size = CGSize(width: 320, height: 180)
+        func step(_ i: Int) throws -> ZenGardenFrame {
+            let f = try XCTUnwrap(d.step(dt: 1.0 / 60, t: Double(i) / 60, quality: .high) as? ZenGardenFrame)
+            r.update(f, params: d.parameters, quality: .high, gentle: false, dt: 1.0 / 60, size: size)
+            return f
+        }
+        var last = try step(0)
+        XCTAssertEqual(r.fieldUploads, 1, "the first frame uploads the morning's field")
+        for i in 1...30 { last = try step(i) }
+        XCTAssertFalse(last.field.dirty)
+        XCTAssertEqual(r.fieldUploads, 1, "a quiet garden's field never changes: nothing more goes up")
+        r.update(last, params: d.parameters, quality: .high, gentle: false, dt: 1.0 / 60, size: size)
+        XCTAssertEqual(r.fieldUploads, 1, "the same frame again: still nothing")
+        d.handle([.noteOn(note: 60, velocity: 0.9)], at: 31.0 / 60)
+        var versions: Set<Int> = [last.field.version]
+        for i in 31...150 {
+            if i == 90 { d.handle([.noteOff(note: 60)], at: Double(i) / 60) }
+            let before = r.fieldUploads
+            let f = try step(i)
+            XCTAssertEqual(r.fieldUploads - before, f.field.dirty ? 1 : 0, "frame \(i): an upload exactly when the field moved on")
+            XCTAssertEqual(r.fieldVersion, f.field.version, "frame \(i): the shader reads this frame's field")
+            versions.insert(f.field.version)
+        }
+        XCTAssertGreaterThan(versions.count, 2, "the note and its held rake changed the field")
+        XCTAssertEqual(r.fieldUploads, versions.count, "one upload per version")
+    }
+}
+
+extension WorldPreviewTests {
+    func testWriteGardenPreviews() throws {
+        guard let dir = ProcessInfo.processInfo.environment["PREVIEW_DIR"] else { throw XCTSkip("PREVIEW_DIR not set") }
+        guard MTLCreateSystemDefaultDevice() != nil else { throw XCTSkip("No Metal device") }
+        let url = URL(fileURLWithPath: dir, isDirectory: true)
+        try FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
+        let preview = try XCTUnwrap(PreviewRenderer(width: 1280, height: 720))
+        let sky = ZenRockGardenRendererTests.sky
+        let autumn = ThemeState(values: ["season": .choice(GardenSeason.autumn.rawValue)])
+        // The frozen sky is the equinox's: at Melbourne the sun is 8° up at 8:06 and 14° up at 18:18.
+        let cases: [(String, SkySettings, ThemeState, QualityLevel, Double, ((inout SkyState) -> Void)?)] = [
+            ("garden-dawn", sky(8.1, .clear, 0.45), ThemeState(), .high, 5, nil),
+            ("garden-noon", sky(13.2, .clear, 0.45), ThemeState(), .high, 5, nil),
+            ("garden-dusk", sky(18.3, .clear, 0.45), ThemeState(), .high, 5, nil),
+            ("garden-night", sky(22, .clear, 0.45), ThemeState(), .high, 5, nil),
+            ("garden-rime", sky(9, .rime, 0.45), ThemeState(), .high, 5, { $0.rime = 1 }),
+            ("garden-autumn", sky(9.5, .clear, 0.45), autumn, .high, 5, nil),
+            ("garden-smooth", sky(8.1, .clear, 0.45), ThemeState(), .lite, 5, nil),
+            ("garden-rings-t3", sky(8.6, .clear, 0.45), ThemeState(), .high, 3, nil),
+        ]
+        for (name, s, state, q, t, edit) in cases {
+            let image = try XCTUnwrap(preview.render(themeID: ZenRockGardenModel.id, at: [t], state: state, quality: q, sky: s,
+                                                     mood: .orderedCalm, skyEdit: edit).first)
+            try PreviewRenderer.writePNG(image, to: url.appendingPathComponent("\(name).png"))
+        }
+        // Snow takes minutes to fill the grooves: the snow preview holds the garden's cover full under falling snow.
+        let snow = try ZenRockGardenRendererTests.renderGarden(notes: [], at: 5, sky: sky(11, .snow, 0.45), width: 1280, height: 720,
+                                                               edit: { $0.snowCover = 1 })
+        try PreviewRenderer.writePNG(snow.image, to: url.appendingPathComponent("garden-snow.png"))
     }
 }
