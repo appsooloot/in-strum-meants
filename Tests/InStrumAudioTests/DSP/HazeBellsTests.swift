@@ -141,7 +141,8 @@ final class HazeBellsTests: XCTestCase {
         let felt = level(ISD_ENGINE_FELT_GLASS)
         for (name, engine) in [("Orbit Pad", ISD_ENGINE_ORBIT_PAD), ("Honey Tape", ISD_ENGINE_HONEY_TAPE), ("Haze Bells", ISD_ENGINE_HAZE_BELLS),
                                ("Cabin Felt", ISD_ENGINE_CABIN_FELT), ("Morning Box", ISD_ENGINE_MORNING_BOX),
-                               ("Plankton Keys", ISD_ENGINE_PLANKTON_KEYS)] {
+                               ("Plankton Keys", ISD_ENGINE_PLANKTON_KEYS),
+                               ("Tea House Koto", ISD_ENGINE_TEA_HOUSE_KOTO)] {
             XCTAssertEqual(level(engine), felt, accuracy: 3, name)
         }
         // Polar Choir is still mid-swell for its first 1.5 s (attack 0.3–3 s by design), so it is heard once it has
