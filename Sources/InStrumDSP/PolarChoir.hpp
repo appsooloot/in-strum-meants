@@ -1,6 +1,7 @@
 // Polar Choir: a vowel pad that breathes. Each voice is two detuned band-limited saws (the Orbit Pad BLEP)
-// through three parallel formant band-passes that morph u → o → a → e → i, with breath noise through the same
-// formants, a bowed-glass partial layer on top and a swell that keeps leaning in while a note is held.
+// through three parallel formant band-passes that morph u → o → a → e → i (the saws scaled per note, so the
+// formants pass as much from every key), with breath noise through the same formants, a bowed-glass partial layer
+// on top and a swell that keeps leaning in while a note is held.
 // A two-tap chorus and the shared Space reverb (with shimmer) widen it. Everything is preallocated.
 #pragma once
 #include "DSPCommon.hpp"
@@ -23,7 +24,9 @@ public:
     int activeVoices() const override;
 
     static constexpr int kPolyphony = 16;   // sounding voices
-    static constexpr int kPool = 20;        // plus voices fading out after being stolen
+    // As many again to fade out after being stolen: a two-hand chord on a full pool steals eight at once, and with
+    // only four spares the rest were cut dead (a click). A burst of up to kPolyphony notes now always fades.
+    static constexpr int kPool = 2 * kPolyphony;
     static constexpr int kSub = 32;         // samples per inner block
     static constexpr int kGlass = 4;        // glass partials (each a beating pair of sines)
 
@@ -42,6 +45,8 @@ private:
         float glassC[kGlass][2] = {}, glassS[kGlass][2] = {};
         float airZ = 0;
         float fadeGain = 1, fadeStep = 0;
+        // The saws' level that keeps this note as loud as the rest through the formants (−1: not measured yet).
+        float norm = -1, normTarget = -1;
     };
 
     void startVoice(Voice &v, int note, int velocity);
@@ -77,7 +82,8 @@ private:
     SpaceReverb reverb;
     PeakLimiter limiter;
     bool idle = true, reverbLive = false;
-    int idleSamples = 0, blockCount = 0;
+    int idleSamples = 0;
+    unsigned blockCount = 0;   // wraps after 2^32 blocks, a multiple of 4: every-fourth-block work keeps its cadence
 };
 
 } // namespace isd

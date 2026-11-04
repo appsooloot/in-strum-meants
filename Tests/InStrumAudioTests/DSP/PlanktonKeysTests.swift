@@ -223,36 +223,30 @@ final class PlanktonKeysTests: XCTestCase {
 
     // MARK: - Hygiene
 
-    /// 40 notes under the pedal (16 stolen, quietest first, with 20 ms fades) against the same notes released
-    /// early (no stealing): the steals add no jump of their own.
+    /// Loud two-hand chords four a second under the pedal fill the voices with ringing notes, then softer ones steal
+    /// them: the quietest go first, so they must still be ringing for a missing fade to be heard, and soft chords have
+    /// little bark of their own above 10 kHz. Each soft chord steals eight at once from a full pool; with six spare
+    /// voices the steals past the sixth were cut dead, up to 7 dB over the same chords played without stealing. Every
+    /// steal now fades (the g++ mirror: 0.0 dB at worst; with the 20 ms fade removed, +13).
     func testStealingIsClickFree() {
-        var stealing = [R.pedal(0, 127)], short: [R.Event] = []
-        for i in 0..<40 {
-            let t = Double(i) * 0.05, n = UInt8(40 + i)
-            stealing.append(R.noteOn(t, n, 90))
-            short.append(R.noteOn(t, n, 90)); short.append(R.noteOff(t + 0.3, n))
-        }
-        let a = R.render(keys, seconds: 3, params: dry, events: stealing)
-        let b = R.render(keys, seconds: 3, params: dry, events: short)
-        XCTAssertTrue(a.l.allSatisfy(\.isFinite) && a.r.allSatisfy(\.isFinite))
-        let stolen = max(DSPTestKit.maxJump(a.l), DSPTestKit.maxJump(a.r))
-        let attacks = max(DSPTestKit.maxJump(b.l), DSPTestKit.maxJump(b.r))
-        XCTAssertLessThan(stolen, 1.25 * attacks + 0.01, "stealing \(stolen) against the attacks alone \(attacks)")
-        XCTAssertLessThan(stolen, 0.4, "an attack jump this big would be a click")
-        XCTAssertLessThanOrEqual(max(a.l.map { abs($0) }.max() ?? 2, a.r.map { abs($0) }.max() ?? 2), 1.0)
+        let steal = R.stealClicks(keys, params: dry, velocities: [100, 100, 100, 30, 30, 30, 30], gap: 0.25, from: 3)
+        XCTAssertTrue(steal.out.l.allSatisfy(\.isFinite) && steal.out.r.allSatisfy(\.isFinite))
+        XCTAssertLessThanOrEqual(max(steal.out.l.map { abs($0) }.max() ?? 2, steal.out.r.map { abs($0) }.max() ?? 2), 1.0)
+        XCTAssertLessThan(steal.clicks.max() ?? 99, 3, "dB over the chords without stealing: \(steal.clicks)")
     }
 
+    /// Each dial jumps from 0 to 1 on a held pair of notes under the pedal: no millisecond above 10 kHz louder than
+    /// the same notes with the dial held at either end (the g++ mirror: −8.8 dB at worst; without the 20 ms
+    /// smoothing, Tine +18, Bark +17).
     func testDialSweepIsSmooth() {
-        let dials = [ISD_P_TINE, ISD_P_BARK, ISD_P_SPARKLE, ISD_P_TREMOLO, ISD_P_PHASE, ISD_P_WIDTH].map { Int($0) }
-        var start: [Int: Float] = [Int(ISD_P_SPACE): 0]
-        for d in dials { start[d] = 0 }
-        let changes = (dials + [Int(ISD_P_SPACE)]).map { SynthRender.ParamChange(time: 1.5, address: $0, value: 1) }
-        let out = R.render(keys, seconds: 1.75, params: start, events: [R.pedal(0, 127), R.noteOn(0, 57, 100), R.noteOn(0, 64, 100)],
-                           changes: changes)
-        // Bark and the phaser legitimately add detail, so the change is compared with the sound it settles into.
-        let before = DSPTestKit.maxJump(R.slice(out.l, 1.3, 1.45)), after = DSPTestKit.maxJump(R.slice(out.l, 1.45, 1.6))
-        let settled = DSPTestKit.maxJump(R.slice(out.l, 1.6, 1.75))
-        XCTAssertLessThan(after, 2 * max(before, settled) + 1e-4, "before \(before), after \(after), settled \(settled)")
+        let notes = [R.pedal(0, 127), R.noteOn(0, 57, 100), R.noteOn(0, 64, 100)]
+        let dials: [(name: String, address: Int)] = [("tine", Int(ISD_P_TINE)), ("bark", Int(ISD_P_BARK)), ("sparkle", Int(ISD_P_SPARKLE)),
+                                                     ("tremolo", Int(ISD_P_TREMOLO)), ("phase", Int(ISD_P_PHASE)), ("width", Int(ISD_P_WIDTH)),
+                                                     ("space", Int(ISD_P_SPACE))]
+        for dial in dials {
+            let click = R.jumpClick(keys, params: [Int(ISD_P_SPACE): 0], dial: dial.address, at: 1.5, events: notes)
+            XCTAssertLessThan(click, 6, "\(dial.name): \(click) dB over the dial held still")
+        }
     }
 
     func testParameterTable() {

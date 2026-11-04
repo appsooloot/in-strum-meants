@@ -481,6 +481,10 @@ extension AmbienceTests {
         for i in 1..<mid.count { diff[i] = mid[i] - mid[i - 1] }
         let cracks = Self.events(Self.frameDB(diff, ms: 5), above: 12, window: 40)
         XCTAssertGreaterThanOrEqual(cracks, 3, "\(cracks) cracks in 120 s")
+        // Heard, but not the loudest thing in the room: the cracks once peaked at 0.75 here (0.997 over half an hour);
+        // at half the strength they still stand 28–35 dB over the 200 ms around them (the g++ mirror: 0.38).
+        let peak = max(DSPTestKit.peak(l), DSPTestKit.peak(r))
+        XCTAssertLessThan(peak, 0.5, "the loudest crack peaks at \(peak)")
         // Groans: the 40–120 Hz band (on a 6 kHz copy) in 250 ms frames, against the 20 s around them.
         let low = Self.decimate8(mid), lowSR = Self.sr / 8
         let f0 = (40.0 * 120).squareRoot(), w0 = 2 * Double.pi * f0 / lowSR

@@ -24,7 +24,10 @@ public:
     int activeVoices() const override;
 
     static constexpr int kPolyphony = 16;   // sounding voices
-    static constexpr int kPool = 20;        // plus voices fading out after being stolen
+    // As many again to fade out after being stolen: a two-hand chord on a full pool steals eight at once, and with
+    // only four spares the rest were cut dead (a click up to 43 dB over the pad's quiet top end). A burst of up to
+    // kPolyphony notes now always fades.
+    static constexpr int kPool = 2 * kPolyphony;
     static constexpr int kSub = 32;         // samples per inner block
     static constexpr int kSaws = 5, kPulses = 3, kOsc = kSaws + kPulses;
 
@@ -87,7 +90,8 @@ private:
     SpaceReverb reverb;
     PeakLimiter limiter;
     bool idle = true, reverbLive = false;
-    int idleSamples = 0, blockCount = 0;
+    int idleSamples = 0;
+    unsigned blockCount = 0;   // wraps after 2^32 blocks, a multiple of 4: every-fourth-block work keeps its cadence
 };
 
 } // namespace isd

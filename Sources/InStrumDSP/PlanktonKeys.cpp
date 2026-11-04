@@ -93,6 +93,7 @@ PlanktonKeys::Voice &PlanktonKeys::allocate() {
     }
     if (sounding >= kPolyphony && quietest) beginFade(*quietest);
     for (auto &v : voices) if (!v.active) return v;
+    // Last resort (more voices fading at once than the spares hold): the voice furthest through its fade is cut.
     Voice *best = nullptr;
     for (auto &v : voices) if (v.fading && (!best || v.fadeGain < best->fadeGain)) best = &v;
     if (!best) best = &voices[0];
