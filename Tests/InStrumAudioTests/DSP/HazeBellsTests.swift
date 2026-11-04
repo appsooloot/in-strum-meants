@@ -153,6 +153,10 @@ final class HazeBellsTests: XCTestCase {
         // has arrived within the first 0.2 s, so the usual window is fair (the g++ mirror: within 0.1 dB of Felt Glass
         // there, +0.6 dB over 2.0–3.5 s once yuri and the echo are going).
         XCTAssertEqual(level(ISD_ENGINE_ZEN_SHAKUHACHI), felt, accuracy: 3, "Zen Shakuhachi")
+        // Reef Marimba's held chord would roll after 0.3 s, so it is heard as struck, at Roll 0 (the g++ mirror: 1.2 dB
+        // under Felt Glass; rolled at the default Roll .35 it sits 2.7 dB over).
+        let marimba = DSPTestKit.dBFS(R.slice(R.render(ISD_ENGINE_REEF_MARIMBA, seconds: 1.5, params: [Int(ISD_P_ROLL): 0], events: chord).l, 0.05, 1.5))
+        XCTAssertEqual(marimba, felt, accuracy: 3, "Reef Marimba")
         // Morning Box's presets too (final review: Music Box sat 9 dB over the rest).
         func dials(_ v: [Float]) -> [Int: Float] {
             Dictionary(uniqueKeysWithValues: zip([ISD_P_BARS, ISD_P_BOX, ISD_P_BLOOM, ISD_P_BUILD, ISD_P_HAZE, ISD_P_SPACE, ISD_P_WIDTH].map { Int($0) }, v))
