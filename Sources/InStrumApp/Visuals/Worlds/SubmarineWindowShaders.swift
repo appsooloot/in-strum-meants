@@ -89,8 +89,10 @@ enum SubmarineWindowShaders {
         float3 L = s.light.rgb;
         float pixel = s.shaft.z;
 
-        // The open water, and what comes through the surface above (Snell's window, in the shallows).
+        // The open water, and what comes through the surface above (Snell's window, in the shallows): the sky's part is
+        // kept apart, as the night eye's gain lifts the water and not the stars.
         float3 col = waterView(d, D, L);
+        float3 skyPart = float3(0.0);
         float depthOut = 1.0;
         // The floor: a sand-and-coral slope rising gently away ahead (in the shallows), met before the surface.
         float2 ahead = normalize(float2(sin(az), cos(az)));
@@ -101,15 +103,16 @@ enum SubmarineWindowShaders {
             float window;
             float3 mirror = waterView(float3(d.x, d.y, -d.z), 0.0, L);
             float3 through = snellWindow(d, D, t, waves, mirror, u, stars, window);
-            // Sea smoke: the window turns milky, the sky inside it a soft, even glow of fog lit from above.
+            // Sea smoke: the fog over the water lights the whole underside of the surface evenly, so the window's sharp
+            // circle and its sky melt into a soft milky glow rising overhead.
             if (milky > 0.001) {
-                float3 fogSky = mix(u.horizon.rgb, u.zenith.rgb, 0.4) * 1.6 + float3(0.04);
-                float3 fog = fogSky * (kWindowGain * window) * waterAbsorb(D / max(d.z, 0.05)) * (1.0 - smoothstep(20.0, 40.0, D));
-                through = mix(through, fog + through * (1.0 - window), 0.85 * milky);
-                col += fog * (0.12 * milky * smoothstep(0.1, 0.7, d.z));
+                float3 fogSky = mix(u.horizon.rgb, u.zenith.rgb, 0.4) * 1.4 + float3(0.05);
+                float3 fog = fogSky * kWindowGain * waterAbsorb(D / max(d.z, 0.05)) * (1.0 - smoothstep(20.0, 40.0, D))
+                           * smoothstep(0.15, 0.95, d.z);
+                through = mix(through, fog * 0.8 + through * 0.2, 0.85 * milky);
             }
             float ring = subRainRings(d, D, t, rain, pixel);
-            col += through + (through * 0.9 + 0.05 * L) * ring * rain;
+            skyPart = through + (through * 0.9 + 0.05 * L) * ring * rain;
         } else if (onFloor) {
             // Lit from above through the caustics, seen through the water between.
             {
@@ -142,7 +145,8 @@ enum SubmarineWindowShaders {
         col += lightShafts(q * 0.8, s.shaft.xy, t, D, waves) * waterLight(D, L) * kWaterTint * s.light.w;
 
         // The eye's adaptation to the depth (and, in the shallows at night, to the dark).
-        col *= waterAdapt(D) * s.lamp.y;
+        // (At night the window's stars are softened: seen through the surface's ripples they would read as a blizzard.)
+        col = (col * s.lamp.y + skyPart * ((1.0 + 0.12 * (s.lamp.y - 1.0)) * (1.0 - 0.55 * s.room.z))) * waterAdapt(D);
         // The eye keeps a little green and red in a deep blue, so it reads as sea, not as a screen's blue.
         col.g = max(col.g, 0.2 * col.b);
         col.r = max(col.r, 0.03 * col.b);
