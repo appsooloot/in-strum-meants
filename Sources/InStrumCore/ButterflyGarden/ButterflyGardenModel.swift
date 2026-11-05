@@ -58,6 +58,11 @@ public struct ButterflyGardenModel: ThemeModel {
     static let qualityCap: [QualityLevel: Int] = [.lite: 200, .high: 600, .ultra: 1200]
     static let silenceToLand = 4.0
     static let maxBlooms = 120
+    /// While time is held (a step of dt 0) a butterfly born since the last step starts this old, faded in (it fades in
+    /// over 0.25 s), and a flower planted since then this open, at full opacity (from a third open): else neither would
+    /// show.
+    public static let bloomAge: Float = 0.25
+    public static let flowerBloomOpenness: Float = 1.0 / 3
 
     private static let layout = KeyboardLayout.keys()
     private static let centres: [Float] = (21...108).map { n in
@@ -142,6 +147,7 @@ public struct ButterflyGardenModel: ThemeModel {
         for i in flyers.indices {
             var f = flyers[i]
             f.age += fdt
+            if fdt == 0, f.age == 0 { f.age = Self.bloomAge }
             f.b.flapRate = f.baseFlap * flapScale * (f.b.landed ? 0.1 : 1)
             f.b.flapPhase = (f.b.flapPhase + f.b.flapRate * fdt).truncatingRemainder(dividingBy: 1)
             if let note = f.b.homeNote, held[note] != nil, let x = Self.keyCentre(note) {
@@ -199,6 +205,7 @@ public struct ButterflyGardenModel: ThemeModel {
             blooms[i].age += fdt
             let opening = blooms[i].age < bloomLife - 2 ? 1 : -1
             blooms[i].openness = min(1, max(0, blooms[i].openness + Float(opening) * bloomSpeed * 0.6 * fdt * (landing ? 1.5 : 1)))
+            if fdt == 0, blooms[i].age == 0 { blooms[i].openness = max(blooms[i].openness, Self.flowerBloomOpenness) }
         }
         blooms.removeAll { $0.age > bloomLife && $0.openness <= 0 }
 

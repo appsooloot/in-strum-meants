@@ -72,6 +72,9 @@ public struct CurtainLights {
     private var chordNotes = Set<UInt8>()
     private var hueTarget: Float = 0
     private var pulseTarget: Float = 0
+    /// A tense chord has called for a pulse since the last step (while time is held, it pulses at once at full
+    /// strength).
+    private var pulseBorn = false
 
     public init() {}
 
@@ -100,7 +103,7 @@ public struct CurtainLights {
             switch PlayingAnalyzer.classify(sounding) {
             case .major: hueTarget = 1; chordNotes = sounding
             case .minor: hueTarget = -1; chordNotes = sounding
-            case .tense: hueTarget = 0; chordNotes = sounding; pulseTarget = 1
+            case .tense: hueTarget = 0; chordNotes = sounding; pulseTarget = 1; pulseBorn = true
             default: break
             }
         }
@@ -169,6 +172,8 @@ public struct CurtainLights {
         // The tense pulse rises quickly toward its target, which dies away; the pulse follows it down.
         pulseTarget *= exp(-step / Self.pulseFall)
         if pulseTarget > tensePulse { tensePulse += (pulseTarget - tensePulse) * (1 - exp(-step / Self.pulseRise)) } else { tensePulse = pulseTarget }
+        if step == 0, pulseBorn { tensePulse = max(tensePulse, pulseTarget) }
+        pulseBorn = false
         if tensePulse < 1e-4 { tensePulse = 0; if pulseTarget < 1e-4 { pulseTarget = 0 } }
 
         let energy = roles[.energy]

@@ -175,6 +175,10 @@ public struct RakeLines {
     /// The wave's fronts travel this far a second (bed units), re-raking across a band this wide.
     public static let waveSpeed: Float = 0.1
     public static let waveBand: Float = 6 / 256
+    /// While time is held (a step of dt 0) a chord's wave born since the last step runs on to this age at once: its
+    /// fronts out where 0.4 s takes them, the gravel they passed re-raked, at full brightness (they brighten over
+    /// 0.4 s). Else it would never show.
+    public static let waveBloomAge: Float = 0.4
     static let freshDepth: Float = 0.25
     static let rerake: Float = 0.85
     /// The grooves' time constant back to the morning (seconds, before the linger).
@@ -638,6 +642,8 @@ public struct RakeLines {
     /// before the chord), eased across the band so no seam is left.
     private mutating func sweepWave(_ c: Canvas, dt: Float) {
         guard var wave else { return }
+        // Held, a wave born since the last step runs on to its bloom (re-raking what its fronts pass on the way).
+        let dt = dt == 0 && wave.age == 0 ? Self.waveBloomAge : dt
         wave.age += dt
         wave.offset += Self.waveSpeed * dt
         let band = Self.waveBand, w = Self.width, hgt = Self.height
