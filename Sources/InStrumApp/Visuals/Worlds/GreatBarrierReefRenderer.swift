@@ -253,13 +253,17 @@ final class GreatBarrierReefRenderer: ThemeRenderer {
         let day = Float(Self.smooth(-4, 8, s.sun.altitude))
         let mood = frame.mood
         let haze = min(1, 0.2 * MoodLook.hazeScale(mood) + s.mist)
-        let sunColour = lights.sunColor * 1.6, moonColour = lights.moonColor * 0.3
-        let ambient = (s.zenith * 0.55 + s.horizon * 0.45) * 0.9
+        let sunColour: SIMD3<Float> = lights.sunColor * 1.6
+        let moonColour: SIMD3<Float> = lights.moonColor * 0.3
+        let sky0: SIMD3<Float> = s.zenith * 0.55
+        let ambient: SIMD3<Float> = (sky0 + s.horizon * 0.45) * 0.9
         // The light falling on the water, on the Underwater Kit's scale (1: a noon sun and sky): a low sun's light
         // mostly glances off, so under water dusk is the blue of the sky overhead.
         let sunIn = Float(0.35 + 0.65 * Self.smooth(2, 30, s.sun.altitude))
-        let overhead = s.zenith * 0.75 + s.horizon * 0.25
-        let surfaceLight = lights.sunColor * (0.8 * lights.sun.w * sunIn) + lights.moonColor * (0.09 * lights.moon.w) + overhead * 0.3
+        let overhead: SIMD3<Float> = s.zenith * 0.75 + s.horizon * 0.25
+        let sunIntoWater: SIMD3<Float> = lights.sunColor * (0.8 * lights.sun.w * sunIn)
+        let moonIntoWater: SIMD3<Float> = lights.moonColor * (0.09 * lights.moon.w)
+        let surfaceLight: SIMD3<Float> = sunIntoWater + moonIntoWater + overhead * 0.3
         limiter.gentle = gentle
         let exposure = MoodLook.exposure(mood) * (1 + 0.9 * night) * weather.exposureBoost
         let limited = limiter.limit(exposure: exposure, sparkle: 1, dt: dt)
@@ -292,7 +296,8 @@ final class GreatBarrierReefRenderer: ThemeRenderer {
         waveOut = Self.unit(wl.exposure * wl.sparkle)
         if let w = frame.colourWave {
             reefU[13] = SIMD4(w.left, w.right, CoralPulse.waveWidth, waveOut)
-            reefU[14] = SIMD4(CoralPulse.rgb(hue: w.hue) * 0.9 + 0.1, schoolFlashOut)
+            let waveColour: SIMD3<Float> = CoralPulse.rgb(hue: w.hue) * 0.9 + SIMD3<Float>(repeating: 0.1)
+            reefU[14] = SIMD4(waveColour, schoolFlashOut)
         } else {
             reefU[13] = SIMD4(-1, -1, CoralPulse.waveWidth, waveOut)
             reefU[14] = SIMD4(0, 0, 0, schoolFlashOut)
@@ -322,7 +327,9 @@ final class GreatBarrierReefRenderer: ThemeRenderer {
         reefU[16] = SIMD4(Float(Self.cayAzimuth * .pi / 180), az, birds, 0)
 
         // The light in the water where the fish swim (rgb, about a metre down) and on the sand's keys.
-        let fishLight = surfaceLight * Self.absorb(0.9) * 0.55 + surfaceLight * Self.absorb(0.3) * SIMD3(0.08, 0.6, 0.75) * 0.5
+        let fromAbove: SIMD3<Float> = surfaceLight * Self.absorb(0.9) * 0.55
+        let waterGlow: SIMD3<Float> = surfaceLight * Self.absorb(0.3) * SIMD3<Float>(0.04, 0.3, 0.375)
+        let fishLight: SIMD3<Float> = fromAbove + waterGlow
         buildFish(frame, h: h, light: fishLight, sparkle: sparkleScale, t: t)
         buildDots(frame, h: h, light: fishLight, quality: quality, dt: dt, storm: storm, night: night)
 
@@ -330,7 +337,8 @@ final class GreatBarrierReefRenderer: ThemeRenderer {
         keyInstances.removeAll(keepingCapacity: true)
         if keysShow {
             let bottom: Float = -0.995, gap: Float = 0.0015
-            let light = min(1.4, 0.15 + 0.55 * (lights.sun.w + 0.4 * lights.moon.w) + 0.4 * (ambient.x + ambient.y + ambient.z) / 3)
+            let skyMean: Float = (ambient.x + ambient.y + ambient.z) / 3
+            let light: Float = min(1.4, 0.15 + 0.55 * (lights.sun.w + 0.4 * lights.moon.w) + 0.4 * skyMean)
             for k in frame.keys {
                 let x0 = -0.995 + k.key.x * 1.99 + gap, x1 = -0.995 + (k.key.x + k.key.width) * 1.99 - gap
                 let y0 = k.key.isBlack ? keyTop - (keyTop - bottom) * 0.62 : bottom
@@ -353,7 +361,7 @@ final class GreatBarrierReefRenderer: ThemeRenderer {
     private func buildFish(_ frame: ReefFrame, h: Float, light: SIMD3<Float>, sparkle: Float, t: Float) {
         fishInstances.removeAll(keepingCapacity: true)
         let scale = min(1.3, max(0.7, h / 0.66))
-        let body = SIMD3<Float>(0.50, 0.64, 0.74) * light
+        let body = SIMD3<Float>(0.38, 0.62, 0.80) * light
         let silver = light * (1.4 * schoolFlashOut * sparkle)
         for (i, p) in frame.school.positions.prefix(CoralPulse.schoolSizes.upperBound).enumerated() {
             let k = Float((i * 37) % 11) / 10
