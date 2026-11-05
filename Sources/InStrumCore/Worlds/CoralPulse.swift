@@ -117,6 +117,10 @@ public struct CoralPulse {
     /// The colour wave's fronts run this far a second (frame widths), with this soft width.
     public static let waveSpeed: Float = 0.4
     public static let waveWidth: Float = 0.08
+    /// While time is held (a step of dt 0) a chord's colour wave born since the last step runs on to this age at once:
+    /// risen to its full strength (it rises over 0.3 s), its fronts out where 0.3 s takes them; an accent's silver flash
+    /// is full at once. Polyp patches are full at birth already. Else neither would show (Small Wins §4).
+    public static let waveBloomAge: Float = 0.3
 
     /// The seven groups' places across the frame: the keyboard in seven equal stretches, each group at its stretch's
     /// middle, mapped like the keys' own places to 0.06…0.94.
@@ -377,6 +381,8 @@ public struct CoralPulse {
     /// The colour wave's fronts run out until both have left the reef.
     private mutating func stepWave(_ dt: Float) {
         guard var w = wave else { return }
+        // Held, a wave born since the last step runs on to its bloom.
+        let dt = dt == 0 && w.age == 0 ? Self.waveBloomAge : dt
         w.age += dt
         w.offset += Self.waveSpeed * dt
         w.phase = min(1, w.offset / max(w.reach, 1e-3))
@@ -456,7 +462,12 @@ public struct CoralPulse {
 
         // The silver flash on an accent: in over about 50 ms, out with τ 0.35 s.
         flashTarget *= Float(exp(-dt / 0.35))
-        if flashTarget > flash { flash += (flashTarget - flash) * Float(1 - exp(-dt / 0.025)) } else { flash = flashTarget }
+        if flashTarget > flash {
+            // Held (dt 0), an accent's flash is full at once and holds; running, it comes in over about 50 ms.
+            flash += (flashTarget - flash) * (dt == 0 ? 1 : Float(1 - exp(-dt / 0.025)))
+        } else {
+            flash = flashTarget
+        }
         if flash < 1e-4 { flash = 0; if flashTarget < 1e-4 { flashTarget = 0 } }
 
         // The leader's trail, a sample every 1/30 s.

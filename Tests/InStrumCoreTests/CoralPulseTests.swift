@@ -367,6 +367,48 @@ final class CoralPulseTests: XCTestCase {
         }
     }
 
+    /// Small Wins §4: while time is held (a step of dt 0), what a note makes starts at its bloom and holds there. Polyp
+    /// patches are full at birth; a chord's colour wave runs on to 0.3 s (risen to its full strength, its fronts out);
+    /// an accent's silver flash is full at once. With time running, nothing changes.
+    func testCoralPulseBloomsWhenTimeIsHeld() throws {
+        XCTAssertEqual(CoralPulse.waveBloomAge, 0.3)
+        var c = CoralPulse()
+        for (i, n) in ([60, 64, 67] as [UInt8]).enumerated() { c.noteOn(n, velocity: 0.8, at: 0.02 * Double(i)) }
+        c.step(dt: 0, roles: RoleValues())
+        XCTAssertEqual(c.patches.count, 3)
+        XCTAssertTrue(c.patches.allSatisfy { $0.brightness == $0.peak }, "the polyps lit at once")
+        XCTAssertGreaterThanOrEqual(c.groups[3].glow, Float(1 - pow(1 - 0.88, 3)) - 1e-5, "their coral glowing at once")
+        let w = try XCTUnwrap(c.wave)
+        XCTAssertEqual(w.age, 0.3, accuracy: 1e-7)
+        XCTAssertEqual(w.offset, CoralPulse.waveSpeed * 0.3, accuracy: 1e-6, "its fronts out where 0.3 s takes them")
+        XCTAssertEqual(w.strength, 0.9 * (1 - 0.6 * w.phase), accuracy: 1e-5, "at its full strength")
+        XCTAssertGreaterThan(w.strength, 0.75)
+        for _ in 0..<60 { c.step(dt: 0, roles: RoleValues()) }
+        XCTAssertEqual(c.wave, w, "and it holds")
+        c.step(dt: 0.1, roles: RoleValues())
+        XCTAssertEqual(try XCTUnwrap(c.wave).age, 0.4, accuracy: 1e-6, "then runs on from it")
+
+        // Running time is untouched: one 1/60 s step in, the wave has only begun to rise.
+        var running = CoralPulse()
+        for (i, n) in ([60, 64, 67] as [UInt8]).enumerated() { running.noteOn(n, velocity: 0.8, at: 0.02 * Double(i)) }
+        running.step(dt: 1.0 / 60, roles: RoleValues())
+        XCTAssertLessThan(try XCTUnwrap(running.wave).strength, 0.05)
+        for _ in 0..<10 { running.step(dt: 0, roles: RoleValues()) }
+        XCTAssertLessThan(try XCTUnwrap(running.wave).strength, 0.05, "a wave from a running step stays where it had got to")
+
+        // An accent's flash is full at once, and holds.
+        var accent = CoralPulse()
+        accent.noteOn(72, velocity: 0.95, at: 0)
+        accent.step(dt: 0, roles: RoleValues())
+        XCTAssertEqual(accent.school.flash, 1, accuracy: 1e-6)
+        for _ in 0..<30 { accent.step(dt: 0, roles: RoleValues()) }
+        XCTAssertEqual(accent.school.flash, 1, accuracy: 1e-6)
+        var soft = CoralPulse()
+        soft.noteOn(72, velocity: 0.95, at: 0)
+        soft.step(dt: 1.0 / 60, roles: RoleValues())
+        XCTAssertLessThan(soft.school.flash, 0.6, "running, it comes in over about 50 ms")
+    }
+
     /// Spec §9.2: at most 64 lit patches, and 12 new ones a step (a burst waits, only the latest 64 kept waiting).
     func testBurstIsRationed() {
         var c = CoralPulse()
