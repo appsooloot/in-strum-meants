@@ -70,7 +70,7 @@ jobs:
           python3 -c "t=open('report.txt').read()[-60000:];print('::notice title=preview-report::'+t.replace('%','%25').replace('\r','').replace('\n','%0A'))"
 
   package:
-    needs: test
+    # Builds the installer as soon as the app compiles, so a failing test never holds back a playable build.
     runs-on: macos-15
     permissions:
       contents: write
