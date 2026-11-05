@@ -369,10 +369,10 @@ final class SubmarineWindowRenderer: ThemeRenderer {
         snowCount = 0; snowLampPeak = 0
         snow(near: false)
 
-        let gain = glowOut * 1.6
+        let gain: Float = glowOut * 1.6
         bellCount = 0
         for sp in frame.siphonophores {
-            let b = min(1, max(0, sp.brightness)) * gain * 0.8
+            let b: Float = min(1, max(0, sp.brightness)) * gain * 0.8
             guard b > 0.002 else { continue }
             for k in 0..<max(0, min(sp.bells, 24)) {
                 let x = sp.position.x - Float(k) * DeepLights.bellSpacing
@@ -388,7 +388,7 @@ final class SubmarineWindowRenderer: ThemeRenderer {
 
         creatureCount = 0
         for c in visible {
-            let g = min(1, max(0, c.glow)) * gain
+            let g: Float = min(1, max(0, c.glow)) * gain
             let at = ndc(c.position)
             let radius = Self.creatureRadius(c) * unit
             let h = Self.hash(c.id, 7)
@@ -413,12 +413,13 @@ final class SubmarineWindowRenderer: ThemeRenderer {
 
         shoalLightCount = 0
         for sh in frame.shoals {
-            let b = min(1, max(0, sh.brightness)) * gain * 1.2
+            let b: Float = min(1, max(0, sh.brightness)) * gain * 1.2
             guard b > 0.002 else { continue }
             for i in sh.contour.indices {
                 let v = sh.light(i)
                 let flick: Float = 0.75 + 0.25 * sin(time * 17 + Float(i) * 2.1 + Float(sh.id))
-                let colour: SIMD3<Float> = SIMD3<Float>(0.55, 0.88, 1.0) * (b * flick)
+                let k: Float = b * flick
+                let colour = SIMD3<Float>(0.55 * k, 0.88 * k, k)
                 push(ndc(v), 0.009 * unit, .photophore, colour)
                 shoalLightCount += 1
             }
