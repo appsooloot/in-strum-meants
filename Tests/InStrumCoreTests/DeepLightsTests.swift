@@ -152,7 +152,9 @@ final class DeepLightsTests: XCTestCase {
         for (a, b) in zip(p, p.dropFirst()) { XCTAssertEqual((b - a) * 1000, 127.1, accuracy: 2) }
         let lit = c4.dropFirst(2).map(\.g)
         let top = try XCTUnwrap(lit.max()), low = try XCTUnwrap(lit.min())
-        XCTAssertEqual(top, 0.35 + 0.65 * 0.8, accuracy: 1e-5, "full on each step")
+        // Full on each step: sampled once a frame, the brightest sample has already faded by up to a frame's decay
+        // (0.8690 against 0.87 on the macos-15 runner), so within 0.2%.
+        XCTAssertEqual(top, 0.35 + 0.65 * 0.8, accuracy: 2e-3, "full on each step")
         XCTAssertLessThan(low, 0.45 * top, "and a real blink between")
         let joined = peaks(e4)
         XCTAssertGreaterThanOrEqual(joined.count, 10)
