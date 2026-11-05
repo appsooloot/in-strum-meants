@@ -132,7 +132,7 @@ A growling analogue bass for a crater's edge.
 - **Presets:** *Magma* (the default), *Basalt* (dark, mono, Rumble up), *Fissure* (bright, Res 0.6, short decay) and *Ember Glide* (Mono, Flow 0.7).
 - **Signature behaviour:**
   - A hard low chord (velocity > 0.8, three or more notes below C3) adds a 1.2-second *swell* to the rumble (+3 dB, slow attack). That's the sound of the eruption the world plays at the same moment (§5.2).
-  - The engine reports it through the existing `instrumentPulse`-style hook as `ISD_H_MAGMA_ERUPT`, so the world and the sound agree.
+  - The engine and the world use the same chord rule (`isd::magma::isEruptChord`, mirrored by Core's `BigMoments`), so the sound and the world agree on the same notes.
 
 ### 4.3 Replicant Brass and Chrome Bass (Set 14)
 A huge, swelling film-score synth brass in the right hand. A punchy bright bass with an arpeggiator in the left.
@@ -557,7 +557,7 @@ Tests come first, RED then GREEN. They run in CI on macos-15.
   - Velocity opens the cutoff (spectral centroid fff > 3× ppp).
   - Rumble adds energy at the note's sub-2.
   - Mono-legato glides without retriggering.
-  - `ISD_H_MAGMA_ERUPT` fires on a hard low chord only.
+  - the erupt swell plays on a hard low chord only, and agrees with `BigMoments`.
 - **Replicant Brass:**
   - The swell's attack follows Swell.
   - The blare's overshoot appears at velocity 1 only.
