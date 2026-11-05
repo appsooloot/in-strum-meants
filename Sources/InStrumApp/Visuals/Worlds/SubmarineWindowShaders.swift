@@ -142,13 +142,15 @@ enum SubmarineWindowShaders {
         }
 
         // Shafts of the sun (or a bright moon) slanting down from the surface, flickering with it.
-        col += lightShafts(q * 0.8, s.shaft.xy, t, D, waves) * waterLight(D, L) * kWaterTint * s.light.w;
+        // (Lifted with depth, where the eye picks them out of the dark blue: a faint glow far above still reaches down.)
+        float shaftLift = 1.0 + 1.8 * smoothstep(20.0, 80.0, D);
+        col += lightShafts(q * 0.8, s.shaft.xy, t, D, waves) * waterLight(D, L) * kWaterTint * (s.light.w * shaftLift);
 
         // The eye's adaptation to the depth (and, in the shallows at night, to the dark).
         // (At night the window's stars are softened: seen through the surface's ripples they would read as a blizzard.)
         col = (col * s.lamp.y + skyPart * ((1.0 + 0.12 * (s.lamp.y - 1.0)) * (1.0 - 0.55 * s.room.z))) * waterAdapt(D);
         // The eye keeps a little green and red in a deep blue, so it reads as sea, not as a screen's blue.
-        col.g = max(col.g, 0.2 * col.b);
+        col.g = max(col.g, 0.28 * col.b);
         col.r = max(col.r, 0.03 * col.b);
 
         // The outside lamps: warm-white beams in the water, turning blue-green as they reach out.
@@ -348,7 +350,7 @@ enum SubmarineWindowShaders {
         float3 col = paint * lamp * pool * (1.0 - 0.45 * seam) + lamp * pool * rivet * 0.07;
         float shadow = mix(0.35, 1.0, smoothstep(R, R + 0.09, r));
         col *= shadow;
-        col += paint * sea * (1.5 * exp(-(r - R) * 6.0)) + paint * sea * 0.2;
+        col += paint * sea * (1.2 * exp(-(r - R) * 6.0)) + paint * sea * 0.18;
         col += float3(0.25, 0.75, 1.0) * (s.misc.y * 0.025 * exp(-(r - R) * 4.0));   // the living light, faintly
 
         // Cables: two along the top of the wall, sagging between their clips, and a short one from the gauge down to the
@@ -449,7 +451,9 @@ enum SubmarineWindowShaders {
                     float tk = max(1.0 - smoothstep(0.0025, 0.0045, minor) * 1.0, 0.0) * step(0.8, x);
                     tk = max(tk, (1.0 - smoothstep(0.004, 0.0065, major)) * step(0.72, x));
                     float3 ink = a > span * 0.82 ? float3(0.45, 0.04, 0.03) : float3(0.03, 0.03, 0.03);
-                    c = mix(c, ink * (0.4 + lamp), tk);
+                    // Luminous paint on the marks, faint under the red night lighting.
+                    float3 glowInk = float3(0.18, 0.32, 0.22) * (0.25 * night);
+                    c = mix(c, ink * (0.4 + lamp) + glowInk, tk);
                 }
                 // The needle: tapered, dark, with a red tip, and its shadow on the face.
                 float na = s.gauge.w;
@@ -460,7 +464,8 @@ enum SubmarineWindowShaders {
                 float salong = dot(sh, nd), sacross = abs(sh.x * nd.y - sh.y * nd.x);
                 if (salong > -0.15 * GR && salong < 0.85 * GR && sacross < w) c *= 0.7;
                 if (along > -0.15 * GR && along < 0.85 * GR && across < w) {
-                    c = along > 0.62 * GR ? float3(0.5, 0.05, 0.03) * (0.4 + lamp) : float3(0.02, 0.02, 0.025) + lamp * 0.03;
+                    c = along > 0.62 * GR ? float3(0.5, 0.05, 0.03) * (0.4 + lamp) + float3(0.18, 0.32, 0.22) * (0.25 * night)
+                                          : float3(0.02, 0.02, 0.025) + lamp * 0.03;
                 }
                 if (x < 0.1) {
                     float3 n = normalize(float3(g / max(gr, 1e-5) * (x / 0.1) * 0.8, 1.0));
