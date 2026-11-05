@@ -395,8 +395,10 @@ final class GreatBarrierReefRenderer: ThemeRenderer {
             let y = b.position.y < 1 ? 1 - (1 - b.position.y) * Self.beadRise : 1
             let at = screenPoint(x: b.position.x, waterHeight: y)
             let k = Self.unit(b.brightness)
-            dotInstances.append(SIMD4(at.x, at.y, b.size * pixel * 0.75, 0))
-            dotInstances.append(SIMD4(b.colour * seen * 1.6, min(1, 0.95 * k)))
+            // Pale bundles catch what light there is: the moon's, the corals' glow; a soft glow round each.
+            let lit: SIMD3<Float> = b.colour * (seen * 1.6 + SIMD3<Float>(repeating: 0.1 * night))
+            dotInstances.append(SIMD4(at.x, at.y, b.size * pixel * 0.95, 0))
+            dotInstances.append(SIMD4(lit, min(1, 0.95 * k)))
         }
         beadCount = dotInstances.count / 2
         snow.setQuality(quality)

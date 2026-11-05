@@ -169,13 +169,13 @@ enum GreatBarrierReefShaders {
         float4 p = r.phases;
         float sets = 0.55 + 0.45 * sin(p.x + A * 0.8) * sin(p.y * 0.7 - A * 0.33 + 1.1);
         float storm = r.weather.z;
-        float thick = (0.07 + 0.08 * storm) * (0.6 + 0.4 * sets);
+        float thick = (0.045 + 0.08 * storm) * (0.5 + 0.5 * sets);
         float band = 1.0 - smoothstep(thick - pxDeg, thick + pxDeg, abs(alt - thick * 0.5));
-        float spray = exp(-max(alt, 0.0) / (0.12 + 0.2 * storm)) * (0.25 + 0.45 * storm) * sets;
+        float spray = exp(-max(alt, 0.0) / (0.1 + 0.2 * storm)) * (0.15 + 0.45 * storm) * sets;
         float k = saturate(band * (0.55 + 0.45 * sets) + spray * 0.6) * gaps;
         float3 foam = r.sunColour.rgb * r.sun.w * (0.45 + 0.55 * saturate(r.sun.z * 2.0)) + r.moonColour.rgb * r.moon.w * 0.8
                     + r.ambient.rgb * 0.7;
-        return float4(foam * 0.95, k);
+        return float4(foam * 0.6, k);
     }
 
     /// Terns and noddies wheeling over the cay by day: seven small birds on lazy loops, each flapping on its own beat.
@@ -319,7 +319,8 @@ enum GreatBarrierReefShaders {
         float3 p = float3(d.xy * s, -(fromDepth + below));
         float t = r.surface.w;
         float foot = s * u.weather.w / max(-d.z, 0.05);
-        float caus = caustics(p, t, foot);
+        // (By moonlight the net is fainter: the eye sees little contrast at night.)
+        float caus = mix(1.0, caustics(p, t, foot), 0.45 + 0.55 * r.light.w);
         // Ripple marks: low ridges across the current, wandering a little, settling out where finer than a pixel.
         float settle = 1.0 - smoothstep(0.05, 0.3, foot * 2.4);
         float rip = sin(p.x * 2.4 + 1.3 * sin(p.y * 0.7) + 0.4 * sin(p.y * 1.9 + 1.1)) * settle;
@@ -641,6 +642,19 @@ enum GreatBarrierReefShaders {
             float sandDist;
             col = reefSand(d, u, r, D, kSandBelow, sandDist);
             depth = saturate(sandDist / 60.0);
+            // A far reef wall along the haze, 30 m off: a low ragged line of coral heads, nearly lost in the blue.
+            float wallD = 30.0;
+            float wallBase = r.surface.z - (kSandBelow / wallD) / r.camera.w;
+            if (in.ndc.y > wallBase - 0.002) {
+                float X = in.ndc.x * r.camera.z * wallD;
+                float hb = 0.45 + 0.9 * vnoise3(float3(X * 0.16, 2.0, 0.5)) + 0.35 * vnoise3(float3(X * 0.55, 5.0, 0.5));
+                float wallTop = r.surface.z - ((kSandBelow - hb) / wallD) / r.camera.w;
+                if (in.ndc.y < wallTop) {
+                    float3 rock = float3(0.36, 0.33, 0.32) * (waterLight(D + kSandBelow - 0.6, L) * 0.6 + waterLight(D, L) * kWaterTint * 0.3);
+                    col = throughWater(rock, D + 1.0, wallD, L);
+                    depth = saturate(wallD / 60.0);
+                }
+            }
             // The far bommies, nearly lost in the blue.
             float4 b = reefBommie(in.ndc, r);
             if (b.x > 0.0) {
