@@ -48,6 +48,8 @@ public struct FrostGrow {
     private var recent: [Double] = []
     private var lastChord = -Double.infinity
     private var flareTarget: Float = 0
+    /// A chord has called for a flare since the last step (while time is held it flares at once, at full strength).
+    private var flareBorn = false
 
     public init() {}
 
@@ -75,6 +77,7 @@ public struct FrostGrow {
         if recent.count >= 3, t - lastChord > Self.chordWindow {
             lastChord = t
             flareTarget = max(flareTarget, min(1, reactionScale.isFinite ? reactionScale : 1))
+            flareBorn = true
             switch PlayingAnalyzer.classify(held.union(sustained)) {
             case .major: flareWarm = 1
             case .minor: flareWarm = 0
@@ -141,6 +144,8 @@ public struct FrostGrow {
         // The flare rises quickly toward its target, which dies away; the flare follows it down.
         flareTarget *= Float(exp(-step / Self.flareFall))
         if flareTarget > flare { flare += (flareTarget - flare) * Float(1 - exp(-step / Self.flareRise)) } else { flare = flareTarget }
+        if step == 0, flareBorn { flare = max(flare, flareTarget) }
+        flareBorn = false
         if flare < 1e-4 { flare = 0 }
     }
 

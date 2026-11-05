@@ -55,8 +55,9 @@ public struct LanternFlake: Equatable {
 /// curling off the ribbon toward its key's place across the bowl, as high as its velocity; held (or pedalled) notes
 /// keep their wisps drawn upward and brighten the steam; runs draw the melody's contour up the ribbon (the last 12
 /// notes' pitches, newest lowest); chords puff a rounder cloud, warm for major and cool for minor; a hard note knocks a
-/// snowflake off the stone lantern's cap outside. Deterministic; every brightness it hands out is 0…1 and changes
-/// smoothly, for the renderer's `FlashLimiter`.
+/// snowflake off the stone lantern's cap outside. Deterministic; every brightness it hands out is 0…1 and, while time
+/// runs, changes smoothly, for the renderer's `FlashLimiter` (while it is held, what a note makes appears at once, at
+/// its bloom, and stays).
 public struct SteamLines {
     public static let cap = 24
     public static let maxSpawnsPerStep = 8
@@ -77,6 +78,9 @@ public struct SteamLines {
     /// Chords: three or more notes within 60 ms.
     static let chordWindow = 0.06
     static let puffRise = 0.15, puffFall = 1.5
+    /// While time is held (a step of dt 0) a wisp that left the ribbon since the last step starts risen to its height,
+    /// and a chord's puff this old (it swells in over about 0.15 s), at its full strength: else neither would show.
+    public static let puffBloomAge: Float = 0.15
     /// The steam brightens while notes sound (τ in, seconds) and settles back in silence (τ out, times the linger).
     static let glowRise = 0.6, glowFall = 3.0
     /// A note at least this hard (velocity 0…1) knocks a snowflake off the lantern's cap; it falls for `flakeLife` s.
@@ -252,6 +256,9 @@ public struct SteamLines {
             lastSpawns += 1
         }
         queue.removeFirst(min(queue.count, Self.maxSpawnsPerStep))
+        if step == 0 {
+            for i in wisps.indices where wisps[i].age == 0 { wisps[i].rise = max(wisps[i].rise, wisps[i].height) }
+        }
 
         // The ribbon glides toward the run's shape, which relaxes back to straight.
         let relax = Float(exp(-step / (Self.fadeTau * linger)))
@@ -277,6 +284,11 @@ public struct SteamLines {
         }
         if puff.strength < 1e-4 { puff.strength = 0; if puffTarget < 1e-4 { puffTarget = 0 } }
         puff.age = min(puff.age + fdt, 600)
+        // A chord sets the puff's age back to 0, so a puff at age 0 with a target was called for since the last step.
+        if step == 0, puff.age == 0, puffTarget > 0 {
+            puff.strength = max(puff.strength, puffTarget)
+            puff.age = Self.puffBloomAge
+        }
 
         // The lantern's flake falls, and is gone once it has.
         if var flake = lanternFlake {

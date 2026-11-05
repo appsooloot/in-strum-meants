@@ -12,6 +12,9 @@ public protocol InstrumentEngine: AnyObject {
     func panic()
     var audioLevel: Float { get }
     var masterVolume: Float { get set }
+    /// A run-time gain on the instrument and the ambience, 0…1 (the sleep fade): never saved, and the saved volumes
+    /// never see it.
+    var sleepGain: Float { get set }
     var bufferFrames: UInt32 { get set }
     var soundReading: SoundReading { get }
     var loadedAudioUnit: AUAudioUnit? { get }

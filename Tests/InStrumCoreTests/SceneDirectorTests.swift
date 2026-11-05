@@ -204,6 +204,46 @@ final class SceneDirectorTests: XCTestCase {
         XCTAssertNil(always.lastSky?.shower)
     }
 
+    /// Small Wins' seams change nothing by default: the renderers step by the frame's own dt, the exposure is
+    /// untouched, the report carries the sky and the key, and the ambience is the frame's own with the key on it (a
+    /// theme without a soundscape sends silence, with the key).
+    func testDefaultControlsChangeNothing() throws {
+        let cMajor: [UInt8] = [60, 62, 64, 65, 67, 69, 71, 72] + [55, 59, 62, 65] + [48, 52, 55, 60]
+        func playing(_ id: String) -> SceneDirector {
+            let d = SceneDirector(themeID: id, state: ThemeState(), reaction: ReactionPresets.expressivePianist)
+            d.clock = { Date(timeIntervalSince1970: 1_793_000_000) }
+            for (i, n) in cMajor.enumerated() {
+                d.handle([.noteOn(note: n, velocity: 0.7)], at: Double(i) * 0.25)
+                d.handle([.noteOff(note: n)], at: Double(i) * 0.25 + 0.2)
+            }
+            return d
+        }
+        let lake = playing(MoonlitLakeModel.id)
+        XCTAssertEqual(lake.controls, SceneControls())
+        let key = try XCTUnwrap(lake.key)
+        XCTAssertEqual(key, AmbienceKey(root: 0, major: true))
+        var t = 4.0
+        for i in 0..<60 {
+            let dt = i % 3 == 2 ? 1.0 / 30 : 1.0 / 60
+            t += dt
+            let frame = lake.step(dt: dt, t: t, quality: .lite)
+            XCTAssertEqual(lake.visualDt, dt)
+            XCTAssertEqual(lake.exposureScale, 1)
+            XCTAssertFalse(lake.holding)
+            XCTAssertNotNil(lake.lastSky)
+            XCTAssertEqual(lake.report, SceneReport(holding: false, sky: lake.lastSky, key: key))
+            var expected = try XCTUnwrap((frame as? AmbienceProviding)?.ambience)
+            expected.key = key
+            XCTAssertEqual(lake.ambience(for: frame, at: t), expected)
+        }
+        XCTAssertGreaterThan(lake.ambience(for: lake.step(dt: 1.0 / 60, t: t, quality: .lite), at: t).level(.water), 0.5)
+        let steinway = playing(MidnightSteinwayModel.id)
+        let frame = steinway.step(dt: 1.0 / 60, t: 4, quality: .lite)
+        XCTAssertEqual(steinway.ambience(for: frame, at: 4), AmbienceScene(key: key))
+        XCTAssertEqual(steinway.report, SceneReport(holding: false, sky: nil, key: key))
+        XCTAssertEqual(steinway.visualDt, 1.0 / 60)
+    }
+
     /// What a pulse-aware probe saw on its latest step.
     struct PulseSeen: Equatable {
         var pulse: InstrumentPulse?

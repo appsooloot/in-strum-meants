@@ -53,10 +53,14 @@ enum SynthRender {
     /// Chord `c` of a run of two-hand chords: eight notes in fourths up from C2, each chord a whole tone above the last
     /// (a semitone more after five), struck at `t` and let go `gap` later, as the next one comes.
     static func handChord(_ c: Int, at t: Double, gap: Double, velocity: UInt8) -> [Event] {
-        (0..<8).flatMap { k -> [Event] in
-            let note = UInt8(36 + 2 * (c % 5) + c / 5 + 5 * k)
-            return [noteOn(t, note, velocity), noteOff(t + gap, note)]
+        let root: Int = 36 + 2 * (c % 5) + c / 5
+        var events: [Event] = []
+        for k in 0..<8 {
+            let note = UInt8(root + 5 * k)
+            events.append(noteOn(t, note, velocity))
+            events.append(noteOff(t + gap, note))
         }
+        return events
     }
 
     /// Two-hand chords `gap` s apart under the pedal on one synth, against the same chords each on a synth of its own,
