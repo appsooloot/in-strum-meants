@@ -70,7 +70,7 @@ Both sets go at the end of the gallery, in this order.
 | Piece | Where | New or grows |
 |---|---|---|
 | Vintage-synth core | `Sources/InStrumDSP/AnalogVoice.hpp` | grows: drive, wavefolder, unison, a filter envelope with velocity depth, glide, mono/legato |
-| Arpeggiator | `Sources/InStrumDSP/Arp.hpp` (new, shared) | new; Blue Depth's private arp moves onto it, locked by a fingerprint test first |
+| Arpeggiator | `Sources/InStrumDSP/Arp.hpp` (new, shared) | new; the new engines use it, and Blue Depth keeps its own for now |
 | Magma Bass, Replicant Brass | `MagmaBass.{hpp,cpp}`, `ReplicantBrass.{hpp,cpp}` | new engines 12 and 13 |
 | Excitement | `Sources/InStrumCore/Excitement/` (new): `Excitement.swift`, `BigMoments.swift`, `Surprises.swift`, `Tension.swift` | new; `SceneDirector` owns one |
 | `ExcitementAware` | `SceneDirector.swift` | new protocol, which every world model adopts |
@@ -89,8 +89,10 @@ Both sets go at the end of the gallery, in this order.
 
 ### 4.1 The vintage-synth core (grows `AnalogVoice.hpp`)
 Blue Depth already has two shaped oscillators, a sub, noise, Slop, a 4-pole ladder, a high-pass and two envelopes. The core adds the following, all header-only in `isd::analog` and allocation-free:
-- **`Drive`:** a pre-filter soft clipper. `y = tanh(g·x) / tanh(g)` with `g = 1 + 11·drive`, band-limited by 2× oversampling of the clipper alone (a half-band pair). There is also an `asym` term, `x + 0.15·asym·x²` before the tanh, for even-harmonic grit.
-- **`Fold`:** a sine wavefolder, `sin(π/2 · (1 + 3·fold) · x)`, after the oscillators and before the drive, oversampled with the drive.
+- **`Shaper` (fold, then drive):** a pre-filter soft clipper, `y = tanh(g·x) / tanh(g)` with `g = 1 + 11·drive`. There is also an `asym` term, `x + 0.15·asym·x²` before the tanh, for even-harmonic grit.
+  - Before it sits a sine wavefolder, `sin(π/2 · (1 + 3·fold) · x)`, crossfaded in over fold 0–0.2 so 0 is a true bypass.
+  - Both are anti-aliased by **first-order ADAA** (antiderivative anti-aliasing, in double precision) instead of oversampling. That is cheaper and adds only half a sample of delay.
+  - Measured on a 2 kHz saw at 44.1 kHz, it cuts aliased power by 10–13 dB against the plain shaper, to about −29 to −31 dB of the harmonics. The bass mostly plays far lower, where aliasing is much smaller.
 - **`Unison`:** 1–7 saws spread ±`spread` cents, with seeded phases and an equal-power level. This is for the brass's width; the basses use 1–2.
 - **`FilterEnv`:** the ladder's own ADSR, with depth in octaves (−4…+6). Its **velocity depth** scales the depth by `(1 − vd) + vd·velocity`, so hard playing opens the filter wide. Aftertouch adds `+pressure × pd` octaves, smoothed at 15 ms.
 - **`Glide`:** portamento in constant time (5–600 ms) or constant rate. Legato mode glides only on overlapping notes.
@@ -98,7 +100,7 @@ Blue Depth already has two shaped oscillators, a sub, noise, Slop, a 4-pole ladd
 - **`LadderDrive`:** feedback saturation inside the ladder (the existing tanh), with a gain trim, so resonance growls instead of whistling.
 
 **Cost:**
-- Each piece is measured in CI by the existing per-voice cycle test. The budget is 270 cycles per voice per sample, and the 2× clipper is the costliest piece (about 40 cycles).
+- Each piece is measured in CI by the existing per-voice cycle test. The budget is 270 cycles per voice per sample, and the ADAA shaper is the costliest piece (about 40–60 cycles: a log and two cosines in double).
 - Unison saws cost about 12 cycles each, so the brass's 7-saw stack is held to 6 voices (§4.3).
 
 ### 4.2 Magma Bass (Set 13)
@@ -172,7 +174,7 @@ A huge, swelling film-score synth brass in the right hand. A punchy bright bass 
   - It is sample-accurate against `samplesToNextArpEvent()`, the way Blue Depth already schedules.
   - Its tempo comes from the engine's Tempo parameter, or from the app's `instrumentPulse` when Follow is on.
   - Its rate menu is shared.
-- **Blue Depth's private arp moves onto it.** A fingerprint test locks Blue Depth's current output first, so nothing it plays changes.
+- **Blue Depth keeps its own arp for now** (decision 7). The new engines use the shared one.
 - **The app:** an **Arp** row in the instrument panel for any engine that declares `supportsArp` (Blue Depth, Magma Bass, Replicant Brass at first). It has Mode, Rate and Hold, and the sustain pedal can act as Hold (an Advanced option).
 
 ### 4.5 CPU budget (measured in CI)
@@ -550,7 +552,7 @@ Tests come first, RED then GREEN. They run in CI on macos-15.
 
 **DSP:**
 - **The core:**
-  - Drive and Fold are band-limited (aliasing under −60 dB at a 2 kHz saw, 44.1 kHz).
+  - ADAA cuts the shaper's aliasing by ≥ 8 dB against the plain shaper (2 kHz saw, 44.1 kHz).
   - Unison has equal power.
   - Glide reaches its target within its time.
 - **Magma Bass:**
@@ -625,7 +627,7 @@ Tests come first, RED then GREEN. They run in CI on macos-15.
 4. **Magma Bass is poly by default** (6 voices) with a Mono switch, so chords growl. Cost: a default flip.
 5. **Magma Bass has a right-hand Spark layer** above C4 instead of bass all the way up. Cost: Spark to 0.
 6. **Replicant Brass's 7-saw unison** limits it to 6 voices. Cost: more voices with fewer saws (a dial).
-7. **The arpeggiator is shared** and Blue Depth's moves onto it, locked by a fingerprint. Cost: none to Blue Depth's sound.
+7. **The arpeggiator is shared by the new engines; Blue Depth keeps its own** for now, because it is tuned and tested and moving it risks its sound. Moving it later needs a fingerprint test first. Cost: two arp implementations until then.
 8. **Excitement is on by default** (moments Some, surprises Rare, build and drop on) in every world, including the calm ones. Cost: one switch, or per-world defaults.
 9. **Moments come only from playing,** never on a timer. Surprises need recent playing too. Cost: an "ambient surprises" option.
 10. **Every flash moment is governed by `FlashLimiter`**, and gentle visuals turns flashes into glows. Cost: none; these are the standing rules.

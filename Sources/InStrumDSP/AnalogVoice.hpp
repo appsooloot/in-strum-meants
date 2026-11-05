@@ -314,5 +314,168 @@ struct ADSR {
     }
 };
 
+// ---------- The vintage-synth core's additions (Sets 13 & 14, spec §4.1 of 2026-11-05-fire-and-neon-design.md) ----------
+// Nothing here changes Blue Depth: every addition is a new type, and Ladder's saturation defaults to off.
+
+/// The antiderivative of tanhApprox: (27 + 9x² + 216·ln(27 + 9x²)) / 162 within ±3, and linear beyond (where
+/// tanhApprox is ±1), so the two join smoothly.
+/// In double: ADAA divides a difference of these by a small step, so float rounding would become hiss.
+inline double tanhApproxIntegral(double x) {
+    const double ax = std::fabs(x);
+    auto inner = [](double v) { const double w = 27.0 + 9.0 * v * v; return (w + 216.0 * std::log(w)) * (1.0 / 162.0); };
+    if (ax <= 3.0) return inner(ax);
+    return inner(3.0) + (ax - 3.0);
+}
+
+/// The growl stage: a sine wavefolder, then a soft clipper with an even-harmonic (asymmetric) term. Both are
+/// first-order antiderivative anti-aliased (ADAA), so a driven saw stays clean without oversampling; the price is
+/// half a sample of delay. set(drive, fold, asym), each 0…1; reset() between notes; process(x).
+///   Fold:  m·sin(π/2·(1 + 3·fold)·x) + (1 − m)·x, with m = min(1, 5·fold) so a fold of 0 is a true bypass.
+///   Drive: tanh(g·x′) / tanh(g), g = 1 + 11·drive, x′ = x + 0.15·asym·x² (the asym term adds DC: high-pass after).
+struct Shaper {
+    float g = 1.f, invNorm = 1.f, foldMix = 0.f, asym = 0.f;
+    double foldK = 0.5 * 3.14159265358979323846;
+    double dPrev = 0.0, dFPrev = tanhApproxIntegral(0.0);   // the drive's last input (scaled) and its antiderivative
+    double fPrev = 0.0;                                     // the fold's last input
+    static constexpr double kEps = 1e-5;
+
+    void set(float drive, float fold, float asymmetry) {
+        g = 1.f + 11.f * clamp01(drive);
+        invNorm = 1.f / tanhApprox(g);
+        const float f = clamp01(fold);
+        foldK = 0.5 * 3.14159265358979323846 * (1.0 + 3.0 * f);
+        foldMix = std::min(1.f, 5.f * f);
+        asym = 0.15f * clamp01(asymmetry);
+    }
+    void reset() { dPrev = 0.0; dFPrev = tanhApproxIntegral(0.0); fPrev = 0.0; }
+
+    float foldADAA(float xf) {
+        // ∫ sin(kx) dx = −cos(kx)/k
+        const double x = xf, d = x - fPrev;
+        const double y = std::fabs(d) > kEps ? (std::cos(foldK * fPrev) - std::cos(foldK * x)) / (foldK * d)
+                                             : std::sin(foldK * 0.5 * (x + fPrev));
+        fPrev = x;
+        return (float)y;
+    }
+    float driveADAA(float x) {
+        const double u = (double)g * ((double)x + (double)asym * (double)x * (double)x);
+        const double F = tanhApproxIntegral(u), d = u - dPrev;
+        const double y = std::fabs(d) > kEps ? (F - dFPrev) / d : (double)tanhApprox((float)(0.5 * (u + dPrev)));
+        dPrev = u; dFPrev = F;
+        return (float)y * invNorm;
+    }
+    float process(float x) {
+        if (foldMix > 0.f) x = foldMix * foldADAA(x) + (1.f - foldMix) * x;
+        return driveADAA(x);
+    }
+};
+
+/// A stack of up to N band-limited saws spread evenly across ±spread cents, with seeded phases and an equal-power
+/// sum (÷√count), for width. setCount(n), setSpread(cents), reset(seed); next(baseInc) per sample.
+template <int N>
+struct Unison {
+    SawOsc saw[N];
+    float ratio[N] = {};
+    int count = 1;
+    float gain = 1.f;
+    void setCount(int n) { count = std::clamp(n, 1, N); gain = 1.f / std::sqrt((float)count); }
+    void setSpread(float cents) {
+        for (int i = 0; i < N; ++i) {
+            const float pos = count > 1 ? 2.f * (float)i / (float)(count - 1) - 1.f : 0.f;
+            ratio[i] = std::exp2(pos * cents / 1200.f);
+        }
+    }
+    void reset(uint64_t seed) { FastRandom r(seed); for (auto &s : saw) s.reset(r.uniform()); }
+    float next(float baseInc) {
+        float sum = 0.f;
+        for (int i = 0; i < count; ++i) sum += saw[i].next(std::min(kMaxIncrement, baseInc * ratio[i]));
+        return sum * gain;
+    }
+};
+
+/// The ladder's own envelope, in octaves of cutoff: depth × ((1 − vd) + vd·velocity) × the ADSR. So with a velocity
+/// depth of 1, a soft note barely opens the filter and a hard one opens it the whole depth.
+struct FilterEnv {
+    ADSR env;
+    float depth = 0.f, velocityDepth = 0.f, scale = 1.f;
+    void set(float a, float d, float s, float r, float sr) { env.setAttack(a, sr); env.setDecay(d, sr); env.setSustain(s); env.setRelease(r, sr); }
+    void setDepth(float octaves) { depth = octaves; }
+    void setVelocityDepth(float vd) { velocityDepth = clamp01(vd); }
+    void gate(bool on, float velocity) {
+        if (on) { scale = (1.f - velocityDepth) + velocityDepth * clamp01(velocity); env.trigger(1.f); }
+        else env.release();
+    }
+    void clear() { env.clear(); }
+    /// Advances one sample; returns the envelope's offset in octaves.
+    float next() { return depth * scale * env.next(); }
+    /// Advances n samples (a per-block envelope); returns the offset at the end.
+    float advance(int n) { float v = 0.f; for (int i = 0; i < n; ++i) v = env.next(); return depth * scale * v; }
+};
+
+/// Portamento in constant time: a straight line in semitones from where the pitch is to the new target, arriving
+/// exactly after `seconds`. jump() skips the glide (a new phrase, or legato-only with no overlap).
+struct Glide {
+    float current = 0.f, target = 0.f, step = 0.f;
+    int remaining = 0, total = 1;
+    void setTime(float seconds, float sr) { total = std::max(1, (int)std::lround(std::max(seconds, 0.f) * sr)); }
+    void jump(float semitones) { current = target = semitones; remaining = 0; step = 0.f; }
+    void glideTo(float semitones) {
+        target = semitones;
+        remaining = total;
+        step = (target - current) / (float)total;
+    }
+    /// Advances n samples; returns the pitch (semitones) at the end.
+    float advance(int n) {
+        if (remaining <= 0) return current = target;
+        const int k = std::min(n, remaining);
+        current += step * (float)k;
+        remaining -= k;
+        if (remaining <= 0) current = target;
+        return current;
+    }
+    bool gliding() const { return remaining > 0; }
+};
+
+/// How a voice takes new notes: every key its own voice, or one voice for the last key held (retriggering on each
+/// new key, or legato: no retrigger and a glide while keys overlap).
+enum class VoiceMode { poly, mono, legato };
+
+/// The keys held for a mono voice, last pressed last, so letting go of the newest returns to the one before.
+struct MonoKeys {
+    static constexpr int kMax = 16;
+    int note[kMax] = {}, velocity[kMax] = {};
+    int count = 0;
+    void press(int n, int v) {
+        release(n);
+        if (count == kMax) { for (int i = 1; i < kMax; ++i) { note[i - 1] = note[i]; velocity[i - 1] = velocity[i]; } --count; }
+        note[count] = n; velocity[count] = v; ++count;
+    }
+    void release(int n) {
+        for (int i = 0; i < count; ++i) if (note[i] == n) {
+            for (int j = i + 1; j < count; ++j) { note[j - 1] = note[j]; velocity[j - 1] = velocity[j]; }
+            --count;
+            return;
+        }
+    }
+    void clear() { count = 0; }
+    bool empty() const { return count == 0; }
+    int top() const { return count ? note[count - 1] : -1; }
+    int topVelocity() const { return count ? velocity[count - 1] : 0; }
+};
+
+/// A ladder whose input saturates before the filter, so driven resonance growls instead of whistling. `drive` 0
+/// is the plain Ladder exactly; above it, the input passes tanh(gd·x)/gd with gd = 1 + 3·drive (unity for small
+/// signals, compressing loud ones into the loop).
+struct DrivenLadder {
+    Ladder ladder;
+    float drive = 0.f, gd = 1.f;
+    void setDrive(float d) { drive = clamp01(d); gd = 1.f + 3.f * drive; }
+    void reset() { ladder.reset(); }
+    void setResonance(float r) { ladder.setResonance(r); }
+    void setCutoff(float hz, float sr, int n) { ladder.setCutoff(hz, sr, n); }
+    void snapCutoff(float hz, float sr) { ladder.snapCutoff(hz, sr); }
+    float process(float x) { return ladder.process(drive > 0.f ? tanhApprox(gd * x) / gd : x); }
+};
+
 } // namespace analog
 } // namespace isd

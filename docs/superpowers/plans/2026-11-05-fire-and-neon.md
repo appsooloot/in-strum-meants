@@ -92,34 +92,20 @@
 
 ### Task 1: The vintage-synth core grows, and the shared arpeggiator (DSP)
 **Files:**
-- Modify: `AnalogVoice.hpp` (Drive, Fold, Unison, FilterEnv, Glide, voice modes, LadderDrive) and `BlueDepth.{hpp,cpp}` (onto the shared arp).
-- Create: `Arp.hpp`; `Tests/InStrumAudioTests/DSP/VintageCoreTests.swift`, `ArpTests.swift`.
+- Modify: `AnalogVoice.hpp` (`Shaper` with ADAA fold and drive, `Unison<N>`, `FilterEnv`, `Glide`, `VoiceMode`, `MonoKeys`, `DrivenLadder`).
+- Create: `Arp.hpp`.
+- **Status:** done in the integrator's session on `sets-13-14`. It was verified with a C++ harness under g++ and clang: the arp's timing, modes, swing, hold, reset and phrase gap; the unison's equal power; the glide's arrival; and ADAA cutting aliasing by 10–13 dB. The Swift tests for these pieces go through the engines in Tasks 2 and 3, since the core has no C API of its own. Blue Depth is untouched.
 
-**Interfaces:**
-- **Produces:**
-  - `isd::analog::Drive{ setDrive(d), setAsym(a), process(x) }` (2× oversampled)
-  - `Fold{ set(f), process(x) }`
-  - `Unison<7>{ setCount(n), setSpread(cents), next(inc) }`
-  - `FilterEnv{ set(a, d, s, r), setDepth(oct), setVelocityDepth(vd), gate(on, vel), next() → octaves }`
-  - `Glide{ setTime(s), setLegatoOnly(b), target(hz), next() }`
-  - `VoiceMode{ poly, mono, legato }`
-  - `isd::Arp{ setMode, setRate, setOctaves, setGate, setSwing, setHold, noteOn/noteOff, tempo(bpm), samplesToNext(), step() → (note, vel, isOn) }`
-- **Consumes:** the existing `AnalogVoice.hpp` API (oscillators, Slop, Ladder, envelopes).
+**Interfaces** (as built; read the headers' API comments):
+- `isd::analog::Shaper{ set(drive, fold, asym), reset(), process(x) }`: ADAA fold, then drive.
+- `Unison<N>{ setCount(n), setSpread(cents), reset(seed), next(baseInc) }`
+- `FilterEnv{ set(a, d, s, r, sr), setDepth(oct), setVelocityDepth(vd), gate(on, vel), next() / advance(n) → octaves }`
+- `Glide{ setTime(s, sr), jump(st), glideTo(st), advance(n) → st, gliding() }`
+- `VoiceMode{ poly, mono, legato }`, `MonoKeys{ press, release, top, topVelocity }`
+- `DrivenLadder{ setDrive, setResonance, setCutoff, snapCutoff, process }`
+- `isd::Arp{ prepare(sr, seed), setMode, setRate(beatsPerStep), rateFromIndex(i), setOctaves, setGate, setSwing, setHold, setTempo, keyDown(note, vel, clock), keyUp(note, clock), reset(), poll(clock, Event&) → bool, samplesToNext(clock), running() }`. Engines call `poll` until it returns false at each sub-block start, and render at most `samplesToNext` samples.
 
-**Steps:**
-- [ ] **Write the tests** (RED):
-  - **The fingerprint, first:** `testBlueDepthFingerprintUnchanged`. Capture Blue Depth's output hash for a fixed 4-second performance (Blink .6, Tempo 118, the three-note chord in its tests) on the current code. Commit the constant. It must still match after the arp moves.
-  - `testDriveIsBandLimited`: a 2 kHz saw at 44.1 kHz with Drive 1 has aliased energy ≤ −60 dB against its harmonics.
-  - `testFoldAddsHarmonicsSmoothly`: harmonic energy rises monotonically with Fold 0 → 1, and the output stays finite.
-  - `testUnisonKeepsEqualPower`: RMS is within ±0.5 dB for counts 1…7.
-  - `testFilterEnvFollowsVelocity`: with velocity depth 1, the peak cutoff at vel 1 is ≥ 4 octaves above vel 0.1.
-  - `testGlideReachesTarget`: A2→A3 at 200 ms is within 5 cents by 210 ms. Legato-only doesn't glide non-overlapping notes.
-  - `testArpModesAndTiming`: Up, Down, Up-down, Played and Random (seeded) give their expected orders. At 120 BPM in sixteenths, onsets are within 1 sample of 125 ms steps. Swing 0.5 delays the even steps by a third of a step.
-  - `testArpHoldLatches`: Hold on, chord released: the arp continues. A new chord replaces the latch.
-  - `testArpStopsOnPanic` (Review focus 2): `allSoundOff` → silent within 50 ms; a new chord starts a fresh grid within 1 ms.
-- [ ] **Implement** per spec §4.1 and §4.4, with no allocation. Move Blue Depth onto `Arp.hpp`; the fingerprint must still pass.
-- [ ] **Push to `mick`**, run `ciwatch.sh`, and fix until green.
-- [ ] **Commit:** `feat(dsp): the vintage-synth core grows; a shared arpeggiator (Blue Depth unchanged)`.
+**Steps:** done (see Status). Tasks 2 and 3 carry the Swift-level tests (the drive's growl, the glide and the arp's timing through the engines). The C++ harness is `Scripts/dsp-harness/core_test.cpp` (see its README).
 
 ### Task 2: Magma Bass (DSP)
 **Files:** `MagmaBass.{hpp,cpp}`, `Synth.cpp` (the engine 12 table, in spec §4.2's dial order; mood 100–104; hook 217), `Tests/InStrumAudioTests/DSP/MagmaBassTests.swift`, `CPUBudgetTests.swift`.
@@ -378,7 +364,7 @@
 Subagent-driven, at most **two agents at a time** on Extra effort. The integrator (the main session) merges, fixes small things and keeps the docs.
 
 **Order:**
-- Tasks 0 → 1, then the agents split up:
+- Tasks 0 and 1 are done (the integrator). The agents split up:
   - **Agent A** takes 2 → 3 → 4 (the instruments).
   - **Agent B** takes 5 → 6 → 7 (Excitement).
 - Then A takes 8 → 9 → 10 and B takes 11 → 12, followed by 13 → 14 split between them, then 15 and 16.
