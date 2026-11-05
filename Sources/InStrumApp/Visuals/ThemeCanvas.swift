@@ -22,6 +22,7 @@ final class ThemeCanvas: NSObject, MTKViewDelegate {
     private var bay: BioluminescentBayRenderer?
     private var teaHouse: TeaHouseSnowRenderer?
     private var zenGarden: ZenRockGardenRenderer?
+    private var submarine: SubmarineWindowRenderer?
     private var autoQuality: AutoQuality
     private var lastTime: CFTimeInterval = 0
     private var seenVersion = -1
@@ -156,6 +157,10 @@ final class ThemeCanvas: NSObject, MTKViewDelegate {
             if zenGarden == nil { zenGarden = ZenRockGardenRenderer(device: device) }
             zenGarden?.update(z, params: director.parameters, quality: level, gentle: gentle, dt: dt, size: size)
             renderer = zenGarden
+        } else if let w = frame as? SubFrame {
+            if submarine == nil { submarine = SubmarineWindowRenderer(device: device) }
+            submarine?.update(w, params: director.parameters, quality: level, gentle: gentle, dt: dt, size: size)
+            renderer = submarine
         } else {
             renderer = nil
         }
