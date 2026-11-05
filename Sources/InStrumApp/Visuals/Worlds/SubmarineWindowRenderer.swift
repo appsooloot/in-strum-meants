@@ -77,7 +77,9 @@ final class SubmarineWindowRenderer: ThemeRenderer {
         colX = max(colX, cx + outer + 0.02 + columnW * k / 2)
         let gr = gaugeR * k, sr = sonarR * k
         let gy = top - 0.06 - gr * 1.18
-        let sy = max(bottom + sr * 1.14 + 0.02, gy - gr * 1.18 - 0.12 * k - sr * 1.14)
+        let below: Float = bottom + sr * 1.14 + 0.02
+        let under: Float = gy - gr * 1.18 - 0.12 * k - sr * 1.14
+        let sy = max(below, under)
         return Layout(centre: SIMD2(cx / a, cy), radius: radius, ring: ring, gauge: SIMD2(colX / a, gy), gaugeRadius: gr,
                       sonar: SIMD2(colX / a, sy), sonarRadius: sr, consoleTop: consoleTop)
     }
@@ -283,7 +285,9 @@ final class SubmarineWindowRenderer: ThemeRenderer {
         let cabinNight = min(1, max(0, frame.cabinNight))
         let dayLight = SIMD3<Float>(0.78, 0.85, 0.95), redLight = SIMD3<Float>(0.95, 0.1, 0.05)
         let cabinLight = min(1, max(0, frame.cabinLight))
-        let cabinCol = (dayLight + (redLight - dayLight) * cabinNight) * ((0.12 + 0.88 * cabinLight) * (0.6 - 0.2 * cabinNight))
+        let cabinTint: SIMD3<Float> = dayLight + (redLight - dayLight) * cabinNight
+        let cabinLevel: Float = (0.12 + 0.88 * cabinLight) * (0.6 - 0.2 * cabinNight)
+        let cabinCol: SIMD3<Float> = cabinTint * cabinLevel
 
         // The living light through the flash limiter: how much of the window it lights, held to the flash rules.
         let visible = DeepLights.visible(frame.creatures, limit: Self.creatureBudget(quality))
@@ -311,12 +315,16 @@ final class SubmarineWindowRenderer: ThemeRenderer {
         uniforms[1] = SIMD4(Float(viewAz * .pi / 180), pitch, tanR, time)
         uniforms[2] = SIMD4(metres, frame.surfaceWaves, frame.rainOnSurface, frame.milky)
         uniforms[3] = SIMD4(surface, shaftStrength)
-        uniforms[4] = SIMD4(-sin(rel) * 0.45, -1, 2 * tanR / max(R, 0.05) / Float(max(1, size.height)), frame.snellVisible)
+        let pixelAngle: Float = 2 * tanR / max(R, 0.05) / Float(max(1, size.height))
+        uniforms[4] = SIMD4(-sin(rel) * 0.45, -1, pixelAngle, frame.snellVisible)
         let below: Float = metres < 70 ? 3 + 0.25 * metres : 0
-        uniforms[5] = SIMD4(lamps, nightGain, below, quality == .lite ? 0 : 1)
+        let qualityCode: Float = quality == .lite ? 0 : 1
+        uniforms[5] = SIMD4(lamps, nightGain, below, qualityCode)
         uniforms[6] = SIMD4(cabinCol, keyTop)
         uniforms[7] = SIMD4(lay.outer, lay.consoleTop, cabinNight, lay.ring)
-        uniforms[8] = SIMD4(glowSea + SIMD3<Float>(1, 0.92, 0.8) * (0.05 * lamps), min(1, max(0, frame.sonarScreen)) * (1 - 0.3 * cabinNight))
+        let wallGlow: SIMD3<Float> = glowSea + SIMD3<Float>(1, 0.92, 0.8) * (0.05 * lamps)
+        let screen: Float = min(1, max(0, frame.sonarScreen)) * (1 - 0.3 * cabinNight)
+        uniforms[8] = SIMD4(wallGlow, screen)
         let needle = (-135 + 270 * min(1, max(0, frame.depth))) * Float.pi / 180
         uniforms[9] = SIMD4(lay.gauge.x, lay.gauge.y, lay.gaugeRadius, needle)
         uniforms[10] = SIMD4(lay.sonar.x, lay.sonar.y, lay.sonarRadius, frame.sonarSweep)
@@ -331,7 +339,7 @@ final class SubmarineWindowRenderer: ThemeRenderer {
         creatureSprites.removeAll(keepingCapacity: true)
         func ndc(_ v: SIMD2<Float>) -> SIMD2<Float> { lay.centre + SIMD2((v.x - 0.5) * 2 * R / aspect, (v.y - 0.5) * 2 * R) }
         func lampAt(_ v: SIMD2<Float>) -> Float { Self.lampLight(SIMD2(2 * v.x - 1, 2 * v.y - 1)) * lamps }
-        func push(_ at: SIMD2<Float>, _ radius: Float, _ kind: Kind, lit: Float = 0, _ colour: SIMD3<Float>, _ param: Float = 0) {
+        func push(_ at: SIMD2<Float>, _ radius: Float, _ kind: Kind, _ colour: SIMD3<Float>, _ param: Float = 0, lit: Float = 0) {
             guard spriteList.count < Self.spriteCapacity, at.x.isFinite, at.y.isFinite, radius.isFinite else { return }
             spriteList.append(Sprite(a: SIMD4(at.x, at.y, max(radius, 0.0005), kind.rawValue + min(0.99, max(0, lit))),
                                      b: SIMD4(colour, param)))
@@ -344,13 +352,16 @@ final class SubmarineWindowRenderer: ThemeRenderer {
             for f in frame.snow.live where (f.position.z < 0.35) == near {
                 let v = SIMD2(f.position.x, f.position.y)
                 let z = f.position.z
-                let lampF = lampAt(v) * exp(-1.4 * z)
+                let lampF: Float = lampAt(v) * exp(-1.4 * z)
                 peak = max(peak, lampF)
-                let fade = 0.35 + 0.65 * exp(-1.2 * z)
-                let light = (ambient + lampCol * (3.5 * lampF) + cabinCol * (0.3 * max(0, 0.3 - z))) * (f.brightness * fade)
+                let fade: Float = 0.35 + 0.65 * exp(-1.2 * z)
+                let lampLit: SIMD3<Float> = lampCol * (3.5 * lampF)
+                let cabinLit: SIMD3<Float> = cabinCol * (0.3 * max(0, 0.3 - z))
+                let light: SIMD3<Float> = (ambient + lampLit + cabinLit) * (f.brightness * fade)
                 guard light.x + light.y + light.z > 0.003 else { continue }
-                let r = max(1.3 * pixel, 0.0045 * f.size * unit / (0.22 + z))
-                push(ndc(v), r, .snow, light * (near ? 0.6 : 1))
+                let r: Float = max(1.3 * pixel, 0.0045 * f.size * unit / (0.22 + z))
+                let shown: SIMD3<Float> = light * (near ? 0.6 : 1)
+                push(ndc(v), r, .snow, shown)
                 snowCount += 1
             }
             snowLampPeak = max(snowLampPeak, peak)
@@ -365,10 +376,12 @@ final class SubmarineWindowRenderer: ThemeRenderer {
             guard b > 0.002 else { continue }
             for k in 0..<max(0, min(sp.bells, 24)) {
                 let x = sp.position.x - Float(k) * DeepLights.bellSpacing
-                let y = sp.position.y + 0.012 * sin(Float(k) * 0.7 + time * 0.5 + Float(sp.id))
-                let fall = 1 - 0.35 * Float(k) / Float(max(1, sp.bells))
+                let ripple: Float = 0.012 * sin(Float(k) * 0.7 + time * 0.5 + Float(sp.id))
+                let y: Float = sp.position.y + ripple
+                let fall: Float = 1 - 0.35 * Float(k) / Float(max(1, sp.bells))
                 let fleck: Float = sp.flecks > 0.5 && k % 3 == 1 ? 1 : 0
-                push(ndc(SIMD2(x, y)), 0.013 * unit * fall, .bell, lit: lampAt(SIMD2(x, y)), sp.colour * (b * fall), fleck)
+                let bellColour: SIMD3<Float> = sp.colour * (b * fall)
+                push(ndc(SIMD2(x, y)), 0.013 * unit * fall, .bell, bellColour, fleck, lit: lampAt(SIMD2(x, y)))
                 bellCount += 1
             }
         }
@@ -392,7 +405,8 @@ final class SubmarineWindowRenderer: ThemeRenderer {
                 kind = .speck
                 tint = DeepLights.livingLight + (SIMD3<Float>(0.55, 0.9, 1.0) - DeepLights.livingLight) * (0.5 * h)
             }
-            push(at, radius, kind, lit: lampAt(c.position) * 0.9, tint * g, c.swimPhase)
+            let colour: SIMD3<Float> = tint * g
+            push(at, radius, kind, colour, c.swimPhase, lit: lampAt(c.position) * 0.9)
             creatureSprites.append((at, radius, g))
             creatureCount += 1
         }
@@ -403,8 +417,9 @@ final class SubmarineWindowRenderer: ThemeRenderer {
             guard b > 0.002 else { continue }
             for i in sh.contour.indices {
                 let v = sh.light(i)
-                let flick = 0.75 + 0.25 * sin(time * 17 + Float(i) * 2.1 + Float(sh.id))
-                push(ndc(v), 0.009 * unit, .photophore, SIMD3<Float>(0.55, 0.88, 1.0) * (b * flick))
+                let flick: Float = 0.75 + 0.25 * sin(time * 17 + Float(i) * 2.1 + Float(sh.id))
+                let colour: SIMD3<Float> = SIMD3<Float>(0.55, 0.88, 1.0) * (b * flick)
+                push(ndc(v), 0.009 * unit, .photophore, colour)
                 shoalLightCount += 1
             }
         }
@@ -422,9 +437,11 @@ final class SubmarineWindowRenderer: ThemeRenderer {
                 let hx = Self.hash(school, i), hy = Self.hash(school, i + 31)
                 let across = phase * 1.6 - 0.3 - 0.08 * hx
                 let x = heading > 0 ? across : 1 - across
-                let y = 0.42 + 0.22 * (hy - 0.5) + 0.015 * sin(time * 1.3 + Float(i) * 1.9)
+                let sway: Float = 0.015 * sin(time * 1.3 + Float(i) * 1.9)
+                let y: Float = 0.42 + 0.22 * (hy - 0.5) + sway
                 let r = (0.024 + 0.014 * hx) * unit
-                push(ndc(SIMD2(x, y)), r, .fish, lit: 0.8 * fishShow, glowSea * 0.25, heading)
+                let shade: SIMD3<Float> = glowSea * 0.25
+                push(ndc(SIMD2(x, y)), r, .fish, shade, heading, lit: 0.8 * fishShow)
                 fishCount += 1
             }
         }
@@ -440,10 +457,15 @@ final class SubmarineWindowRenderer: ThemeRenderer {
                 let delay = Self.hash(seed, j) * 1.1
                 let y = (st.age - delay) / DeepLights.streamRise
                 guard y > -0.02, y < 1.08 else { continue }
-                let wob = 0.014 * sin(st.age * 7 + Float(j) * 2.3) + 0.03 * (Self.hash(seed, j + 50) - 0.5)
+                let wobble: Float = 0.014 * sin(st.age * 7 + Float(j) * 2.3)
+                let wob: Float = wobble + 0.03 * (Self.hash(seed, j + 50) - 0.5)
                 let v = SIMD2(st.x + wob, y)
-                let r = (0.006 + 0.012 * Self.hash(seed, j + 90) * st.strength) * unit * (1 + 0.35 * max(0, y))
-                let light = (glowSea * 0.8 + lampCol * (lampAt(v) * 1.2) + cabinCol * 0.7 + SIMD3<Float>(repeating: 0.02)) * fadeOut
+                let size: Float = 0.006 + 0.012 * Self.hash(seed, j + 90) * st.strength
+                let r: Float = size * unit * (1 + 0.35 * max(0, y))
+                let sea: SIMD3<Float> = glowSea * 0.8
+                let lampLit: SIMD3<Float> = lampCol * (lampAt(v) * 1.2)
+                let cabinLit: SIMD3<Float> = cabinCol * 0.7 + SIMD3<Float>(repeating: 0.02)
+                let light: SIMD3<Float> = (sea + lampLit + cabinLit) * fadeOut
                 push(ndc(v), r, .bubble, light)
                 bubbleCount += 1
             }

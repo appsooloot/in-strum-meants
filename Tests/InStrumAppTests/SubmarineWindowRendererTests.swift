@@ -132,14 +132,18 @@ final class SubmarineWindowRendererTests: XCTestCase {
         // The sky is felt: by day in the shallows the glass is far brighter than the cabin's wall round it, and the
         // light from above falls off with depth.
         func glass(_ shot: SubShot) -> Double {
-            let c = shot.renderer.frameLayout.centre, r = Double(shot.renderer.frameLayout.radius) * 0.5
-            return FramePatch.meanRGB(shot.image, x: Double(c.x) - r * 360 / 640...Double(c.x) + r * 360 / 640,
-                                      y: Double(c.y) - r...Double(c.y) + r).sum() / 3
+            let c = shot.renderer.frameLayout.centre
+            let r: Double = Double(shot.renderer.frameLayout.radius) * 0.5
+            let rx: Double = r * 360 / 640
+            let x: ClosedRange<Double> = (Double(c.x) - rx)...(Double(c.x) + rx)
+            let y: ClosedRange<Double> = (Double(c.y) - r)...(Double(c.y) + r)
+            return FramePatch.meanRGB(shot.image, x: x, y: y).sum() / 3
         }
         let shallow = try Self.renderSub(at: 1, state: Self.depth(0)), mid = try Self.renderSub(at: 1, state: Self.depth(0.35))
         let lay = shallow.renderer.frameLayout
-        let wallX = Double(lay.centre.x) - Double(lay.outer + 0.1) * 360 / 640
-        let wall = FramePatch.meanRGB(shallow.image, x: max(-1, wallX - 0.1)...wallX, y: -0.2...0.2).sum() / 3
+        let wallX: Double = Double(lay.centre.x) - Double(lay.outer + 0.1) * 360 / 640
+        let wallSpan: ClosedRange<Double> = max(-1, wallX - 0.1)...wallX
+        let wall = FramePatch.meanRGB(shallow.image, x: wallSpan, y: -0.2...0.2).sum() / 3
         XCTAssertGreaterThan(glass(shallow), 2 * wall, "the sea lights the porthole: \(glass(shallow)) against the wall's \(wall)")
         XCTAssertGreaterThan(glass(shallow), glass(mid), "dimmer at 65 m")
         XCTAssertGreaterThan(shallow.frame.snellVisible, 0.9, "Snell's window shows at 15 m")
@@ -158,8 +162,10 @@ final class SubmarineWindowRendererTests: XCTestCase {
         XCTAssertGreaterThan(lit.renderer.glowOut, 0.9, "three creatures are far from a flash")
         let aspect = 640.0 / 360
         for c in lit.renderer.creatureSprites {
-            let r = Double(c.radius) * 0.4
-            let x = Double(c.centre.x) - r / aspect...Double(c.centre.x) + r / aspect, y = Double(c.centre.y) - r...Double(c.centre.y) + r
+            let r: Double = Double(c.radius) * 0.4
+            let cx = Double(c.centre.x), cy = Double(c.centre.y)
+            let x: ClosedRange<Double> = (cx - r / aspect)...(cx + r / aspect)
+            let y: ClosedRange<Double> = (cy - r)...(cy + r)
             let on = FramePatch.brightest(lit.image, x: x, y: y, share: 0.2), off = FramePatch.brightest(dark.image, x: x, y: y, share: 0.2)
             XCTAssertGreaterThan(on, off + 0.05, "a creature at \(c.centre): \(off) → \(on)")
         }
@@ -182,9 +188,9 @@ final class SubmarineWindowRendererTests: XCTestCase {
         XCTAssertGreaterThan(on.renderer.snowLampPeak, 0.2)
         XCTAssertEqual(off.renderer.snowLampPeak, 0)
         let lay = on.renderer.frameLayout
-        let half = Double(lay.radius) * 0.6 * 360 / 640
-        let x = Double(lay.centre.x) - half...Double(lay.centre.x) + half
-        let y = Double(lay.centre.y - lay.radius * 0.85)...Double(lay.centre.y - lay.radius * 0.3)
+        let half: Double = Double(lay.radius) * 0.6 * 360 / 640
+        let x: ClosedRange<Double> = (Double(lay.centre.x) - half)...(Double(lay.centre.x) + half)
+        let y: ClosedRange<Double> = Double(lay.centre.y - lay.radius * 0.85)...Double(lay.centre.y - lay.radius * 0.3)
         let lampLit = FramePatch.meanRGB(on.image, x: x, y: y).sum() / 3, dark = FramePatch.meanRGB(off.image, x: x, y: y).sum() / 3
         XCTAssertGreaterThan(lampLit, dark + 0.01, "the beams and the snow in them: \(dark) → \(lampLit)")
         XCTAssertLessThan(SubmarineWindowRenderer.lampLight(SIMD2(0, 2.5)), 0.1, "the beams fade out far up the glass")
@@ -214,20 +220,23 @@ final class SubmarineWindowRendererTests: XCTestCase {
         var history: [(t: Double, v: Float)] = [], rises: [Double] = []
         var peak: Float = 0
         var most = 0
+        var clock = 0.0   // the limiter's own clock: the sum of the frames' dt
         for i in 1...360 {
             let t = Double(i) / 60
+            clock += 1.0 / 60
             if i == 6 { d.handle((48...95).map { .noteOn(note: UInt8($0), velocity: 1) }, at: t) }   // 48 comb jellies and specks
             let f = try XCTUnwrap(d.step(dt: 1.0 / 60, t: t, quality: .high) as? SubFrame)
             r.update(f, params: d.parameters, quality: .high, gentle: false, dt: 1.0 / 60, size: size)
             most = max(most, f.creatures.count)
             let shown = r.livingLevel * r.glowOut
             peak = max(peak, r.livingLevel)
-            history.append((t, shown))
-            history.removeAll { t - $0.t > FlashLimiter.window }
-            if let first = history.first, shown - first.v > FlashLimiter.flashRise, rises.last.map({ t - $0 > FlashLimiter.window }) ?? true {
-                rises.append(t)
+            history.append((clock, shown))
+            history.removeAll { clock - $0.t > FlashLimiter.window }
+            if let first = history.first, shown - first.v > FlashLimiter.flashRise,
+               rises.last.map({ clock - $0 > FlashLimiter.window }) ?? true {
+                rises.append(clock)
             }
-            let lastSecond = rises.filter { t - $0 < 1 }.count
+            let lastSecond = rises.filter { clock - $0 < 1 }.count
             XCTAssertLessThanOrEqual(lastSecond, FlashLimiter.maxFlashesPerSecond, "at \(t) s")
         }
         XCTAssertGreaterThan(peak, 2 * FlashLimiter.flashRise, "the field is big enough to need the limiter")
@@ -256,8 +265,9 @@ final class SubmarineWindowRendererTests: XCTestCase {
             XCTAssertGreaterThan(lay.radius, 0.45, "\(w)×\(h): a big round viewport")
             for (name, centre, radius) in [("gauge", lay.gauge, lay.gaugeRadius * 1.18), ("sonar", lay.sonar, lay.sonarRadius * 1.14)] {
                 let p = centre * SIMD2(aspect, 1)
-                XCTAssertTrue(p.x - radius > -aspect && p.x + radius < aspect && p.y - radius > lay.consoleTop && p.y + radius < 1,
-                              "\(w)×\(h): the \(name) on screen at \(p)")
+                let across: Bool = p.x - radius > -aspect && p.x + radius < aspect
+                let upDown: Bool = p.y - radius > lay.consoleTop && p.y + radius < 1
+                XCTAssertTrue(across && upDown, "\(w)×\(h): the \(name) on screen at \(p)")
                 XCTAssertGreaterThan(simd_length(p - c), lay.outer + radius, "\(w)×\(h): the \(name) clear of the ring")
             }
             XCTAssertGreaterThan(simd_length(lay.gauge * SIMD2(aspect, 1) - lay.sonar * SIMD2(aspect, 1)),
