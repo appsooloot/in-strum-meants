@@ -122,6 +122,16 @@ final class CPUBudgetTests: XCTestCase {
         XCTAssertLessThan(seconds / 10, 0.06, "Reef Marimba used \(String(format: "%.1f", seconds * 10))% of real time")
     }
 
+    /// Six held low notes for 10 s at Growl .8 (the fold, drive, driven ladder and rumble all running), with a hard
+    /// low chord every 2 s setting off the swell (the g++ mirror: about 4–6% of a core on the build machine).
+    func testMagmaBassBudget() {
+        var events = [28, 35, 40, 47, 52, 59].map { R.noteOn(0, UInt8($0), 110) }
+        for k in 1..<5 { for n: UInt8 in [28, 33, 40, 45] { events.append(R.noteOn(Double(k) * 2, n, 120)) } }
+        let p: [Int: Float] = [Int(ISD_P_GROWL): 0.8]
+        let seconds = bestOfThree { _ = R.render(ISD_ENGINE_MAGMA_BASS, seconds: 10, params: p, events: events) }
+        XCTAssertLessThan(seconds / 10, 0.06, "Magma Bass used \(String(format: "%.1f", seconds * 10))% of real time")
+    }
+
     /// Eight held notes blinking on the arp (Blink .6, 118 BPM) for 10 s with Echo and Ghosts at 0.8: each step
     /// re-plucks a voice while all eight ghosts sing on under them.
     func testBlueDepthBudget() {

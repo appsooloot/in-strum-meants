@@ -556,7 +556,7 @@ Tests come first, RED then GREEN. They run in CI on macos-15.
   - Unison has equal power.
   - Glide reaches its target within its time.
 - **Magma Bass:**
-  - Velocity opens the cutoff (spectral centroid fff > 3× ppp).
+  - Velocity opens the cutoff and drives the growl: on A1, the 0.5–4 kHz share is ≥ 4 dB higher at fff than pp at the defaults (≥ 9 dB at Growl 0).
   - Rumble adds energy at the note's sub-2.
   - Mono-legato glides without retriggering.
   - the erupt swell plays on a hard low chord only, and agrees with `BigMoments`.

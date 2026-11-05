@@ -119,7 +119,7 @@
 **Steps:**
 - [ ] **Write the tests** (RED):
   - `testMagmaTuning`: with DRY, E1–C4 are within 3 cents.
-  - `testVelocityRipsTheFilterOpen`: the spectral centroid of a held A1 over 0.05–0.4 s at vel 1 is ≥ 3× its value at vel 0.2 (Erupt .7).
+  - `testVelocityRipsTheFilterOpen`: on a held A1 over 0.05–0.4 s, the share of 0.5–4 kHz energy is ≥ 4 dB higher at vel 127 than vel 25 at the defaults, and ≥ 9 dB at Growl 0.
   - `testRumbleAddsSubTwo`: energy at f/4 is ≥ 10 dB higher at Rumble 1 than at 0.
   - `testGrowlDrives`: the third-to-first harmonic ratio rises monotonically with Growl.
   - `testMonoLegatoGlides`: with Mono, overlapping notes glide (no new onset with the DRY hook), and the pitch arrives within Flow's time.

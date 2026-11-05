@@ -20,7 +20,8 @@ The first bass on the **vintage-synth core** (the grown `AnalogVoice.hpp`). Spec
   - Growl moves all three together.
 - **The rip:**
   - The filter envelope's depth scales with velocity (Erupt).
-  - At Erupt 0.7, an fff A1's spectral centroid over 0.05–0.4 s is **≥ 3×** a pp one's.
+  - Velocity also drives the growl itself (0.35…1 into the shaper), so a hard note both opens the filter and saturates harder.
+  - Measured on A1 over 0.05–0.4 s: the share of 0.5–4 kHz is **≥ 4 dB** higher at fff than pp at the defaults, and **≥ 9 dB** at Growl 0. A spectral centroid hardly moves on a low bass, because the first harmonics carry nearly all the power.
   - Aftertouch adds +1.5 octaves.
 - **The weight:**
   - A sub square an octave down, and a sine **Rumble** two octaves down.

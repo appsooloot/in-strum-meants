@@ -99,7 +99,8 @@ int isd_synth_active_voices(const ISDSynth *synth);
 /// Internal counters for tests. Not real-time safe to rely on; read between renders.
 /// RETUNES: Felt Glass retunes. HORN_NOTE: Cabin Felt's horn note (folded into its range), or -1.
 /// BUILD_PERMILLE and WALL_UNISON: Morning Box's build level × 1000 and its wall's unison count.
-typedef enum { ISD_DEBUG_RETUNES = 0, ISD_DEBUG_HORN_NOTE = 1, ISD_DEBUG_BUILD_PERMILLE = 2, ISD_DEBUG_WALL_UNISON = 3 } ISDDebugCount;
+typedef enum { ISD_DEBUG_RETUNES = 0, ISD_DEBUG_HORN_NOTE = 1, ISD_DEBUG_BUILD_PERMILLE = 2, ISD_DEBUG_WALL_UNISON = 3,
+               /* Magma Bass: how many eruption swells hard low chords have set off. */ ISD_DEBUG_ERUPTIONS = 4 } ISDDebugCount;
 int isd_synth_debug_count(const ISDSynth *synth, ISDDebugCount which);
 
 // ---------- Ambience (generated live, never loops) ----------

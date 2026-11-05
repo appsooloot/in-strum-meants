@@ -25,6 +25,8 @@ public:
     /// Aftertouch 0…1: `note` −1 is channel pressure (every held note), otherwise poly pressure on that note.
     /// Engines that don't respond to pressure ignore it.
     virtual void aftertouch(int note, float pressure) { (void)note; (void)pressure; }
+    /// A continuous controller, 0…1 (CC 1, the mod wheel, so far). Engines that don't use it ignore it.
+    virtual void controller(int cc, float value) { (void)cc; (void)value; }
 };
 
 } // namespace isd

@@ -13,6 +13,7 @@
 #include "ZenShakuhachi.hpp"
 #include "ReefMarimba.hpp"
 #include "BlueDepth.hpp"
+#include "MagmaBass.hpp"
 #include <algorithm>
 #include <atomic>
 #include <cmath>
@@ -239,6 +240,29 @@ const ISDParamInfo kBlueDepthParams[] = {
     {ISD_P_DEBUG_NO_ARP, "debugNoArp", "No arp (test)", 0.f, 1.f, 0.f, 3},
     {ISD_P_DEBUG_DRY, "debugDry", "Dry (test)", 0.f, 1.f, 0.f, 3},
 };
+const ISDParamInfo kMagmaBassParams[] = {
+    {ISD_P_FINE_TUNE, "fineTune", "Fine tune", -50.f, 50.f, 0.f, 1},
+    {ISD_P_TRANSPOSE, "transpose", "Transpose", -12.f, 12.f, 0.f, 2},
+    {ISD_P_GROWL, "growl", "Growl", 0.f, 1.f, 0.55f, 0},
+    {ISD_P_HEAT, "heat", "Heat", 0.f, 1.f, 0.50f, 0},
+    {ISD_P_ERUPT, "erupt", "Erupt", 0.f, 1.f, 0.70f, 0},
+    {ISD_P_RUMBLE, "rumble", "Rumble", 0.f, 1.f, 0.35f, 0},
+    {ISD_P_GRIT, "grit", "Grit", 0.f, 1.f, 0.25f, 0},
+    {ISD_P_FLOW, "flow", "Flow", 0.f, 1.f, 0.20f, 0},
+    {ISD_P_SHAPE, "shape", "Shape", 0.f, 1.f, 0.15f, 0},
+    {ISD_P_MONO, "mono", "Mono", 0.f, 1.f, 0.f, 0},
+    {ISD_P_SPARK, "spark", "Spark", 0.f, 1.f, 0.40f, 0},
+    {ISD_P_RES, "res", "Res", 0.f, 0.9f, 0.35f, 0},
+    {ISD_P_SPACE, "space", "Space", 0.f, 1.f, 0.30f, 0},
+    {ISD_P_WIDTH, "width", "Width", 0.f, 1.f, 0.40f, 0},
+    {ISD_P_MOOD_ENERGY, "moodEnergy", "Mood energy", 0.f, 1.f, 0.5f, 0},
+    {ISD_P_MOOD_WARMTH, "moodWarmth", "Mood warmth", 0.f, 1.f, 0.5f, 0},
+    {ISD_P_MOOD_BRIGHTNESS, "moodBrightness", "Mood brightness", 0.f, 1.f, 0.5f, 0},
+    {ISD_P_MOOD_SPACE, "moodSpace", "Mood space", 0.f, 1.f, 0.5f, 0},
+    {ISD_P_MOOD_MOTION, "moodMotion", "Mood motion", 0.f, 1.f, 0.5f, 0},
+    {ISD_P_DEBUG_MB_DRY, "debugMagmaDry", "Dry (test)", 0.f, 1.f, 0.f, 3},
+};
+
 
 struct ParamTable { const ISDParamInfo *items; int count; };
 
@@ -256,6 +280,7 @@ ParamTable table(ISDEngine engine) {
     case ISD_ENGINE_ZEN_SHAKUHACHI: return {kZenShakuhachiParams, (int)(sizeof kZenShakuhachiParams / sizeof kZenShakuhachiParams[0])};
     case ISD_ENGINE_REEF_MARIMBA: return {kReefMarimbaParams, (int)(sizeof kReefMarimbaParams / sizeof kReefMarimbaParams[0])};
     case ISD_ENGINE_BLUE_DEPTH: return {kBlueDepthParams, (int)(sizeof kBlueDepthParams / sizeof kBlueDepthParams[0])};
+    case ISD_ENGINE_MAGMA_BASS: return {kMagmaBassParams, (int)(sizeof kMagmaBassParams / sizeof kMagmaBassParams[0])};
     default: return {nullptr, 0};
     }
 }
@@ -295,9 +320,10 @@ void handleMidi(isd::Engine &e, const MidiEvent &m) {
     case 0xB0:
         if (m.length < 3) return;
         switch (m.bytes[1]) {
+        case 1: e.controller(1, (float)(m.bytes[2] & 0x7F) / 127.f); break;   // the mod wheel
         case 64: e.setSustain(m.bytes[2] >= 64); break;
         case 120: e.allSoundOff(); break;
-        case 121: e.setSustain(false); e.pitchBend(0.f); e.aftertouch(-1, 0.f); break;   // reset all controllers
+        case 121: e.setSustain(false); e.pitchBend(0.f); e.aftertouch(-1, 0.f); e.controller(1, 0.f); break;   // reset all controllers
         case 123: e.allNotesOff(); break;
         default: break;
         }
@@ -357,6 +383,7 @@ ISDSynth *isd_synth_create(ISDEngine engine, double sampleRate, int maxFrames) {
     case ISD_ENGINE_ZEN_SHAKUHACHI: s->engine = std::make_unique<isd::ZenShakuhachi>(sampleRate); break;
     case ISD_ENGINE_REEF_MARIMBA: s->engine = std::make_unique<isd::ReefMarimba>(sampleRate); break;
     case ISD_ENGINE_BLUE_DEPTH: s->engine = std::make_unique<isd::BlueDepth>(sampleRate); break;
+    case ISD_ENGINE_MAGMA_BASS: s->engine = std::make_unique<isd::MagmaBass>(sampleRate); break;
     default: delete s; return nullptr;
     }
     return s;
