@@ -144,7 +144,7 @@
 **Steps:**
 - [ ] **Write the tests** (RED):
   - `testSwellFollowsTheDial`: the time for 1–4 kHz energy to reach 90% is 40 ± 10 ms at Swell 0 and ≥ 450 ms at Swell 1.
-  - `testBlareOnlyAtFullVelocity`: the centroid peaks ≥ 1.5× its settled value within 150 ms at vel 1. At vel 0.6 there's no peak above 1.1×.
+  - `testBlareAtFullVelocity`: with Width 0 and the DRY hook on C4, the share above 1.5 kHz peaks within 100 ms at vel 127, ≥ 1.5× the peak at vel 76, which comes after 150 ms.
   - `testWidthSpreadsTheStack`: stereo correlation falls from ≥ 0.9 at Width 0 to ≤ 0.5 at Width 1.
   - `testSplitRoutesAndHolds` (Review focus 2): C2 plays bass, C4 plays brass. Moving Split to C5 while C4 is held, then releasing C4, releases the brass voice. There are no stuck voices after 1 s (RMS < −80 dBFS with the DRY hook).
   - `testChromeArpIsSampleAccurate`: Played, 1/16, Tempo 120; the onsets of a held C2-G2 are within 1 sample of 125 ms steps.

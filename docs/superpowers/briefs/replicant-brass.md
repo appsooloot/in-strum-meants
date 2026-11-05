@@ -16,8 +16,8 @@ The second instrument on the **vintage-synth core**. Spec: `docs/superpowers/spe
   - The brass filter's attack is the Swell dial, 40–600 ms; the time to 90% of the 1–4 kHz energy is 40 ± 10 ms at 0 and ≥ 450 ms at 1.
   - Every note blooms.
 - **The blare:**
-  - At velocity 1 only, the attack is 70 ms with a +2-octave overshoot that settles over 300 ms, so the centroid peaks ≥ 1.5× its settled value.
-  - At velocity 0.6 there is no peak above 1.1×.
+  - At full velocity the attack is 70 ms with an overshoot (up to +2 octaves with Blaze) that settles over 300 ms.
+  - Measured (Width 0, dry, C4): the share of energy above 1.5 kHz peaks within 100 ms at fff, ≥ 1.5× the peak of a velocity-0.6 note, which swells to its peak only after 150 ms. Velocity also scales the envelope's depth (0.6 + 0.4·velocity).
 - **The width:**
   - A 7-saw unison stack (±2 to ±16 cents with Width), plus a 30% pulse, then a shared chorus.
   - Stereo correlation falls from ≥ 0.9 at Width 0 to ≤ 0.5 at Width 1.

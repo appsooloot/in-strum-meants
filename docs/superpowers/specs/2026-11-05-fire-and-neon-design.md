@@ -562,7 +562,7 @@ Tests come first, RED then GREEN. They run in CI on macos-15.
   - the erupt swell plays on a hard low chord only, and agrees with `BigMoments`.
 - **Replicant Brass:**
   - The swell's attack follows Swell.
-  - The blare's overshoot appears at velocity 1 only.
+  - The blare: at full velocity the brightness peaks within 100 ms and ≥ 1.5× a velocity-0.6 note's peak, which comes after 150 ms.
   - The split routes correctly.
   - The arp is sample-accurate at 120 BPM in sixteenths.
   - Blue Depth's fingerprint is unchanged after the arp moves.

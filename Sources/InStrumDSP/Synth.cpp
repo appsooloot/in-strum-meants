@@ -14,6 +14,7 @@
 #include "ReefMarimba.hpp"
 #include "BlueDepth.hpp"
 #include "MagmaBass.hpp"
+#include "ReplicantBrass.hpp"
 #include <algorithm>
 #include <atomic>
 #include <cmath>
@@ -262,6 +263,31 @@ const ISDParamInfo kMagmaBassParams[] = {
     {ISD_P_MOOD_MOTION, "moodMotion", "Mood motion", 0.f, 1.f, 0.5f, 0},
     {ISD_P_DEBUG_MB_DRY, "debugMagmaDry", "Dry (test)", 0.f, 1.f, 0.f, 3},
 };
+const ISDParamInfo kReplicantBrassParams[] = {
+    {ISD_P_FINE_TUNE, "fineTune", "Fine tune", -50.f, 50.f, 0.f, 1},
+    {ISD_P_TRANSPOSE, "transpose", "Transpose", -12.f, 12.f, 0.f, 2},
+    {ISD_P_SWELL_RB, "swell", "Swell", 0.f, 1.f, 0.60f, 0},
+    {ISD_P_BLAZE, "blaze", "Blaze", 0.f, 1.f, 0.50f, 0},
+    {ISD_P_UNISON_WIDTH, "width", "Width", 0.f, 1.f, 0.70f, 0},
+    {ISD_P_HALL, "hall", "Hall", 0.f, 1.f, 0.55f, 0},
+    {ISD_P_CHROME, "chrome", "Chrome", 0.f, 1.f, 0.60f, 0},
+    {ISD_P_PUNCH, "punch", "Punch", 0.f, 1.f, 0.50f, 0},
+    /* 0 Off, 1 Up, 2 Down, 3 Up-down, 4 Played, 5 Random */
+    {ISD_P_ARP_MODE, "arp", "Arp", 0.f, 5.f, 4.f, 0},
+    /* 0 1/4, 1 1/8, 2 1/8T, 3 1/16, 4 1/16T, 5 1/32 */
+    {ISD_P_ARP_RATE, "rate", "Rate", 0.f, 5.f, 3.f, 0},
+    /* below 28: no split; otherwise the split note (E1…C4) */
+    {ISD_P_SPLIT, "split", "Split", 0.f, 60.f, 48.f, 0},
+    {ISD_P_TEMPO_RB, "tempo", "Tempo", 70.f, 170.f, 120.f, 0},
+    {ISD_P_MOOD_ENERGY, "moodEnergy", "Mood energy", 0.f, 1.f, 0.5f, 0},
+    {ISD_P_MOOD_WARMTH, "moodWarmth", "Mood warmth", 0.f, 1.f, 0.5f, 0},
+    {ISD_P_MOOD_BRIGHTNESS, "moodBrightness", "Mood brightness", 0.f, 1.f, 0.5f, 0},
+    {ISD_P_MOOD_SPACE, "moodSpace", "Mood space", 0.f, 1.f, 0.5f, 0},
+    {ISD_P_MOOD_MOTION, "moodMotion", "Mood motion", 0.f, 1.f, 0.5f, 0},
+    {ISD_P_DEBUG_RB_NO_ARP, "debugBrassNoArp", "No arp (test)", 0.f, 1.f, 0.f, 3},
+    {ISD_P_DEBUG_RB_DRY, "debugBrassDry", "Dry (test)", 0.f, 1.f, 0.f, 3},
+};
+
 
 
 struct ParamTable { const ISDParamInfo *items; int count; };
@@ -281,6 +307,7 @@ ParamTable table(ISDEngine engine) {
     case ISD_ENGINE_REEF_MARIMBA: return {kReefMarimbaParams, (int)(sizeof kReefMarimbaParams / sizeof kReefMarimbaParams[0])};
     case ISD_ENGINE_BLUE_DEPTH: return {kBlueDepthParams, (int)(sizeof kBlueDepthParams / sizeof kBlueDepthParams[0])};
     case ISD_ENGINE_MAGMA_BASS: return {kMagmaBassParams, (int)(sizeof kMagmaBassParams / sizeof kMagmaBassParams[0])};
+    case ISD_ENGINE_REPLICANT_BRASS: return {kReplicantBrassParams, (int)(sizeof kReplicantBrassParams / sizeof kReplicantBrassParams[0])};
     default: return {nullptr, 0};
     }
 }
@@ -384,6 +411,7 @@ ISDSynth *isd_synth_create(ISDEngine engine, double sampleRate, int maxFrames) {
     case ISD_ENGINE_REEF_MARIMBA: s->engine = std::make_unique<isd::ReefMarimba>(sampleRate); break;
     case ISD_ENGINE_BLUE_DEPTH: s->engine = std::make_unique<isd::BlueDepth>(sampleRate); break;
     case ISD_ENGINE_MAGMA_BASS: s->engine = std::make_unique<isd::MagmaBass>(sampleRate); break;
+    case ISD_ENGINE_REPLICANT_BRASS: s->engine = std::make_unique<isd::ReplicantBrass>(sampleRate); break;
     default: delete s; return nullptr;
     }
     return s;

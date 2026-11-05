@@ -132,6 +132,14 @@ final class CPUBudgetTests: XCTestCase {
         XCTAssertLessThan(seconds / 10, 0.06, "Magma Bass used \(String(format: "%.1f", seconds * 10))% of real time")
     }
 
+    /// Six brass notes swelling under the hall, over a two-note Chrome arp in sixteenths at 120 BPM, for 10 s (the g++
+    /// mirror: about 3% of a core on the build machine).
+    func testReplicantBrassBudget() {
+        let events = [36, 43, 60, 64, 67, 71, 74, 79].map { R.noteOn(0, UInt8($0), 100) }
+        let seconds = bestOfThree { _ = R.render(ISD_ENGINE_REPLICANT_BRASS, seconds: 10, events: events) }
+        XCTAssertLessThan(seconds / 10, 0.08, "Replicant Brass used \(String(format: "%.1f", seconds * 10))% of real time")
+    }
+
     /// Eight held notes blinking on the arp (Blink .6, 118 BPM) for 10 s with Echo and Ghosts at 0.8: each step
     /// re-plucks a voice while all eight ghosts sing on under them.
     func testBlueDepthBudget() {
