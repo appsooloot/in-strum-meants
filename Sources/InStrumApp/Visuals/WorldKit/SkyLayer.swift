@@ -63,7 +63,7 @@ final class StarTextureCache {
 @MainActor
 final class SkyLayer {
     /// Face the equator by default, where the sun and moon cross the sky.
-    static func defaultViewAzimuth(latitude: Double) -> Double { latitude < 0 ? 0 : 180 }
+    nonisolated static func defaultViewAzimuth(latitude: Double) -> Double { latitude < 0 ? 0 : 180 }
 
     var viewAzimuth: Double?
     var horizonY: Float = -0.33
