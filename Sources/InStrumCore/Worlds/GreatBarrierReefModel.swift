@@ -122,7 +122,8 @@ public struct GreatBarrierReefModel: ThemeModel, MoodAware, SkyAware {
         return liftScale(sky) * (long + short)
     }
 
-    static func liftScale(_ s: SkyState) -> Float {
+    /// The lagoon's swell height at the lens for this weather (frame heights): 0.012 calm … 0.09 in a storm.
+    public static func liftScale(_ s: SkyState) -> Float {
         let storm = min(1, max(0, (OceanSwell.weatherScale(s) - 1) / 0.8))
         return calmLift + (stormLift - calmLift) * storm
     }
