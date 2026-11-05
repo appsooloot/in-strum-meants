@@ -178,9 +178,9 @@
 
 **Interfaces:**
 - **Produces:**
-  - `ExcitementFrame { energy, tension, moment: BigMoment?, surprise: Surprise?, drop }`
+  - `ExcitementFrame { energy, tension, moment: BigMoment?, surprise: WorldSurprise?, drop }`
   - `BigMoment { kind: .chord/.crescendo, strength: Float, low: Bool, isDrop: Bool }`
-  - `Surprise { index: Int, seed: UInt64 }`. The index is into the world's own list.
+  - `WorldSurprise { index: Int, seed: UInt64 }` (not `Surprise`: the Look randomiser has that name). The index is into the world's own list.
   - `protocol ExcitementAware { mutating func setExcitement(_ e: ExcitementFrame) }`
   - `protocol SurpriseListing { static var surpriseCount: Int { get } }`
   - The formulas, thresholds, cooldowns and scheduler means are in spec §5.1–§5.4.

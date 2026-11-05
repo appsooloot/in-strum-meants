@@ -49,7 +49,7 @@ public struct BigMoment: Equatable {
 }
 
 /// One of a world's own surprises is due: `index` into its list, with a seed for its details.
-public struct Surprise: Equatable {
+public struct WorldSurprise: Equatable {
     public var index: Int
     public var seed: UInt64
 }
@@ -65,7 +65,7 @@ public struct ExcitementFrame: Equatable {
     /// Set for exactly one step when a moment fires.
     public var moment: BigMoment?
     /// Set for exactly one step when a surprise is due.
-    public var surprise: Surprise?
+    public var surprise: WorldSurprise?
     public init() {}
     public static let calm = ExcitementFrame()
 }
@@ -75,7 +75,7 @@ public protocol ExcitementAware {
     mutating func setExcitement(_ e: ExcitementFrame)
 }
 
-/// A world's own surprises (how many it has; the index in a `Surprise` picks one).
+/// A world's own surprises (how many it has; the index in a `WorldSurprise` picks one).
 public protocol SurpriseListing {
     static var surpriseCount: Int { get }
 }
@@ -212,14 +212,14 @@ public struct Excitement {
         else { tension = max(0, tension - Self.tensionFall * dt) }
         drop = max(0, drop - dt / Self.dropSeconds)
         // Surprises (spec §5.3).
-        var surprise: Surprise?
+        var surprise: WorldSurprise?
         let s = surprisesNow
         if s != .off, surpriseCount > 0, time >= nextSurprise {
             if time - lastPlayed <= Self.playedWithin {
                 var index = Int(rng.next() % UInt64(surpriseCount))
                 if surpriseCount > 1, index == lastSurprise { index = (index + 1 + Int(rng.next() % UInt64(surpriseCount - 1))) % surpriseCount }
                 lastSurprise = index
-                surprise = Surprise(index: index, seed: rng.next())
+                surprise = WorldSurprise(index: index, seed: rng.next())
                 nextSurprise = scheduleAfter(time)
             } else {
                 nextSurprise = time + 5   // a parked world stays calm: look again in a moment

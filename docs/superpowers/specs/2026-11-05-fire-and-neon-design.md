@@ -200,7 +200,7 @@ public struct ExcitementFrame: Equatable {
     public var energy: Float          // 0…1, smoothed (§5.1)
     public var tension: Float         // 0…1 (§5.4)
     public var moment: BigMoment?     // set for exactly one step when a moment fires (§5.2)
-    public var surprise: Surprise?    // set for exactly one step (§5.3)
+    public var surprise: WorldSurprise?    // set for exactly one step (§5.3)
     public var drop: Float            // 0…1, the release envelope after a drop (§5.4)
 }
 ```

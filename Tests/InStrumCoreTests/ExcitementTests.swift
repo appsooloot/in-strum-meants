@@ -6,7 +6,7 @@ import XCTest
 final class ExcitementTests: XCTestCase {
     private struct Note { let t: Double; let on: Bool; let note: Int; let velocity: Float }
     private struct Log { var t: [Double] = []; var energy: [Float] = []; var tension: [Float] = []; var moments: [(t: Double, m: BigMoment)] = []
-        var surprises: [(t: Double, s: Surprise)] = []
+        var surprises: [(t: Double, s: WorldSurprise)] = []
         func at(_ time: Double) -> Int { t.indices.min { abs(t[$0] - time) < abs(t[$1] - time) } ?? 0 } }
 
     /// Plays `notes` (each applied once the clock reaches it, then the step), at 60 steps a second, until `until`.
