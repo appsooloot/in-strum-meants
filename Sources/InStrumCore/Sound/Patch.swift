@@ -3,6 +3,7 @@ public enum BuiltInEngine: String, Codable, CaseIterable {
     case feltGlass, orbitPad, honeyTape, hazeBells, cabinFelt, morningBox, polarChoir, planktonKeys, teaHouseKoto, zenShakuhachi
     case blueDepth
     case reefMarimba
+    case magmaBass, replicantBrass
 
     public var displayName: String {
         switch self {
@@ -18,6 +19,8 @@ public enum BuiltInEngine: String, Codable, CaseIterable {
         case .zenShakuhachi: return "Zen Shakuhachi"
         case .reefMarimba: return "Reef Marimba"
         case .blueDepth: return "Blue Depth"
+        case .magmaBass: return "Magma Bass"
+        case .replicantBrass: return "Replicant Brass"
         }
     }
 }
@@ -91,6 +94,19 @@ public enum PatchLibrary {
         Patch(id: "ghost-signal", name: "Ghost Signal", engine: .blueDepth, values: blueDepth(blink: 0.35, murk: 0.45, ghosts: 0.75, echo: 0.65, bass: 0.30, tempo: 118, space: 0.70, width: 0.70), creditID: "underwater"),
         Patch(id: "pressure-hull", name: "Pressure Hull", engine: .blueDepth, values: blueDepth(blink: 0.75, murk: 0.80, ghosts: 0.25, echo: 0.40, bass: 0.80, tempo: 118, space: 0.45, width: 0.50), creditID: "underwater"),
         Patch(id: "surface-light", name: "Surface Light", engine: .blueDepth, values: blueDepth(blink: 0.50, murk: 0.25, ghosts: 0.35, echo: 0.55, bass: 0.40, tempo: 118, space: 0.50, width: 0.65), creditID: "underwater"),
+        // Magma Bass (Fire & Neon spec §4.2; brief magma-bass.md). Mono is 0 or 1. Its "Hold My Liquor" credit comes with
+        // its card (Task 15): every credit needs card art.
+        Patch(id: "magma-bass", name: "Magma", engine: .magmaBass, values: magma(growl: 0.55, heat: 0.50, erupt: 0.70, rumble: 0.35, grit: 0.25, flow: 0.20, shape: 0.15, mono: 0, spark: 0.40, res: 0.35)),
+        Patch(id: "basalt", name: "Basalt", engine: .magmaBass, values: magma(growl: 0.40, heat: 0.30, erupt: 0.55, rumble: 0.70, grit: 0.15, flow: 0.35, shape: 0.05, mono: 1, spark: 0.20, res: 0.25)),
+        Patch(id: "fissure", name: "Fissure", engine: .magmaBass, values: magma(growl: 0.65, heat: 0.70, erupt: 0.80, rumble: 0.20, grit: 0.35, flow: 0.10, shape: 0.40, mono: 0, spark: 0.50, res: 0.60)),
+        Patch(id: "ember-glide", name: "Ember Glide", engine: .magmaBass, values: magma(growl: 0.50, heat: 0.55, erupt: 0.60, rumble: 0.30, grit: 0.20, flow: 0.70, shape: 0.25, mono: 1, spark: 0.30, res: 0.40)),
+        // Replicant Brass with Chrome Bass (spec §4.3; brief replicant-brass.md). Neon Night Drive is place-born, so no
+        // credit. Arp: 0 off, 1 up, 2 down, 3 up-down, 4 played, 5 random. Rate: 0 1/4 … 3 1/16 … 5 1/32. Split: a
+        // note number (below 28: no split). Tempo in BPM (70…170).
+        Patch(id: "replicant-brass", name: "Replicant", engine: .replicantBrass, values: replicant(swell: 0.60, blaze: 0.50, width: 0.70, hall: 0.55, chrome: 0.60, punch: 0.50, arp: 4, rate: 3, split: 48, tempo: 120)),
+        Patch(id: "tears-in-rain", name: "Tears in Rain", engine: .replicantBrass, values: replicant(swell: 0.85, blaze: 0.35, width: 0.80, hall: 0.80, chrome: 0.45, punch: 0.35, arp: 4, rate: 1, split: 48, tempo: 120)),
+        Patch(id: "chrome-rush", name: "Chrome Rush", engine: .replicantBrass, values: replicant(swell: 0.35, blaze: 0.65, width: 0.60, hall: 0.40, chrome: 0.75, punch: 0.80, arp: 1, rate: 3, split: 48, tempo: 132)),
+        Patch(id: "night-brass", name: "Night Brass", engine: .replicantBrass, values: replicant(swell: 0.70, blaze: 0.55, width: 0.75, hall: 0.65, chrome: 0.60, punch: 0.50, arp: 0, rate: 3, split: 0, tempo: 120)),
     ]
 
     public static func defaultPatch(for engine: BuiltInEngine) -> Patch {
@@ -143,6 +159,14 @@ public enum PatchLibrary {
     /// Tempo is in BPM (70…160); every other dial 0…1.
     private static func blueDepth(blink: Double, murk: Double, ghosts: Double, echo: Double, bass: Double, tempo: Double, space: Double, width: Double) -> [String: Double] {
         ["blink": blink, "murk": murk, "ghosts": ghosts, "echo": echo, "bass": bass, "tempo": tempo, "space": space, "width": width]
+    }
+
+    private static func magma(growl: Double, heat: Double, erupt: Double, rumble: Double, grit: Double, flow: Double, shape: Double, mono: Double, spark: Double, res: Double) -> [String: Double] {
+        ["growl": growl, "heat": heat, "erupt": erupt, "rumble": rumble, "grit": grit, "flow": flow, "shape": shape, "mono": mono, "spark": spark, "res": res]
+    }
+
+    private static func replicant(swell: Double, blaze: Double, width: Double, hall: Double, chrome: Double, punch: Double, arp: Double, rate: Double, split: Double, tempo: Double) -> [String: Double] {
+        ["swell": swell, "blaze": blaze, "width": width, "hall": hall, "chrome": chrome, "punch": punch, "arp": arp, "rate": rate, "split": split, "tempo": tempo]
     }
 
     private static func pad(bloom: Double, drift: Double, motion: Double, shimmer: Double, brightness: Double, space: Double) -> [String: Double] {

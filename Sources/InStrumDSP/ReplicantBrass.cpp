@@ -148,8 +148,10 @@ void ReplicantBrass::allNotesOff() {
 
 void ReplicantBrass::allSoundOff() {
     allNotesOff();
+    // The hall empties over longer than the voices take to fade and the chorus to play their last out (20 + 9.5 ms),
+    // takes nothing in meanwhile, and clears with the chorus, so nothing can set it ringing again.
     reverbEmptying = true;
-    reverbFadeStep = 1.f / (kPanicFade * (float)sr);
+    reverbFadeStep = 1.f / (1.6f * kPanicFade * (float)sr);
     for (auto &b : chorusBuf) std::fill(b.begin(), b.end(), 0.f);
 }
 
@@ -240,7 +242,8 @@ void ReplicantBrass::renderBrass(BrassVoice &v, float *l, float *r, int n) {
     const float vib = kVibratoCents * v.pressure * v.vibratoIn * (float)std::sin(v.vibPhase * 2.0 * 3.14159265358979);
     const float pitch = std::clamp((float)v.note + pTranspose, 0.f, 127.f) + v.bend + 0.01f * (fine.value + vib);
     const float f0 = midiHz(pitch), base = f0 / fsr;
-    const float slopDepth = dry ? 0.f : 1.f;
+    // Each saw drifts (60% of the core's slop: the stack's own detune already moves it); mood motion 0 halves it.
+    const float slopDepth = dry ? 0.f : 0.6f * (0.5f + clamp01(mMotion));
     const float w = clamp01(width.value), spread = 2.f + 14.f * w;
     float incs[kSaws], gl[kSaws], gr[kSaws];
     for (int i = 0; i < kSaws; ++i) {
@@ -435,12 +438,18 @@ void ReplicantBrass::processBlock(float *left, float *right, int n) {
     for (auto &v : brass) if (v.active) renderBrass(v, bl, br, n);
     for (auto &v : bass) if (v.active) renderBass(v, ll, lr, n);
     chorus(bl, br, n);
-    const float send = dryHook ? 0.f : 0.8f * hz, bassSend = dryHook ? 0.f : 0.15f * hz;
+    const bool quiet = dryHook || reverbEmptying;
+    const float send = quiet ? 0.f : 0.8f * hz, bassSend = quiet ? 0.f : 0.15f * hz;
     for (int i = 0; i < n; ++i) { sl[i] = send * bl[i] + bassSend * ll[i]; srr[i] = send * br[i] + bassSend * lr[i]; }
     reverb.process(sl, srr, wl, wr, n);
     if (reverbEmptying) {
         for (int i = 0; i < n; ++i) { reverbFade = std::max(0.f, reverbFade - reverbFadeStep); wl[i] *= reverbFade; wr[i] *= reverbFade; }
-        if (reverbFade <= 0.f) { reverb.clear(); reverbEmptying = false; reverbFade = 1.f; }
+        if (reverbFade <= 0.f) {
+            reverb.clear();
+            for (auto &b : chorusBuf) std::fill(b.begin(), b.end(), 0.f);
+            reverbEmptying = false;
+            reverbFade = 1.f;
+        }
     }
     for (int i = 0; i < n; ++i) {
         float l = bl[i] + ll[i] + wl[i], r = br[i] + lr[i] + wr[i];

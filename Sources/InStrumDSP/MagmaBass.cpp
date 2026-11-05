@@ -247,8 +247,9 @@ void MagmaBass::allNotesOff() {
 
 void MagmaBass::allSoundOff() {
     allNotesOff();
+    // The reverb empties over a little longer than the voices fade, and takes nothing in meanwhile.
     reverbEmptying = true;
-    reverbFadeStep = 1.f / (kPanicFade * (float)sr);
+    reverbFadeStep = 1.f / (1.25f * kPanicFade * (float)sr);
 }
 
 void MagmaBass::pitchBend(float semitones) { bendTarget = std::clamp(semitones, -2.f, 2.f); }
@@ -267,7 +268,7 @@ void MagmaBass::renderVoice(Voice &v, float *l, float *r, float *sendL, float *s
     const bool dry = dryHook;
     const float pitch = v.glide.advance(n) + bendNow + 0.01f * fine.value;
     const float f0 = midiHz(pitch);
-    const float slopDepth = dry ? 0.f : 1.f;
+    const float slopDepth = dry ? 0.f : 0.5f + clamp01(mMotion);   // mood motion 0 halves the drift, as on Blue Depth
     const float inc = std::min(analog::kMaxIncrement, f0 * std::exp2(v.slop.pitchCents(0, slopDepth) / 1200.f) / fsr);
     const float sparkInc = std::min(analog::kMaxIncrement, 2.f * inc);
     const double rumbleInc = (double)f0 * 0.25 / sr;
@@ -299,7 +300,7 @@ void MagmaBass::renderVoice(Voice &v, float *l, float *r, float *sendL, float *s
     const float w = clamp01(width.value);
     const float panL = 0.5f - 0.5f * 0.3f * w * v.pan, panR = 1.f - panL;
     const float sparkL = 0.5f - 0.5f * w * v.pan, sparkR = 1.f - sparkL;
-    const float send = kSendGain * clamp01(space.value);
+    const float send = reverbEmptying ? 0.f : kSendGain * clamp01(space.value);
     for (int i = 0; i < n; ++i) {
         const float a = v.osc.nextWithSub(inc);
         // The filter first, then the growl: saturating the filtered tone adds new harmonics above the cutoff

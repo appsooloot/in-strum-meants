@@ -51,7 +51,7 @@ The last three runs were calm, and Michael found the latest build "okay, was exp
 |---|---|---|
 | World | **Volcano Rim** (`volcano-rim`) | **Neon Night Drive** (`neon-night-drive`) |
 | Visual | **Magma Veins** | **Light Trails** |
-| Instrument | **Magma Bass** (`magmaBass`, subtype `isMB`, `ISD_ENGINE_MAGMA_BASS = 12`) | **Replicant Brass** with **Chrome Bass** in the left hand (`replicantBrass`, subtype `isRB`, `ISD_ENGINE_REPLICANT_BRASS = 13`) |
+| Instrument | **Magma Bass** (`magmaBass`, subtype `isMG`, `ISD_ENGINE_MAGMA_BASS = 12`) | **Replicant Brass** with **Chrome Bass** in the left hand (`replicantBrass`, subtype `isRB`, `ISD_ENGINE_REPLICANT_BRASS = 13`) |
 | Core | **Vintage-synth core**: grows `AnalogVoice.hpp` (§4.1) | the same |
 | Mood | *Molten* (`Mood.molten`) | *Wired* (`Mood.wired`) |
 | Credit | Kanye West, "Hold My Liquor" (*Yeezus*, 2013), the backlog's credit | Place card ("Gassed Up" by Wombat pending Michael's listen) |

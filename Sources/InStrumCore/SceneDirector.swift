@@ -41,6 +41,16 @@ public struct InstrumentPulse: Equatable {
     /// its Tempo with Blink as the gate, while Blink is up. Nil for any other instrument (or none), and for Blue Depth
     /// at Blink 0, which has no arp (the engine's own threshold, so the visuals and the arp agree).
     public init?(engine: BuiltInEngine?, values: [String: Double]) {
+        if engine == .replicantBrass {
+            // Chrome Bass's arp: Rate's step expressed as the sixteenth of an equivalent tempo; no pulse with the arp
+            // off or with no split (no left hand to play it).
+            guard let arp = values["arp"], arp >= 0.5, (values["split"] ?? 48) >= 28 else { return nil }
+            let beats: [Double] = [1, 0.5, 1.0 / 3, 0.25, 1.0 / 6, 0.125]
+            let rate = beats[min(5, max(0, Int((values["rate"] ?? 3).rounded())))]
+            let tempo = min(170, max(70, values["tempo"] ?? 120))
+            self.init(bpm: tempo * 0.25 / rate, gate: 0.55)
+            return
+        }
         guard engine == .blueDepth, let blink = values["blink"], blink > 1e-3 else { return nil }
         let tempo: Double = values["tempo"] ?? 118   // the dial's default, the record's tempo
         self.init(bpm: min(160, max(70, tempo)), gate: min(1, blink))

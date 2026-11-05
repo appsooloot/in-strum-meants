@@ -45,7 +45,7 @@
 
 **Names:**
 - **Sets:** `volcano-rim` / **Volcano Rim** / *Molten* (`Mood.molten`); `neon-night-drive` / **Neon Night Drive** / *Wired* (`Mood.wired`). Mood values are in spec §10.
-- **Instruments:** **Magma Bass** (`magmaBass`, `isMB`); **Replicant Brass** (`replicantBrass`, `isRB`), whose left hand is Chrome Bass.
+- **Instruments:** **Magma Bass** (`magmaBass`, `isMG`); **Replicant Brass** (`replicantBrass`, `isRB`), whose left hand is Chrome Bass.
 - **Visuals:** **Magma Veins** (`MagmaVeins`) and **Light Trails** (`LightTrails`).
 - **Sky:** `RedSprites` and `Satellites`, with modes `sprites.mode` and `satellites.mode` (`.off/.natural/.often`, default `.natural`). There is also a new `SkyState.farStorm`.
 - **Weather:** `.ashfall` ("Ashfall") and `.supercell` ("Supercell"). `WeatherValues` gains `ash` and `rotation`, both defaulting to 0.
@@ -158,7 +158,7 @@
 - [ ] **Commit:** `feat(dsp): Replicant Brass with Chrome Bass and the arp in the left hand`.
 
 ### Task 4: Both instruments in the app, the Arp row, the cards
-**Files:** `Patch.swift` (cases `magmaBass`, `replicantBrass`, with the presets), `BuiltInCatalog.swift` (`isMB`, `isRB`), the instrument panel (an Arp row for engines with `supportsArp`), `CreditLibrary.swift` (`holdMyLiquor`), `CardArt.swift` (cases `volcanoRim`, `neonNightDrive` with original art and easter eggs, spec §11), and tests (`PresetsTests`, `BuiltInLoadingTests`, `InspiredByCardTests`).
+**Files:** `Patch.swift` (cases `magmaBass`, `replicantBrass`, with the presets), `BuiltInCatalog.swift` (`isMG`, `isRB`), the instrument panel (an Arp row for engines with `supportsArp`), `CreditLibrary.swift` (`holdMyLiquor`), `CardArt.swift` (cases `volcanoRim`, `neonNightDrive` with original art and easter eggs, spec §11), and tests (`PresetsTests`, `BuiltInLoadingTests`, `InspiredByCardTests`).
 
 **Steps:**
 - [ ] **Write the tests:**

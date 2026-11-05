@@ -68,6 +68,8 @@ public enum BuiltInCatalog {
         case .zenShakuhachi: return "isZS"
         case .reefMarimba: return "isRM"
         case .blueDepth: return "isBD"
+        case .magmaBass: return "isMG"   // not isMB: Morning Box has it
+        case .replicantBrass: return "isRB"
         }
     }
 
@@ -85,6 +87,8 @@ public enum BuiltInCatalog {
         case .zenShakuhachi: return ISD_ENGINE_ZEN_SHAKUHACHI
         case .reefMarimba: return ISD_ENGINE_REEF_MARIMBA
         case .blueDepth: return ISD_ENGINE_BLUE_DEPTH
+        case .magmaBass: return ISD_ENGINE_MAGMA_BASS
+        case .replicantBrass: return ISD_ENGINE_REPLICANT_BRASS
         }
     }
 

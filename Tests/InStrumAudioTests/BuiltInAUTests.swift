@@ -104,6 +104,10 @@ final class BuiltInAUTests: XCTestCase {
         if engine == .honeyTape { setParam(e, Int(ISD_P_WOW), 0); setParam(e, Int(ISD_P_STRINGS), 0) }
         if engine == .hazeBells { setParam(e, Int(ISD_P_DRIFT), 0); setParam(e, Int(ISD_P_ECHO), 0) }
         if engine == .blueDepth { setParam(e, Int(ISD_P_BLINK), 0); setParam(e, Int(ISD_P_ECHO), 0); setParam(e, Int(ISD_P_MOOD_MOTION), 0) }
+        // Magma Bass and Replicant Brass drift like Blue Depth (half at mood motion 0); the brass's stack narrows to
+        // ±2 cents at Width 0, centred on the note.
+        if engine == .magmaBass { setParam(e, Int(ISD_P_MOOD_MOTION), 0) }
+        if engine == .replicantBrass { setParam(e, Int(ISD_P_MOOD_MOTION), 0); setParam(e, Int(ISD_P_UNISON_WIDTH), 0); setParam(e, Int(ISD_P_HALL), 0) }
     }
 
     func testTuningHoldsAt44_1And96k() async throws {
