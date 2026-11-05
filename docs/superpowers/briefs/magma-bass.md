@@ -6,7 +6,7 @@ The first bass on the **vintage-synth core** (the grown `AnalogVoice.hpp`). Spec
 - **The set's credit:** "Hold My Liquor", by Kanye West, from *Yeezus* (2013), track 5. It is the backlog's credit for Volcano Rim.
   - Spotify search: `Hold My Liquor Kanye West`.
   - Describe its production only from sources found at build time; nothing here is taken from the recording.
-  - **Check the key and the felt pulse by ear** before the card relies on them. Research them at build time from at least two sources that don't share Spotify's analysis.
+  - **Check the key and the felt pulse by ear** before the card relies on them. Found so far: A♭ major at 104 BPM (audiokeychain), 80 BPM with no key (musiciwant); Wikipedia calls it a house ballad on "pulsating synths and metallic, distorted stabs" over "a slow, steady 4/4 beat", which fits 80.
 - **Why a volcano gets growl:**
   - Pairings rule 11: "save growl and grit for real menace: volcanoes and storms".
   - Rule 2: low notes belong to big, grounded things.
