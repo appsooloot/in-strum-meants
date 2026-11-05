@@ -268,7 +268,8 @@ final class CoralPulseTests: XCTestCase {
         var biggestStep: Float = 0, last = w.strength
         var frames = 0
         while let wave = major.wave, frames < 600 {
-            for g in 0..<7 where abs(CoralPulse.groupX[g] - wave.left) < CoralPulse.waveWidth || abs(CoralPulse.groupX[g] - wave.right) < CoralPulse.waveWidth {
+            // Swept: a front has reached or passed it (the groups by the chord were swept before this loop began).
+            for g in 0..<7 where abs(CoralPulse.groupX[g] - wave.x) <= wave.offset + CoralPulse.waveWidth {
                 visited.insert(g)
             }
             XCTAssertTrue((0...1).contains(wave.strength))
