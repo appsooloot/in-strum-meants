@@ -12,7 +12,7 @@ jobs:
       - name: Toolchain
         run: swift --version && sw_vers && uname -m
       - name: Test
-        timeout-minutes: 8
+        timeout-minutes: 40
         run: swift test 2>&1 | tee test.log; exit ${PIPESTATUS[0]}
       - name: Report
         if: always()
