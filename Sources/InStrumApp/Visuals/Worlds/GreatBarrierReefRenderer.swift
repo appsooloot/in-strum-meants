@@ -41,6 +41,11 @@ final class GreatBarrierReefRenderer: ThemeRenderer {
     nonisolated static let eyeShare: Float = 0.82
     /// The cay's azimuth (degrees: a little north of east, so it stands on the left of the view east).
     nonisolated static let cayAzimuth = 66.0
+    /// The corals stand this many times as tall as Coral Pulse's polyp reach (`CoralPulse.groupTop`), so the reef fills
+    /// the water's lower half; the patches and the spawn's beads are placed on the same scale.
+    nonisolated static let coralScale: Float = 1.9
+    /// A bead's height on screen keeps its share of the way from its coral's top to the surface.
+    nonisolated static let beadRise: Float = 0.8
     /// Gentle visuals keep the lens's dips under the swell to this share of the way up the frame.
     nonisolated static let gentleWash: Float = 0.35
 
@@ -166,7 +171,7 @@ final class GreatBarrierReefRenderer: ThemeRenderer {
 
     /// A coral group's half-width (stage units): a share of its stretch of the reef by its kind, within bounds.
     nonisolated static func halfWidth(_ kind: CoralKind, stageWidth: Float) -> Float {
-        let base = min(0.6, max(0.12, 0.4 * stageWidth / Float(CoralPulse.groupCount)))
+        let base = min(0.7, max(0.12, 0.46 * stageWidth / Float(CoralPulse.groupCount)))
         switch kind {
         case .brain: return base * 0.88
         case .plate: return base
@@ -192,7 +197,7 @@ final class GreatBarrierReefRenderer: ThemeRenderer {
     /// Where a coral group's top stands on screen (NDC).
     func groupTop(_ g: Int) -> SIMD2<Float> {
         let i = min(max(g, 0), CoralPulse.groupCount - 1)
-        return screenPoint(x: CoralPulse.groupX[i], waterHeight: CoralPulse.groupTop[i])
+        return screenPoint(x: CoralPulse.groupX[i], waterHeight: CoralPulse.groupTop[i] * Self.coralScale)
     }
 
     /// Light (rgb) after `metres` of clear ocean: the shader's waterAbsorb.
@@ -250,7 +255,11 @@ final class GreatBarrierReefRenderer: ThemeRenderer {
         let haze = min(1, 0.2 * MoodLook.hazeScale(mood) + s.mist)
         let sunColour = lights.sunColor * 1.6, moonColour = lights.moonColor * 0.3
         let ambient = (s.zenith * 0.55 + s.horizon * 0.45) * 0.9
-        let surfaceLight = sunColour * lights.sun.w + moonColour * lights.moon.w + ambient
+        // The light falling on the water, on the Underwater Kit's scale (1: a noon sun and sky): a low sun's light
+        // mostly glances off, so under water dusk is the blue of the sky overhead.
+        let sunIn = Float(0.35 + 0.65 * Self.smooth(2, 30, s.sun.altitude))
+        let overhead = s.zenith * 0.75 + s.horizon * 0.25
+        let surfaceLight = lights.sunColor * (0.8 * lights.sun.w * sunIn) + lights.moonColor * (0.09 * lights.moon.w) + overhead * 0.3
         limiter.gentle = gentle
         let exposure = MoodLook.exposure(mood) * (1 + 0.9 * night) * weather.exposureBoost
         let limited = limiter.limit(exposure: exposure, sparkle: 1, dt: dt)
@@ -265,7 +274,7 @@ final class GreatBarrierReefRenderer: ThemeRenderer {
             let l = groupLimiters[g].limit(exposure: raw, sparkle: 1, dt: dt)
             coralGlowOut[g] = Self.unit(l.exposure * l.sparkle)
             ratio[g] = raw > 1e-4 ? min(1, coralGlowOut[g] / raw) : (gentle ? 0.5 : 1)
-            reefU[Self.groupBase + g] = SIMD4(group.x * W, group.top, Self.halfWidth(group.kind, stageWidth: W), coralGlowOut[g])
+            reefU[Self.groupBase + g] = SIMD4(group.x * W, group.top * Self.coralScale, Self.halfWidth(group.kind, stageWidth: W), coralGlowOut[g])
             reefU[Self.hueBase + g] = SIMD4(group.colour, Self.kindIndex(group.kind))
         }
         for i in Self.patchBase..<Self.uniformCount { reefU[i] = .zero }
@@ -273,7 +282,7 @@ final class GreatBarrierReefRenderer: ThemeRenderer {
         patchCount = patches.count
         for (i, pt) in patches.enumerated() {
             let g = min(max(pt.group, 0), CoralPulse.groupCount - 1)
-            reefU[Self.patchBase + i] = SIMD4(pt.x * W, pt.y, Float(g), Self.unit(pt.brightness) * ratio[g])
+            reefU[Self.patchBase + i] = SIMD4(pt.x * W, pt.y * Self.coralScale, Float(g), Self.unit(pt.brightness) * ratio[g])
         }
         schoolLimiter.gentle = gentle
         let sl = schoolLimiter.limit(exposure: Self.unit(frame.school.flash), sparkle: 1, dt: dt)
@@ -344,13 +353,13 @@ final class GreatBarrierReefRenderer: ThemeRenderer {
     private func buildFish(_ frame: ReefFrame, h: Float, light: SIMD3<Float>, sparkle: Float, t: Float) {
         fishInstances.removeAll(keepingCapacity: true)
         let scale = min(1.3, max(0.7, h / 0.66))
-        let body = SIMD3<Float>(0.30, 0.74, 0.70) * light
+        let body = SIMD3<Float>(0.50, 0.64, 0.74) * light
         let silver = light * (1.4 * schoolFlashOut * sparkle)
         for (i, p) in frame.school.positions.prefix(CoralPulse.schoolSizes.upperBound).enumerated() {
             let k = Float((i * 37) % 11) / 10
             let heading = frame.school.heading + 0.12 * sin(t * 5.3 + Float(i) * 1.7)
             let at = screenPoint(x: p.x, waterHeight: p.y)
-            fishInstances.append(SIMD4(at.x, at.y, 0.011 * scale * (0.8 + 0.4 * k), heading))
+            fishInstances.append(SIMD4(at.x, at.y, 0.013 * scale * (0.8 + 0.4 * k), heading))
             fishInstances.append(SIMD4(body * (0.9 + 0.2 * k) + silver, 0.95))
         }
         // The chromis: a little cloud over each staghorn, facing into the current, nosing about.
@@ -359,7 +368,7 @@ final class GreatBarrierReefRenderer: ThemeRenderer {
             let g = i % 2 == 0 ? 5 : 6
             let fi = Float(i)
             let x = CoralPulse.groupX[g] + 0.03 * sin(fi * 2.1) + 0.012 * sin(t * 0.37 + fi)
-            let y = CoralPulse.groupTop[g] + 0.06 + 0.05 * Float((i * 7) % 5) / 4 + 0.012 * sin(t * 0.51 + fi * 1.3)
+            let y = CoralPulse.groupTop[g] * Self.coralScale + 0.06 + 0.05 * Float((i * 7) % 5) / 4 + 0.012 * sin(t * 0.51 + fi * 1.3)
             let at = screenPoint(x: x, waterHeight: y)
             let facing: Float = sin(t * 0.11 + fi * 0.8) > 0 ? 0.05 : .pi - 0.05
             fishInstances.append(SIMD4(at.x, at.y, 0.009 * scale, facing + 0.1 * sin(t * 1.9 + fi)))
@@ -374,7 +383,9 @@ final class GreatBarrierReefRenderer: ThemeRenderer {
         let pixel = 2 / Float(max(1, size.height))
         let seen = light + SIMD3<Float>(0.05, 0.07, 0.09) * night
         for b in frame.spawn.beads.prefix(Self.beadBudget(quality)) {
-            let at = screenPoint(x: b.position.x, waterHeight: b.position.y)
+            // Released from their coral's polyps (on the corals' scale), rising to the surface.
+            let y = b.position.y < 1 ? 1 - (1 - b.position.y) * Self.beadRise : 1
+            let at = screenPoint(x: b.position.x, waterHeight: y)
             let k = Self.unit(b.brightness)
             dotInstances.append(SIMD4(at.x, at.y, b.size * pixel * 0.75, 0))
             dotInstances.append(SIMD4(b.colour * seen * 1.6, min(1, 0.95 * k)))

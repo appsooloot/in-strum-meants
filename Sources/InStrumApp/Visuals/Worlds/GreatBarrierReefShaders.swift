@@ -146,7 +146,7 @@ enum GreatBarrierReefShaders {
         float litSun = saturate(0.5 + 0.5 * (crownN.x * sunSide + crownN.y * (0.3 + sunUp)));
         float litMoon = saturate(0.5 + 0.5 * (crownN.x * moonSide + crownN.y * (0.3 + moonUp)));
         float tint = fract(nearest * 0.37);
-        float3 leaf = mix(float3(0.07, 0.15, 0.05), float3(0.10, 0.17, 0.06), tint);
+        float3 leaf = mix(float3(0.045, 0.10, 0.035), float3(0.07, 0.13, 0.04), tint);
         float3 trees = leaf * (sunL * (0.15 + 1.1 * litSun) + moonL * (0.2 + 0.9 * litMoon) + sky * 0.35);
         float3 grass = float3(0.32, 0.36, 0.14) * (sunL * (0.3 + 0.9 * sunUp) + moonL * 0.6 + sky * 0.5);
         // The trees stand behind the beach: the grass in front of their feet, the sand berm in front of both.
@@ -154,7 +154,7 @@ enum GreatBarrierReefShaders {
         col = mix(col, grass, inGrass);
         col = mix(col, sand, inSand);
         // 300 m of sea air.
-        float haze = 0.18 + 0.5 * r.weather.w + 0.35 * r.weather.z;
+        float haze = 0.08 + 0.5 * r.weather.w + 0.35 * r.weather.z;
         col = mix(col, u.horizon.rgb, saturate(haze));
         return float4(col, cover);
     }
@@ -164,7 +164,7 @@ enum GreatBarrierReefShaders {
     float4 reefCrest(float az, float alt, float pxDeg, constant ReefU& r) {
         if (alt > 0.6 || alt < -0.12) return float4(0);
         float A = az * 9.5493;                                   // azimuth in units of 6°
-        float gaps = smoothstep(0.28, 0.42, vnoise3(float3(A * 0.55, 1.3, 4.1)));
+        float gaps = smoothstep(0.4, 0.56, vnoise3(float3(A * 0.55, 1.3, 4.1)));
         if (gaps <= 0.0) return float4(0);
         float4 p = r.phases;
         float sets = 0.55 + 0.45 * sin(p.x + A * 0.8) * sin(p.y * 0.7 - A * 0.33 + 1.1);
@@ -191,7 +191,7 @@ enum GreatBarrierReefShaders {
             float a = t * speed + 6.2831853 * h.z;
             float2 centre = float2(-4.0 + 8.0 * h.y, 3.4 + 2.4 * h.x);
             float2 at = centre + float2((3.5 + 3.0 * h.z) * cos(a), (0.9 + 0.8 * h.x) * sin(a));
-            float size = 0.22 + 0.14 * h.y;
+            float size = 0.3 + 0.16 * h.y;
             float2 q = (float2(phi, alt) - at) / size;
             if (abs(q.x) > 1.3 || abs(q.y) > 1.0) continue;
             // An "m": two wings from the body, raised and lowered as it flaps, with a soft droop to each tip.
@@ -245,16 +245,16 @@ enum GreatBarrierReefShaders {
         float storm = r.weather.z, rough = r.lagoon.z;
         // The swell's long rolls (fading where they are finer than the pixel's patch).
         float2 slope = float2(0);
-        float swell = (0.035 + 0.16 * storm) * (1.0 - smoothstep(0.6, 3.0, foot));
+        float swell = (0.012 + 0.09 * storm) * (1.0 - smoothstep(0.6, 3.0, foot));
         slope += fwd * (swell * cos(0.55 * along + ph.x) + 0.6 * swell * cos(0.9 * along - 0.35 * across + ph.y));
         // The wind's ripples: two octaves of drifting noise.
         float2 g = float2(0.8 * q.x - 0.6 * q.y, 0.6 * q.x + 0.8 * q.y) * 1.7 + float2(t * 0.35, -t * 0.22);
         float k1 = 1.0 - smoothstep(0.12, 0.5, foot * 1.7);
-        if (k1 > 0.0) slope += (float2(vnoise3(float3(g, t * 0.5)), vnoise3(float3(g + 7.3, t * 0.5 + 2.1))) - 0.5) * (0.12 + 0.5 * rough) * k1;
+        if (k1 > 0.0) slope += (float2(vnoise3(float3(g, t * 0.5)), vnoise3(float3(g + 7.3, t * 0.5 + 2.1))) - 0.5) * (0.035 + 0.2 * rough) * k1;
         float k2 = r.lagoon.w > 2.5 ? 1.0 - smoothstep(0.12, 0.5, foot * 4.3) : 0.0;
         if (k2 > 0.0) {
             float2 g2 = float2(0.28 * g.x + 0.96 * g.y, -0.96 * g.x + 0.28 * g.y) * 2.5 + 3.3;
-            slope += (float2(vnoise3(float3(g2, t * 0.9)), vnoise3(float3(g2 + 4.1, t * 0.9 + 1.7))) - 0.5) * (0.06 + 0.25 * rough) * k2;
+            slope += (float2(vnoise3(float3(g2, t * 0.9)), vnoise3(float3(g2 + 4.1, t * 0.9 + 1.7))) - 0.5) * (0.018 + 0.1 * rough) * k2;
         }
         float3 n = normalize(float3(-slope, 1.0));
         float3 R = reflect(d, n);
@@ -272,9 +272,9 @@ enum GreatBarrierReefShaders {
         // The lagoon's own colour: light down to white sand and back, turquoise, darker over the bommies in it.
         float bommies = smoothstep(0.5, 0.72, vnoise3(float3(q * 0.22, 5.5)));
         float shallow = exp(-s / 40.0);
-        float3 body = float3(0.16, 0.62, 0.58) * (0.55 + 0.45 * shallow) * (1.0 - 0.45 * bommies * shallow);
+        float3 body = float3(0.16, 0.76, 0.70) * (0.45 + 0.55 * shallow) * (1.0 - 0.45 * bommies * shallow);
         float3 daylight = r.light.rgb;
-        float3 col = mirror * F + body * daylight * 0.24 * (1.0 - F) + glitter;
+        float3 col = mirror * F + body * daylight * 1.1 * (1.0 - F) + glitter;
         // Rain roughens and pocks the lagoon: dark dimples that come and go.
         float rain = r.weather.x;
         if (rain > 0.01) {
@@ -419,7 +419,7 @@ enum GreatBarrierReefShaders {
         float3 ridge = mix(float3(0.66, 0.55, 0.30), float3(0.58, 0.50, 0.36), fract(seed * 0.71));
         float3 valley = float3(0.26, 0.40, 0.20);
         c.albedo = mix(ridge, valley, groove) * (0.85 + 0.15 * zz);
-        c.polyp = groove;
+        c.polyp = 0.3 + 0.7 * groove;
         c.open = saturate(c.n.y * 0.8 + c.n.z * 0.4);
         return c;
     }
@@ -535,7 +535,7 @@ enum GreatBarrierReefShaders {
         c.cover = 1.0 - smoothstep(-px, px, best);
         if (c.cover <= 0.0) return c;
         float sd = clamp(side, -1.0, 1.0);
-        c.albedo = mix(mix(float3(0.58, 0.50, 0.40), float3(0.74, 0.68, 0.56), h), float3(0.56, 0.68, 0.96), tip);
+        c.albedo = mix(mix(float3(0.42, 0.34, 0.26), float3(0.70, 0.62, 0.48), h), float3(0.50, 0.62, 0.95), tip);
         c.n = normalize(float3(sd * mirror, 0.3, sqrt(max(0.0, 1.0 - sd * sd))));
         c.polyp = 0.3 + 0.7 * tip;
         c.open = 0.35 + 0.5 * h;
@@ -559,6 +559,16 @@ enum GreatBarrierReefShaders {
         float3 mantleC = mix(float3(0.06, 0.45, 0.52), float3(0.25, 0.75, 0.85), spots) + float3(0.05, 0.1, 0.35) * smoothstep(0.6, 1.0, abs(q.x));
         float3 col = mix(shellC, mantleC, inMantle);
         return float4(col, inShell);
+    }
+
+    /// The polyps: a fine scatter of small round mouths (cells a fiftieth of the water's height), where the
+    /// fluorescence gathers.
+    float reefPolyps(float2 P) {
+        float2 q = P * 40.0;
+        float2 i = floor(q), f = fract(q) - 0.5;
+        float3 h = hash33(float3(i, 9.1));
+        float d = length(f - (h.xy - 0.5) * 0.5) * (0.8 + 0.4 * h.z);
+        return 1.0 - smoothstep(0.1, 0.32, d);
     }
 
     /// The reef's rubble base along the bottom, in front of the coral's feet: dead coral, pink coralline crusts.
@@ -592,7 +602,8 @@ enum GreatBarrierReefShaders {
             float sandDist;
             float3 mirror = reefSand(m, u, r, 0.0, D + kSandBelow, sandDist);
             float window;
-            col = waterView(d, D, L) + snellWindow(d, D, t, 0.25 + 0.75 * storm, mirror, u, stars, window);
+            // (The window opens a little above level; fade it in so the line where it starts never shows.)
+            col = waterView(d, D, L) + snellWindow(d, D, t, 0.25 + 0.75 * storm, mirror, u, stars, window) * smoothstep(0.02, 0.06, d.z);
             float S = D / max(d.z, 1e-3);
             float2 hit = d.xy * S;
             float slick = r.spawn.x;
@@ -627,7 +638,8 @@ enum GreatBarrierReefShaders {
         float polypsOpen = r.reef.x;
         float glowGain = r.reef.z;
         float3 keyLight = waterLight(kReefDepth, L);
-        float3 fill = waterLight(D, L) * kWaterTint * 0.9 + r.ambient.rgb * 0.05;
+        float3 fill = waterLight(D, L) * kWaterTint * 0.6 + r.ambient.rgb * 0.04;
+        float dots = reefPolyps(P);
         float sunSide = sin(atan2(r.sun.x, r.sun.y) - atan2(r.camera.x, r.camera.y));
         float3 Lv = normalize(float3(0.35 * sunSide, 1.0, 0.35));
         if (P.y < 1.45) {
@@ -646,11 +658,11 @@ enum GreatBarrierReefShaders {
                 if (c.cover <= 0.0) continue;
                 float diffuse = saturate(dot(c.n, Lv));
                 float3 wp = float3(P.x * 2.2, 3.0 + P.y * 1.5, -kReefDepth - 0.4 * (1.0 - P.y));
-                float caus = mix(1.0, caustics(wp, t, pxS * 2.2), saturate(c.open));
+                float caus = mix(1.0, caustics(wp, t, pxS * 2.2), 0.55 * saturate(c.open));
                 float3 lit = c.albedo * (keyLight * (0.2 + 0.8 * diffuse) * caus * 0.62 + fill);
                 // Fluorescence: each group's colour in its polyps, as bright as its glow; the polyps' soft glow at night.
-                float3 hue = r.hues[i].rgb;
-                float fl = (g.w * glowGain * 1.6 + polypsOpen * 0.05) * c.polyp;
+                float3 hue = mix(r.hues[i].rgb, float3(1.0), 0.12);
+                float fl = (g.w * glowGain * 0.95 + polypsOpen * 0.05) * c.polyp * (0.35 + 0.65 * dots);
                 reefCol = mix(reefCol, lit, c.cover);
                 glow = mix(glow, hue * fl, c.cover);
                 reefCover = max(reefCover, c.cover);
@@ -696,9 +708,9 @@ enum GreatBarrierReefShaders {
                     float q2 = dot(dp, dp) / (rr * rr);
                     if (q2 > 9.0) continue;
                     int gi = clamp(int(pt.z + 0.5), 0, 6);
-                    float3 hue = r.hues[gi].rgb;
-                    glow += hue * (pt.w * glowGain * 2.4 * exp(-q2) * reefCover);
-                    halo += hue * (pt.w * glowGain * 0.1 * exp(-q2 * 0.25));
+                    float3 hue = mix(r.hues[gi].rgb, float3(1.0), 0.12);
+                    glow += hue * (pt.w * glowGain * 1.3 * exp(-q2) * reefCover * (0.4 + 0.6 * dots));
+                    halo += hue * (pt.w * glowGain * 0.08 * exp(-q2 * 0.25));
                 }
                 glow += halo;
             }
