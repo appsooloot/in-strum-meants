@@ -6,6 +6,10 @@ public protocol MoodAware { var mood: Mood { get set } }
 /// A model that wants the Living Sky each frame.
 public protocol SkyAware { mutating func setSky(_ s: SkyState) }
 
+/// A model that wants the built-in instrument's pulse (spec §7.6): the director hands it `instrumentPulse` before every
+/// step, nil while the instrument has none. Any model may want it, a world or not.
+public protocol PulseAware { var pulse: InstrumentPulse? { get set } }
+
 /// How the mood shapes worlds, visuals and ambience. 0.5 everywhere is neutral (every scale 1).
 public enum MoodLook {
     public static func exposure(_ m: Mood) -> Float { Float(0.8 + 0.4 * m.brightness) }
@@ -84,6 +88,7 @@ public enum ThemeRegistry {
         .make(BioluminescentBayModel.self),
         .make(TeaHouseSnowModel.self),
         .make(ZenRockGardenModel.self),
+        .make(SubmarineWindowModel.self),
     ]
 
     public static var all: [(id: String, name: String)] { entries.map { ($0.id, $0.name) } }
@@ -115,6 +120,7 @@ protocol AnyThemeBoxProtocol {
     mutating func handle(_ e: PerformanceEvent)
     mutating func setMood(_ m: Mood)
     mutating func setSky(_ s: SkyState)
+    mutating func setPulse(_ p: InstrumentPulse?)
     mutating func step(dt: Double, params: ParameterSet, roles: RoleValues, inputs: InputFrame, quality: QualityLevel) -> Any
 }
 
@@ -130,6 +136,11 @@ struct ThemeBox<T: ThemeModel>: AnyThemeBoxProtocol {
     mutating func setSky(_ s: SkyState) {
         guard var aware = model as? SkyAware else { return }
         aware.setSky(s)
+        if let back = aware as? T { model = back }
+    }
+    mutating func setPulse(_ p: InstrumentPulse?) {
+        guard var aware = model as? PulseAware, aware.pulse != p else { return }
+        aware.pulse = p
         if let back = aware as? T { model = back }
     }
     mutating func step(dt: Double, params: ParameterSet, roles: RoleValues, inputs: InputFrame, quality: QualityLevel) -> Any {
@@ -150,7 +161,8 @@ public final class SceneDirector {
     /// The set's mood, pushed into mood-aware models every step.
     public var mood = Mood.neutral
     /// The built-in instrument's pulse (Blue Depth's arp grid), which the app sets from the current patch and its
-    /// dials; nil for every other instrument. It is about the instrument, so it carries over a world switch.
+    /// dials; nil for every other instrument. It is about the instrument, so it carries over a world switch. Every step
+    /// hands it to a pulse-aware model (`PulseAware`) first.
     public var instrumentPulse: InstrumentPulse?
     /// Stepped each frame for sky-aware models (worlds).
     public let sky = LivingSky(settings: SkySettings())
@@ -242,6 +254,7 @@ public final class SceneDirector {
         let (roles, offsets) = reaction.evaluate(frame)
         lastRoles = roles
         box.setMood(mood)
+        box.setPulse(instrumentPulse)
         if box.wantsSky {
             // All three are world parameters, read every step: a world without them (choice "") follows the sky and the
             // calendar, so leaving a world whose aurora or meteors are "Always" leaves them behind.

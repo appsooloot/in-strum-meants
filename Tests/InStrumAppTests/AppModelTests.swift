@@ -565,6 +565,124 @@ final class AppModelTests: XCTestCase {
         XCTAssertEqual(m.themeID, AuroraFjordModel.id)
     }
 
+    func testApplyingTeaHouseLoadsTheKoto() async {
+        let m = makeModel()
+        await m.launch(skipPluginInSafeMode: false)
+        m.setAmbienceEnabled(false)
+        m.setAmbienceVolume(0.6)
+        await m.applySet("tea-house-snow")
+        XCTAssertEqual(engine.loaded.last.flatMap { BuiltInCatalog.engine(for: $0) }, .teaHouseKoto)
+        XCTAssertEqual(engine.applied.last?.id, "tea-house-koto")
+        XCTAssertEqual(m.builtInPatch?.id, "tea-house-koto")
+        XCTAssertEqual(engine.moods.last, .delicate)
+        XCTAssertEqual(m.mood, .delicate)
+        XCTAssertEqual(m.themeID, TeaHouseSnowModel.id)
+        XCTAssertEqual(visual(m), "Steam Lines")
+        XCTAssertTrue(engine.ambienceEnabled)
+        XCTAssertEqual(engine.ambienceVolume, Float(AmbienceSettings().volume), accuracy: 1e-6)
+        XCTAssertEqual(m.activeSetID, "tea-house-snow")
+        XCTAssertFalse(m.isSetModified)
+        // The tea house's other visual is Frost Grow on the paper (it has no Galaxy Warp).
+        m.saveThemeState(ThemeState(values: ["visual": .choice("Frost Grow")]), for: TeaHouseSnowModel.id)
+        XCTAssertEqual(visual(m), "Frost Grow")
+        XCTAssertTrue(m.isSetModified)
+        await m.restoreSet()
+        XCTAssertFalse(m.isSetModified)
+        XCTAssertEqual(visual(m), "Steam Lines")
+        m.applyPatch(PatchLibrary.all.first { $0.id == "winter-strings" }!)   // another Tea House Koto preset
+        XCTAssertTrue(m.isSetModified)
+        await m.restoreSet()
+        XCTAssertEqual(m.builtInPatch?.id, "tea-house-koto")
+        XCTAssertFalse(m.isSetModified)
+    }
+
+    func testApplyingTheGardenLoadsTheShakuhachi() async {
+        let m = makeModel()
+        await m.launch(skipPluginInSafeMode: false)
+        m.setAmbienceEnabled(false)
+        m.setAmbienceVolume(0.6)
+        await m.applySet("zen-rock-garden")
+        XCTAssertEqual(engine.loaded.last.flatMap { BuiltInCatalog.engine(for: $0) }, .zenShakuhachi)
+        XCTAssertEqual(engine.applied.last?.id, "zen-shakuhachi")
+        XCTAssertEqual(m.builtInPatch?.id, "zen-shakuhachi")
+        XCTAssertEqual(engine.moods.last, .orderedCalm)
+        XCTAssertEqual(m.mood, .orderedCalm)
+        XCTAssertEqual(m.themeID, ZenRockGardenModel.id)
+        XCTAssertEqual(visual(m), "Rake Lines")
+        XCTAssertTrue(engine.ambienceEnabled)
+        XCTAssertEqual(engine.ambienceVolume, Float(AmbienceSettings().volume), accuracy: 1e-6)
+        XCTAssertEqual(m.activeSetID, "zen-rock-garden")
+        XCTAssertFalse(m.isSetModified)
+        m.saveThemeState(ThemeState(values: ["visual": .choice("Galaxy Warp")]), for: ZenRockGardenModel.id)
+        XCTAssertTrue(m.isSetModified)
+        await m.restoreSet()
+        XCTAssertFalse(m.isSetModified)
+        XCTAssertEqual(visual(m), "Rake Lines")
+        m.applyPatch(PatchLibrary.all.first { $0.id == "mountain-breath" }!)   // another Zen Shakuhachi preset
+        XCTAssertTrue(m.isSetModified)
+        await m.restoreSet()
+        XCTAssertEqual(m.builtInPatch?.id, "zen-shakuhachi")
+        XCTAssertFalse(m.isSetModified)
+        // Switching between the two still places swaps the engine back.
+        await m.applySet("tea-house-snow")
+        XCTAssertEqual(engine.loaded.last.flatMap { BuiltInCatalog.engine(for: $0) }, .teaHouseKoto)
+        XCTAssertEqual(m.themeID, TeaHouseSnowModel.id)
+        XCTAssertEqual(m.mood, .delicate)
+    }
+
+    /// Review focus 4: settings saved by the eight-set build (Sets 7 & 8, with the bay applied and a sky from before rime
+    /// frost and iridescent cloud) open on this build's ten-set gallery: the bay is still the active set, unmodified, with
+    /// its mood; the sky's two new dials take their defaults; and the two still places apply from there and come back on
+    /// the next launch.
+    func testAnEightSetSaveOpensOnTheTenSetGallery() async throws {
+        let older = makeModel()
+        await older.launch(skipPluginInSafeMode: false)
+        await older.applySet("bioluminescent-bay")
+        // The file as that build wrote it: its sky had no iridescence or rime speed yet, and it knew no still place.
+        let url = dir.appendingPathComponent("settings.json")
+        let saved = try JSONSerialization.jsonObject(with: Data(contentsOf: url))
+        var json = try XCTUnwrap(saved as? [String: Any])
+        var sky = try XCTUnwrap(json["sky"] as? [String: Any])
+        XCTAssertNotNil(sky["iridescence"]); XCTAssertNotNil(sky["rimeSpeed"])
+        sky.removeValue(forKey: "iridescence"); sky.removeValue(forKey: "rimeSpeed")
+        json["sky"] = sky
+        try JSONSerialization.data(withJSONObject: json).write(to: url)
+        let written = try String(contentsOf: url, encoding: .utf8)
+        for key in ["iridescence", "rimeSpeed", "tea-house-snow", "zen-rock-garden"] { XCTAssertFalse(written.contains(key), key) }
+        XCTAssertTrue(written.contains("bioluminescent-bay"))
+
+        engine = FakeEngine()
+        let m = makeModel()
+        XCTAssertEqual(m.activeSetID, "bioluminescent-bay")
+        XCTAssertEqual(m.mood, .secretGlow)
+        XCTAssertEqual([m.skySettings.iridescence, m.skySettings.rimeSpeed], [1, 1])
+        await m.launch(skipPluginInSafeMode: false)
+        XCTAssertEqual(engine.loaded.last.flatMap { BuiltInCatalog.engine(for: $0) }, .planktonKeys)
+        XCTAssertEqual(m.builtInPatch?.id, "plankton-keys")
+        XCTAssertEqual(engine.moods.last, .secretGlow)
+        XCTAssertEqual(m.themeID, BioluminescentBayModel.id)
+        XCTAssertEqual(visual(m), "Glow Wake")
+        XCTAssertFalse(m.isSetModified, "the bay comes back as it was set")
+        // The gallery: the eight it knew, in their places, then the two still places.
+        XCTAssertEqual(SetLibrary.all.count, 10)
+        XCTAssertEqual(SetLibrary.all.firstIndex { $0.id == "bioluminescent-bay" }, 7)
+        XCTAssertEqual(SetLibrary.all.suffix(2).map(\.id), ["tea-house-snow", "zen-rock-garden"])
+        await m.applySet("tea-house-snow")
+        XCTAssertEqual(engine.loaded.last.flatMap { BuiltInCatalog.engine(for: $0) }, .teaHouseKoto)
+        XCTAssertEqual(m.activeSetID, "tea-house-snow")
+        XCTAssertFalse(m.isSetModified)
+        await m.applySet("zen-rock-garden")
+        XCTAssertEqual(engine.loaded.last.flatMap { BuiltInCatalog.engine(for: $0) }, .zenShakuhachi)
+        XCTAssertFalse(m.isSetModified)
+        XCTAssertEqual(store.load().activeSetID, "zen-rock-garden")
+        XCTAssertEqual(store.load().sky, m.skySettings)
+        // And the garden comes back on the next launch, with its mood.
+        engine = FakeEngine()
+        let again = makeModel()
+        XCTAssertEqual(again.activeSetID, "zen-rock-garden")
+        XCTAssertEqual(again.mood, .orderedCalm)
+    }
+
     func testChangingAPartMarksModifiedAndRestoreReverts() async {
         let m = makeModel()
         await m.launch(skipPluginInSafeMode: false)

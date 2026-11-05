@@ -244,6 +244,70 @@ final class SceneDirectorTests: XCTestCase {
         XCTAssertEqual(steinway.visualDt, 1.0 / 60)
     }
 
+    /// What a pulse-aware probe saw on its latest step.
+    struct PulseSeen: Equatable {
+        var pulse: InstrumentPulse?
+        var steps: Int
+    }
+
+    /// A model that wants the instrument's pulse (as the submarine does), and no sky.
+    struct PulseProbe: ThemeModel, PulseAware {
+        static let id = "pulse-probe", displayName = "Pulse probe"
+        static let parameters: [ParamSpec] = []
+        static let macroTargets: [Macro: [(id: String, weight: Double)]] = [:]
+        var pulse: InstrumentPulse?
+        var steps = 0
+        init() {}
+        mutating func handle(_ e: PerformanceEvent) {}
+        mutating func step(dt: Double, params: ParameterSet, roles: RoleValues, inputs: InputFrame, quality: QualityLevel) -> PulseSeen {
+            steps += 1
+            return PulseSeen(pulse: pulse, steps: steps)
+        }
+    }
+
+    /// The director hands the instrument's pulse (spec §7.6) to a pulse-aware model before every step, a world or not:
+    /// as it changes and when it goes. Models that don't want it step on as before, and it carries over a world switch to
+    /// the submarine, whose creatures then blink on the arp's grid (127.1 ms at 118 BPM).
+    func testDirectorHandsThePulseToPulseAwareWorlds() throws {
+        let d = SceneDirector(entry: ThemeEntry.make(PulseProbe.self), state: ThemeState(), reaction: ReactionPresets.expressivePianist)
+        XCTAssertFalse(ThemeEntry.make(PulseProbe.self).make().wantsSky, "it needs no sky")
+        let none = try XCTUnwrap(d.step(dt: 1.0 / 60, t: 0, quality: .high) as? PulseSeen)
+        XCTAssertNil(none.pulse, "no instrument pulse yet")
+        d.instrumentPulse = InstrumentPulse(bpm: 118, gate: 0.6)
+        let first = try XCTUnwrap(d.step(dt: 1.0 / 60, t: 1.0 / 60, quality: .high) as? PulseSeen)
+        XCTAssertEqual(first.pulse, InstrumentPulse(bpm: 118, gate: 0.6), "handed over before the step that uses it")
+        XCTAssertEqual(first.steps, 2)
+        d.instrumentPulse = InstrumentPulse(bpm: 100, gate: 0.4)
+        XCTAssertEqual(try XCTUnwrap(d.step(dt: 1.0 / 60, t: 2.0 / 60, quality: .high) as? PulseSeen).pulse,
+                       InstrumentPulse(bpm: 100, gate: 0.4), "as it changes")
+        d.instrumentPulse = nil
+        XCTAssertNil(try XCTUnwrap(d.step(dt: 1.0 / 60, t: 3.0 / 60, quality: .high) as? PulseSeen).pulse, "and when it goes")
+
+        // A model that doesn't want it steps on as before.
+        let plain = SceneDirector(entry: ThemeEntry.make(Probe.self), state: ThemeState(), reaction: ReactionPresets.expressivePianist)
+        plain.instrumentPulse = InstrumentPulse(bpm: 118, gate: 0.6)
+        XCTAssertNotNil(plain.step(dt: 1.0 / 60, t: 0, quality: .high) as? (Mood, SkyState?))
+
+        // Over a switch to the submarine: a held C4 blinks on the arp's grid from its note.
+        let sub = SceneDirector(themeID: MoonlitLakeModel.id, state: ThemeState(), reaction: ReactionPresets.expressivePianist)
+        var s = SkySettings(); s.timeMode = .frozen; s.frozenHour = 23; s.cityID = "melbourne"; s.weatherMode = .pick; s.weather = .clear
+        sub.sky.reset(settings: s)
+        sub.instrumentPulse = InstrumentPulse(bpm: 118, gate: 0.6)
+        sub.switchTheme(to: SubmarineWindowModel.id, state: ThemeState())
+        let dt = 0.001
+        _ = sub.step(dt: dt, t: dt, quality: .high)
+        sub.handle([.noteOn(note: 60, velocity: 0.8)], at: 2 * dt)
+        var glow: [(t: Double, g: Float)] = [(dt, 0)]
+        for i in 2...600 {
+            let f = try XCTUnwrap(sub.step(dt: dt, t: Double(i) * dt, quality: .high) as? SubFrame)
+            glow.append((Double(i) * dt, f.creatures.first { $0.note == 60 }?.glow ?? 0))
+        }
+        let peaks = (1..<(glow.count - 1)).filter { glow[$0].g > glow[$0 - 1].g && glow[$0].g >= glow[$0 + 1].g }.map { glow[$0].t }
+        XCTAssertGreaterThanOrEqual(peaks.count, 4)
+        XCTAssertEqual(peaks.first ?? 0, 2 * dt, accuracy: 0.002, "from the note")
+        for (a, b) in zip(peaks, peaks.dropFirst()) { XCTAssertEqual((b - a) * 1000, 127.1, accuracy: 2) }
+    }
+
     func testMoodLookIsNeutralAtHalf() {
         let n = Mood.neutral
         XCTAssertEqual(MoodLook.exposure(n), 1, accuracy: 1e-6)
