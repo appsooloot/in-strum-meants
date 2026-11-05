@@ -25,6 +25,8 @@ final class ThemeCanvas: NSObject, MTKViewDelegate {
     private var autoQuality: AutoQuality
     private var lastTime: CFTimeInterval = 0
     private var seenVersion = -1
+    /// When the "Meteors tonight" line was last read from the sky (once a second is plenty).
+    private var meteorLineTime: CFTimeInterval = -.infinity
     private var level: QualityLevel = .lite
 
     @MainActor
@@ -105,6 +107,12 @@ final class ThemeCanvas: NSObject, MTKViewDelegate {
         director.instrumentPulse = model.instrumentPulse   // Blue Depth's arp grid, for the visuals that blink with it
         let frame = director.step(dt: dt, t: now, quality: level)
         model.updateAmbience(Self.ambience(for: frame, key: director.key), at: now)
+        // The Living Sky panel's "Meteors tonight" line, from the sky this world draws (its own rules applied: the lounge
+        // has none), once a second.
+        if now - meteorLineTime >= 1 || now < meteorLineTime {
+            meteorLineTime = now
+            model.setMeteorsTonight(SkyControls.meteorsTonight((frame as? SkyBearing)?.sky.shower))
+        }
 
         let renderer: ThemeRenderer?
         if let g = frame as? GardenFrame {
