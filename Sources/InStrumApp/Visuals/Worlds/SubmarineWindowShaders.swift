@@ -177,11 +177,11 @@ enum SubmarineWindowShaders {
         float2 c[6] = { float2(-1, -1), float2(1, -1), float2(-1, 1), float2(1, -1), float2(1, 1), float2(-1, 1) };
         SubSprite p = sprites[iid];
         float kind = floor(p.a.w);
-        float2 half = float2(p.a.z / max(s.view.w, 0.1), p.a.z);
-        if (kind > 6.5) half.x *= 1.8;   // a fish is long
+        float2 ext = float2(p.a.z / max(s.view.w, 0.1), p.a.z);
+        if (kind > 6.5) ext.x *= 1.8;    // a fish is long
         SubSpriteOut o;
         o.uv = c[vid];
-        o.pos = float4(p.a.xy + o.uv * half, 0, 1);
+        o.pos = float4(p.a.xy + o.uv * ext, 0, 1);
         o.col = p.b;
         o.kind = kind;
         o.lit = p.a.w - kind;
