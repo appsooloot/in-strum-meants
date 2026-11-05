@@ -24,6 +24,8 @@ enum SubmarineWindowShaders {
     };
     constant int kSubBlips = 24;
     constant float3 kLampColour = float3(1.0, 0.92, 0.8);
+    /// The floor's slope, rising away ahead (metres up a metre out).
+    constant float kSubSlope = 0.3;
 
     struct SubOut { float4 pos [[position]]; float2 ndc; };
 
@@ -90,7 +92,12 @@ enum SubmarineWindowShaders {
         // The open water, and what comes through the surface above (Snell's window, in the shallows).
         float3 col = waterView(d, D, L);
         float depthOut = 1.0;
-        if (d.z > 0.0 && s.shaft.w > 0.001) {
+        // The floor: a sand-and-coral slope rising gently away ahead (in the shallows), met before the surface.
+        float2 ahead = normalize(float2(sin(az), cos(az)));
+        float denom = kSubSlope * dot(d.xy, ahead) - d.z;
+        float floorDist = denom > 1e-4 && s.lamp.z > 0.0 ? s.lamp.z / denom : 1e9;
+        bool onFloor = floorDist < 160.0 && d.z < 0.03;
+        if (!onFloor && d.z > 0.0 && s.shaft.w > 0.001) {
             float window;
             float3 mirror = waterView(float3(d.x, d.y, -d.z), 0.0, L);
             float3 through = snellWindow(d, D, t, waves, mirror, u, stars, window);
@@ -98,19 +105,16 @@ enum SubmarineWindowShaders {
             if (milky > 0.001) {
                 float3 fogSky = mix(u.horizon.rgb, u.zenith.rgb, 0.4) * 1.6 + float3(0.04);
                 float3 fog = fogSky * (kWindowGain * window) * waterAbsorb(D / max(d.z, 0.05)) * (1.0 - smoothstep(20.0, 40.0, D));
-                through = mix(through, fog + mirror * (1.0 - window) * 0.6, 0.85 * milky);
+                through = mix(through, fog + through * (1.0 - window), 0.85 * milky);
                 col += fog * (0.12 * milky * smoothstep(0.1, 0.7, d.z));
             }
             float ring = subRainRings(d, D, t, rain, pixel);
             col += through + (through * 0.9 + 0.05 * L) * ring * rain;
-        } else if (d.z <= 0.0 && s.lamp.z > 0.0) {
-            // The floor: a gentle sand-and-coral slope rising away ahead, lit from above through the caustics.
-            float below = s.lamp.z;
-            float2 ahead = normalize(float2(sin(az), cos(az)));
-            float denom = 0.1 * dot(d.xy, ahead) - d.z;
-            if (denom > 1e-4) {
-                float dist = below / denom;
-                if (dist < 160.0) {
+        } else if (onFloor) {
+            // Lit from above through the caustics, seen through the water between.
+            {
+                float dist = floorDist;
+                {
                     float3 p = float3(d.xy * dist, -D + d.z * dist);
                     float floorDepth = max(-p.z, 0.0);
                     float footprint = dist * pixel / max(-d.z + 0.1, 0.05);
@@ -119,14 +123,15 @@ enum SubmarineWindowShaders {
                     float n1 = vnoise3(float3(cq, 1.7));
                     float fine = 1.0 - smoothstep(0.4, 1.6, footprint * 0.9);
                     float n2 = mix(0.5, vnoise3(float3(cq * 2.9 + 3.1, 4.1)), fine);
-                    float clump = smoothstep(0.52, 0.66, 0.7 * n1 + 0.3 * n2);
+                    float clump = smoothstep(0.56, 0.7, 0.7 * n1 + 0.3 * n2);
                     float3 hc = hash33(float3(floor(cq * 1.4), 2.0));
                     float3 hue = mix(mix(float3(0.62, 0.32, 0.42), float3(0.7, 0.5, 0.26), hc.x), float3(0.35, 0.5, 0.42), hc.y * hc.y);
-                    float3 albedo = mix(float3(0.8, 0.74, 0.6) * (0.9 + 0.1 * n2), hue * (0.55 + 0.45 * n2), clump);
-                    float lit = caustics(p, t, footprint) * (1.0 - 0.35 * clump * (1.0 - n2));
+                    float3 albedo = mix(float3(0.85, 0.8, 0.66) * (0.9 + 0.1 * n2), hue * (0.75 + 0.35 * n2), clump);
+                    // The net drawn a little shallower than it lies, so the slope's sunlit sand still dances at 20 m.
+                    float lit = caustics(float3(p.xy, -0.58 * floorDepth), t, footprint) * (1.0 - 0.2 * clump * (1.0 - n2));
                     float3 ground = albedo * waterLight(floorDepth, L) * lit * 0.85;
                     float3 T = waterAbsorb(dist);
-                    float shown = 1.0 - smoothstep(45.0, 90.0, D);
+                    float shown = (1.0 - smoothstep(45.0, 90.0, D)) * (1.0 - smoothstep(-0.03, 0.03, d.z));
                     col = mix(col, col * (1.0 - T) + ground * T, shown);
                     depthOut = saturate(dist / 60.0);
                 }
@@ -138,11 +143,14 @@ enum SubmarineWindowShaders {
 
         // The eye's adaptation to the depth (and, in the shallows at night, to the dark).
         col *= waterAdapt(D) * s.lamp.y;
+        // The eye keeps a little green and red in a deep blue, so it reads as sea, not as a screen's blue.
+        col.g = max(col.g, 0.2 * col.b);
+        col.r = max(col.r, 0.03 * col.b);
 
         // The outside lamps: warm-white beams in the water, turning blue-green as they reach out.
         float beams = subLampBeams(q);
         float3 beamCol = mix(kLampColour, float3(0.55, 0.85, 1.0), saturate(0.35 * (q.y + 1.0)));
-        col += beamCol * (beams * s.lamp.x * 0.32);
+        col += beamCol * (beams * s.lamp.x * 0.45);
 
         ColorDepth o;
         o.color = float4(col, 1.0);
@@ -318,10 +326,10 @@ enum SubmarineWindowShaders {
 
         // The wall: painted steel in a soft pool of the cabin's light from up and to the left, darker into the corners;
         // panel seams with rivets; the ring's shadow round it and the sea's light spilling out past it.
-        float2 lp = p - float2(-0.55 * aspect, 1.15);
-        float pool = 0.14 + 0.86 * exp(-dot(lp, lp) * 0.5);
+        float2 lp = p - float2(-0.45 * aspect, 1.2);
+        float pool = 0.2 + 0.8 * exp(-dot(lp, lp) * 0.32);
         float grain = 0.93 + 0.07 * vnoise3(float3(p * 34.0, 1.3)) + 0.03 * vnoise3(float3(p * 5.0, 7.1));
-        float3 paint = float3(0.13, 0.15, 0.145) * grain;
+        float3 paint = float3(0.3, 0.34, 0.32) * grain;
         // Two seams, one either side of the porthole, each with a row of rivets beside it.
         float seam = 0.0, rivet = 0.0;
         float cx = s.view.x * aspect;
@@ -336,36 +344,76 @@ enum SubmarineWindowShaders {
         float3 col = paint * lamp * pool * (1.0 - 0.45 * seam) + lamp * pool * rivet * 0.07;
         float shadow = mix(0.35, 1.0, smoothstep(R, R + 0.09, r));
         col *= shadow;
-        col += paint * sea * (2.2 * exp(-(r - R) * 7.0)) + paint * sea * 0.25;
+        col += paint * sea * (1.5 * exp(-(r - R) * 6.0)) + paint * sea * 0.2;
         col += float3(0.25, 0.75, 1.0) * (s.misc.y * 0.025 * exp(-(r - R) * 4.0));   // the living light, faintly
 
-        // Cables: two along the top of the wall, sagging between their clips, and one down the right to the sonar.
+        // Cables: two along the top of the wall, sagging between their clips, and a short one from the gauge down to the
+        // sonar; round rubber catching the lamp along their tops.
         float sag = s.misc.z;
         for (int j = 0; j < 2; j++) {
-            float y0 = 0.955 - 0.05 * float(j);
-            float span = 0.55 + 0.12 * float(j);
-            float u = fract((p.x + 0.17 * float(j)) / span) - 0.5;
-            float yc = y0 - sag * (1.0 - 4.0 * u * u) * (0.8 + 0.4 * float(j));
-            float dy = (p.y - yc) / (0.011 - 0.002 * float(j));
-            if (abs(dy) < 1.0) {
-                float hl = exp(-(dy + 0.45) * (dy + 0.45) * 9.0);
-                col = float3(0.02, 0.02, 0.022) * (0.5 + 0.5 * pool) + lamp * hl * 0.18 * pool;
+            float y0 = 0.962 - 0.042 * float(j);
+            float span = 0.82 * aspect / (1.6 + 0.4 * float(j));
+            float uu = fract((p.x + aspect + 0.31 * float(j) * span) / span) - 0.5;
+            float yc = y0 - sag * (1.0 - 4.0 * uu * uu) * (1.0 + 0.5 * float(j));
+            float thick = 0.011 - 0.002 * float(j);
+            float v = (p.y - yc) / thick;
+            if (abs(v) < 1.0) {
+                float nz = sqrt(1.0 - v * v);
+                float lit = saturate(0.75 * v + 0.6 * nz);
+                float hl = lit * lit * lit * lit;
+                col = float3(0.025, 0.025, 0.028) * (0.4 + 0.6 * nz) * (0.6 + 2.0 * lamp) + lamp * (hl * 0.35 * pool);
             }
-            float cu = abs(u) - 0.5;
-            float2 cl = float2(cu * span, p.y - y0 - 0.002);
-            if (abs(cl.x) < 0.012 && abs(cl.y) < 0.02) col = float3(0.05, 0.05, 0.05) * lamp * 2.0 + lamp * 0.05 * pool;
+            // The clips: small steel saddles screwed to the wall.
+            float2 cl = float2((abs(uu) - 0.5) * span, p.y - y0 + 0.002);
+            if (abs(cl.x) < 0.016 && abs(cl.y) < thick + 0.008) {
+                float edge = smoothstep(0.016, 0.012, abs(cl.x)) * smoothstep(thick + 0.008, thick + 0.004, abs(cl.y));
+                float screw = exp(-dot(cl - float2(0.0, 0.0), cl) / 0.00002);
+                col = mix(col, float3(0.09, 0.09, 0.095) * (0.5 + 2.0 * lamp) * (0.7 + 0.3 * smoothstep(-thick, thick, cl.y)) + lamp * screw * 0.2, edge);
+            }
         }
         {
-            float2 sc = s.sonar.xy * float2(aspect, 1.0);
-            float x0 = max(sc.x + 0.6 * s.sonar.z, s.gauge.x * aspect + 1.3 * s.gauge.z);   // clear of the gauge
-            float yy = (p.y - (sc.y + s.sonar.z)) ;
-            if (yy > 0.0 && p.y < 0.96) {
-                float xc = x0 + 0.04 * sin(yy * 2.2);
-                float dx = (p.x - xc) / 0.009;
-                if (abs(dx) < 1.0) {
-                    float hl = exp(-(dx + 0.4) * (dx + 0.4) * 9.0);
-                    col = float3(0.02, 0.02, 0.022) + lamp * hl * 0.15 * pool;
+            float2 gc0 = s.gauge.xy * float2(aspect, 1.0), sc0 = s.sonar.xy * float2(aspect, 1.0);
+            float x0 = gc0.x + 0.35 * s.sonar.z;
+            float yTop = gc0.y - 1.1 * s.gauge.z, yBot = sc0.y + 1.05 * s.sonar.z;
+            if (p.y < yTop && p.y > yBot) {
+                float k2 = (p.y - yBot) / max(yTop - yBot, 1e-3);
+                float xc = x0 + 0.025 * sin(k2 * 3.14159265);
+                float v = (p.x - xc) / 0.01;
+                if (abs(v) < 1.0) {
+                    float nz = sqrt(1.0 - v * v);
+                    float lit = saturate(-0.6 * v + 0.6 * nz);
+                    col = float3(0.025, 0.025, 0.028) * (0.4 + 0.6 * nz) * (0.6 + 2.0 * lamp) + lamp * (lit * lit * lit * lit * 0.3 * pool);
                 }
+            }
+        }
+
+        // The cabin's lamp, high on the wall left of the porthole (where its pool of light comes from): a frosted dome
+        // glowing in the cabin's light, behind a three-bar cage on a round mounting plate.
+        {
+            float2 lc = float2(0.5 * (-aspect + (cx - R)), 0.66);
+            float space = (cx - R) + aspect;
+            if (space > 0.3) {
+                float2 lv = p - lc;
+                float lr = length(lv);
+                float plate = 0.075, dome = 0.05;
+                if (lr < plate * 1.6) col *= mix(0.55, 1.0, smoothstep(plate, plate * 1.6, lr));
+                if (lr < plate) {
+                    float3 n = normalize(float3(lv / plate * 0.6, 1.0));
+                    float sp = saturate(dot(n, normalize(float3(-0.3, 0.5, 0.8))));
+                    col = float3(0.08, 0.085, 0.09) * (0.5 + 2.5 * lamp) * (0.6 + 0.4 * sp);
+                }
+                if (lr < dome) {
+                    float x = lr / dome;
+                    float glowL = 1.0 - 0.45 * x * x;
+                    col = lamp * (2.6 * glowL) + float3(0.02);
+                    float2 hp = lv / dome - float2(-0.35, 0.35);
+                    col += lamp * (1.2 * exp(-dot(hp, hp) * 8.0));
+                }
+                // The cage: two bars over the dome and a ring round it.
+                float bar = min(abs(lv.x - 0.017), abs(lv.x + 0.017));
+                float ringd = abs(lr - dome * 1.02);
+                if (lr < dome * 1.08 && (bar < 0.0035 || ringd < 0.003)) col = float3(0.03, 0.03, 0.032) + lamp * 0.12;
+                col += lamp * (0.12 * exp(-max(lr - plate, 0.0) * 16.0)) * step(plate, lr);
             }
         }
 
@@ -439,7 +487,7 @@ enum SubmarineWindowShaders {
                 float x = sr / SR;
                 float ang = atan2(so.x, so.y);
                 float behind = fract((s.sonar.w - ang) / 6.2831853);   // 0 on the sweep line … 1 a turn behind it
-                float trail = exp(-behind * 5.0) * 0.5;
+                float trail = exp(-behind * 4.0) * 0.6;
                 float line = exp(-(behind * 6.2831853 * sr / (0.012 * SR)) * (behind * 6.2831853 * sr / (0.012 * SR)));
                 float grid = 0.0;
                 for (int j = 1; j <= 3; j++) {
@@ -457,7 +505,7 @@ enum SubmarineWindowShaders {
                     float flare = 0.35 + 0.65 * exp(-since * 3.5);
                     blips += b.z * flare * exp(-dot(dv, dv) / (0.0016 * SR * SR));
                 }
-                float3 c = float3(0.004, 0.02, 0.012) + phos * (0.05 * grid + trail * 0.12 + line * 0.5 + blips * 1.1) * bright;
+                float3 c = float3(0.006, 0.03, 0.018) + phos * (0.08 * grid + trail * 0.25 + line * 0.9 + blips * 1.3) * bright;
                 c *= 1.0 - 0.5 * smoothstep(0.7, 1.0, x);
                 float2 hp = so / SR - float2(-0.3, 0.35);
                 c += (lamp * 0.5 + float3(0.02)) * (0.05 * exp(-dot(hp, hp) * 5.0));
@@ -479,10 +527,10 @@ enum SubmarineWindowShaders {
                 float2 bv = float2(bx * 0.22, (v) * 0.03);
                 float button = exp(-dot(bv, bv) / 0.00006);
                 float pleat = exp(-(bx * 0.22 / 0.006) * (bx * 0.22 / 0.006)) * 0.5;
-                float3 vinyl = float3(0.2, 0.065, 0.05);
+                float3 vinyl = float3(0.4, 0.13, 0.09);
                 float sheen = diff * diff * diff * diff;
                 col = vinyl * lamp * (0.15 + 0.75 * diff) * (1.0 - 0.4 * button - 0.3 * pleat) + lamp * sheen * 0.06
-                    + vinyl * sea * 0.2 * saturate(v + 0.5);
+                    + vinyl * sea * 0.6 * saturate(v + 0.3);
                 col *= smoothstep(-1.0, -0.6, v) * 0.6 + 0.4;
             } else {
                 // The console's face: dark painted metal, its edge catching the light.
@@ -519,7 +567,7 @@ enum SubmarineWindowShaders {
         float glow = in.info.y, pressed = in.info.z, night = in.info.w;
         float2 sz = max(in.size, float2(1e-4));
         float2 pp = (in.uv - 0.5) * sz;
-        float inset = 0.0018 + 0.08 * sz.x;
+        float inset = 0.0012 + 0.06 * min(sz.x, sz.y);
         float2 halfIn = sz * 0.5 - inset;
         float rad = min(halfIn.x, halfIn.y) * 0.45;
         float2 qd = abs(pp) - (halfIn - rad);
@@ -530,12 +578,12 @@ enum SubmarineWindowShaders {
         float3 back = mix(float3(0.3, 0.75, 0.9), float3(0.9, 0.12, 0.05), night);
         float3 plate = float3(0.012, 0.013, 0.015) + lamp * 0.03;
         float3 body = black ? float3(0.006, 0.007, 0.009) : float3(0.022, 0.025, 0.03);
-        float topEdge = smoothstep(0.75, 0.95, in.uv.y) * cap;
+        float topEdge = (1.0 - smoothstep(0.0, 0.006, abs(sd + 0.004))) * cap * (0.4 + 0.6 * smoothstep(0.3, 0.9, in.uv.y));
         float bevel = smoothstep(-0.006, 0.0, sd) * cap;
         float3 cyan = float3(0.25, 0.85, 1.0);
         float centre = 1.0 - smoothstep(0.0, 0.7, length((in.uv - float2(0.5, 0.45)) * float2(1.6, 1.0)));
         float3 c = body * (1.0 - 0.3 * pressed) + lamp * bevel * 0.05
-                 + back * (topEdge * (black ? 0.05 : 0.09))
+                 + back * (topEdge * (black ? 0.16 : 0.2))
                  + cyan * (glow * (0.9 + 0.9 * centre) * (1.0 - 0.3 * bevel));
         c = mix(plate, c, cap);
         ColorDepth o; o.color = float4(c, 1); o.depth = float4(0.05, 0, 0, 1);

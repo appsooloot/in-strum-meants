@@ -26,7 +26,7 @@ final class SubmarineWindowRenderer: ThemeRenderer {
     nonisolated static func creatureBudget(_ q: QualityLevel) -> Int { q == .lite ? 24 : DeepLights.cap }
     /// The view's half angle at the glass's rim (degrees), and the camera's pitch in the shallows and deep down.
     nonisolated static let halfView: Float = 34
-    nonisolated static let shallowPitch: Float = 20, deepPitch: Float = 5
+    nonisolated static let shallowPitch: Float = 16, deepPitch: Float = 5
     /// The view faces this many degrees to the left of the sun, so its shafts slant in from the right.
     nonisolated static let sunOffset: Double = 15
 
@@ -213,6 +213,15 @@ final class SubmarineWindowRenderer: ThemeRenderer {
         creatureSprites.reserveCapacity(DeepLights.cap)
     }
 
+    /// A key's console button (NDC rect): a white key's in the lower row, a black key's in the upper one, over the
+    /// keyboard's own span of it.
+    nonisolated static func buttonRect(_ k: KeyRect, keyTop: Float) -> SIMD4<Float> {
+        let bottom: Float = -0.995, gap: Float = 0.0015
+        let x0 = -0.995 + k.x * 1.99 + gap, x1 = -0.995 + (k.x + k.width) * 1.99 - gap
+        let h = max(0.02, keyTop - bottom)
+        return k.isBlack ? SIMD4(x0, bottom + 0.53 * h, x1, keyTop - 0.004) : SIMD4(x0, bottom, x1, bottom + 0.49 * h)
+    }
+
     nonisolated static func smooth(_ a: Float, _ b: Float, _ x: Float) -> Float {
         let t = min(1, max(0, (x - a) / (b - a)))
         return t * t * (3 - 2 * t)
@@ -253,7 +262,7 @@ final class SubmarineWindowRenderer: ThemeRenderer {
         let byMoon = moonShaft > sunShaft
         let lightAz = byMoon ? (s.moon.azimuth.isFinite ? s.moon.azimuth : sunAz) : sunAz
         let rel = Float((lightAz - viewAz) * .pi / 180)
-        let shaftStrength = 0.9 * max(sunShaft, moonShaft * 0.9)
+        let shaftStrength = 1.3 * max(sunShaft, moonShaft * 0.9)
         let surface = frame.surfaceLight
         let glowSea = Self.seaGlow(surface: surface, metres: metres, nightGain: nightGain)
         let lamps = min(1, max(0, frame.lamps))
@@ -274,7 +283,7 @@ final class SubmarineWindowRenderer: ThemeRenderer {
         let cabinNight = min(1, max(0, frame.cabinNight))
         let dayLight = SIMD3<Float>(0.78, 0.85, 0.95), redLight = SIMD3<Float>(0.95, 0.1, 0.05)
         let cabinLight = min(1, max(0, frame.cabinLight))
-        let cabinCol = (dayLight + (redLight - dayLight) * cabinNight) * ((0.12 + 0.88 * cabinLight) * (0.55 - 0.15 * cabinNight))
+        let cabinCol = (dayLight + (redLight - dayLight) * cabinNight) * ((0.12 + 0.88 * cabinLight) * (0.6 - 0.2 * cabinNight))
 
         // The living light through the flash limiter: how much of the window it lights, held to the flash rules.
         let visible = DeepLights.visible(frame.creatures, limit: Self.creatureBudget(quality))
@@ -293,24 +302,24 @@ final class SubmarineWindowRenderer: ThemeRenderer {
 
         // The glass: its rim fogging with the cold sea (more the deeper), the cabin faintly mirrored in it, no frost.
         let spec = lay.spec(aspect: aspect)
-        glass.updatePorthole(spec: spec, condensation: 0.35 + 0.45 * frame.depth, cold: frame.depth, cabinLight: cabinCol * 1.6,
+        glass.updatePorthole(spec: spec, condensation: 0.2 + 0.3 * frame.depth, cold: frame.depth, cabinLight: cabinCol * 1.6,
                              reflection: SIMD4(cabinCol * 1.4, 0.05), outsideLight: glowSea, quality: quality, dt: dt,
                              aspect: aspect, sparkle: sparkleScale)
 
         // The uniforms.
-        uniforms[0] = SIMD4(lay.centre, R, aspect)
+        uniforms[0] = SIMD4(lay.centre.x, lay.centre.y, R, aspect)
         uniforms[1] = SIMD4(Float(viewAz * .pi / 180), pitch, tanR, time)
         uniforms[2] = SIMD4(metres, frame.surfaceWaves, frame.rainOnSurface, frame.milky)
         uniforms[3] = SIMD4(surface, shaftStrength)
         uniforms[4] = SIMD4(-sin(rel) * 0.45, -1, 2 * tanR / max(R, 0.05) / Float(max(1, size.height)), frame.snellVisible)
-        let below: Float = shallow > 0 || metres < 60 ? 6 + 0.5 * metres : 0
+        let below: Float = metres < 70 ? 3 + 0.25 * metres : 0
         uniforms[5] = SIMD4(lamps, nightGain, below, quality == .lite ? 0 : 1)
         uniforms[6] = SIMD4(cabinCol, keyTop)
         uniforms[7] = SIMD4(lay.outer, lay.consoleTop, cabinNight, lay.ring)
         uniforms[8] = SIMD4(glowSea + SIMD3<Float>(1, 0.92, 0.8) * (0.05 * lamps), min(1, max(0, frame.sonarScreen)) * (1 - 0.3 * cabinNight))
         let needle = (-135 + 270 * min(1, max(0, frame.depth))) * Float.pi / 180
-        uniforms[9] = SIMD4(lay.gauge, lay.gaugeRadius, needle)
-        uniforms[10] = SIMD4(lay.sonar, lay.sonarRadius, frame.sonarSweep)
+        uniforms[9] = SIMD4(lay.gauge.x, lay.gauge.y, lay.gaugeRadius, needle)
+        uniforms[10] = SIMD4(lay.sonar.x, lay.sonar.y, lay.sonarRadius, frame.sonarSweep)
         let blips = frame.sonarBlips.suffix(24)
         for i in 0..<24 { uniforms[Self.blipBase + i] = .zero }
         for (i, b) in blips.enumerated() { uniforms[Self.blipBase + i] = SIMD4(b.angle, b.range, min(1, max(0, b.brightness)), 0) }
@@ -324,7 +333,7 @@ final class SubmarineWindowRenderer: ThemeRenderer {
         func lampAt(_ v: SIMD2<Float>) -> Float { Self.lampLight(SIMD2(2 * v.x - 1, 2 * v.y - 1)) * lamps }
         func push(_ at: SIMD2<Float>, _ radius: Float, _ kind: Kind, lit: Float = 0, _ colour: SIMD3<Float>, _ param: Float = 0) {
             guard spriteList.count < Self.spriteCapacity, at.x.isFinite, at.y.isFinite, radius.isFinite else { return }
-            spriteList.append(Sprite(a: SIMD4(at, max(radius, 0.0005), kind.rawValue + min(0.99, max(0, lit))),
+            spriteList.append(Sprite(a: SIMD4(at.x, at.y, max(radius, 0.0005), kind.rawValue + min(0.99, max(0, lit))),
                                      b: SIMD4(colour, param)))
         }
         let pixel = 2 / Float(max(1, size.height))
@@ -338,7 +347,7 @@ final class SubmarineWindowRenderer: ThemeRenderer {
                 let lampF = lampAt(v) * exp(-1.4 * z)
                 peak = max(peak, lampF)
                 let fade = 0.35 + 0.65 * exp(-1.2 * z)
-                let light = (ambient + lampCol * (1.8 * lampF) + cabinCol * (0.3 * max(0, 0.3 - z))) * (f.brightness * fade)
+                let light = (ambient + lampCol * (3.5 * lampF) + cabinCol * (0.3 * max(0, 0.3 - z))) * (f.brightness * fade)
                 guard light.x + light.y + light.z > 0.003 else { continue }
                 let r = max(1.3 * pixel, 0.0045 * f.size * unit / (0.22 + z))
                 push(ndc(v), r, .snow, light * (near ? 0.6 : 1))
@@ -414,7 +423,7 @@ final class SubmarineWindowRenderer: ThemeRenderer {
                 let across = phase * 1.6 - 0.3 - 0.08 * hx
                 let x = heading > 0 ? across : 1 - across
                 let y = 0.42 + 0.22 * (hy - 0.5) + 0.015 * sin(time * 1.3 + Float(i) * 1.9)
-                let r = (0.016 + 0.01 * hx) * unit
+                let r = (0.024 + 0.014 * hx) * unit
                 push(ndc(SIMD2(x, y)), r, .fish, lit: 0.8 * fishShow, glowSea * 0.25, heading)
                 fishCount += 1
             }
@@ -446,15 +455,13 @@ final class SubmarineWindowRenderer: ThemeRenderer {
             spriteList.withUnsafeBytes { ring[slot].contents().copyMemory(from: $0.baseAddress!, byteCount: bytes) }
         }
 
-        // The keys: a row of backlit console buttons, glowing cyan where you play.
+        // The keys: backlit console buttons in two staggered rows (the white keys below, the black ones above, where
+        // they fall on the keyboard), glowing cyan where you play.
         keyInstances.removeAll(keepingCapacity: true)
         if keysShow {
-            let bottomY: Float = -0.995, gap: Float = 0.0015
             for k in frame.keys {
-                let x0 = -0.995 + k.key.x * 1.99 + gap, x1 = -0.995 + (k.key.x + k.key.width) * 1.99 - gap
-                let y0 = k.key.isBlack ? keyTop - (keyTop - bottomY) * 0.62 : bottomY
                 let glow = min(1, max(0, k.glow)) * (gentle ? 0.75 : 1)
-                keyInstances.append(KeyInstance(rect: SIMD4(x0, y0, x1, keyTop),
+                keyInstances.append(KeyInstance(rect: Self.buttonRect(k.key, keyTop: keyTop),
                                                 info: SIMD4(k.key.isBlack ? 1 : 0, glow, k.pressed ? 1 : 0, cabinNight)))
             }
         }
