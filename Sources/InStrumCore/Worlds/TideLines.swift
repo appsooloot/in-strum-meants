@@ -29,6 +29,9 @@ public struct TideLine: Equatable {
 public struct TideLines {
     public static let cap = 48
     static let chordWindow = 0.06
+    /// While time is held (a step of dt 0) a line written since the last step is traced at once, this old (the 0.3 s
+    /// its tracing takes): else it would never show.
+    public static let bloomAge: Float = 0.3
     /// Chord colours: warm gold for major, rose for minor, a cool pale for tense.
     public static let majorHue: Float = 0.11, minorHue: Float = 0.95, tenseHue: Float = 0.6
 
@@ -133,6 +136,7 @@ public struct TideLines {
             var l = lines[i]
             l.age += fdt
             l.drawn = min(1, l.drawn + fdt / 0.3)
+            if fdt == 0, l.age == 0 { l.age = Self.bloomAge; l.drawn = 1 }
             if !l.held { l.strength *= exp(-fdt / max(0.5, fade)) }
             let covered = washFront >= l.y
             if covered && !l.wet {

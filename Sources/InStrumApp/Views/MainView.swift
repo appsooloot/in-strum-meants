@@ -15,6 +15,7 @@ struct MainView: View {
             topBar
             HStack(spacing: 0) {
                 MetalCanvas(model: model)
+                    .overlay(alignment: .top) { ToastBanner(model: model) }
                 if showVisuals {
                     SettingsPanel(model: model)
                         .transition(.move(edge: .trailing))
@@ -69,6 +70,9 @@ struct MainView: View {
             Divider().frame(height: 18)
             Text(statusText).font(.system(size: 14, weight: .medium)).lineLimit(1)
             Spacer()
+            KeepButton(model: model)
+            HoldPad(model: model)
+            SleepMenu(model: model)
             Button("Choose Instrument") { showPicker = true }.disabled(model.isLoading)
             Button(model.isBuiltIn ? "Open Instrument" : "Open Plugin Window") {
                 if let builtIn = audio.loadedBuiltIn {

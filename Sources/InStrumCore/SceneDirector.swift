@@ -172,6 +172,27 @@ public final class SceneDirector {
         return AmbienceKey(root: root, major: !analyzer.keyIsMinor)
     }
 
+    /// What the app asks of the clock (Small Wins: hold the moment, the sleep dim, Reduce Motion, breathing), set before
+    /// each frame's events.
+    public var controls = SceneControls()
+    /// True while time is held.
+    public private(set) var holding = false
+    /// How far the renderers step this frame: the step's dt, which held time, the sleep dim and Reduce Motion shape.
+    public private(set) var visualDt = 0.0
+    /// The post exposure's multiplier (the sleep dim lowers it by up to a stop): 1 while nothing dims the world.
+    public var exposureScale: Float { 1 }
+    /// What the app reads back after each step.
+    public var report: SceneReport { SceneReport(holding: holding, sky: lastSky, key: key) }
+
+    /// What the ambience should play for a frame: a world's own soundscape (silence for the other themes), with the key
+    /// the player is in (spec §7.1). Every theme carries the key, so a bell heard after a switch to a world already sits
+    /// in your key. `t` is the frame's time.
+    public func ambience(for frame: Any, at t: Double) -> AmbienceScene {
+        var scene = (frame as? AmbienceProviding)?.ambience ?? .silent
+        scene.key = key
+        return scene
+    }
+
     private var box: AnyThemeBoxProtocol
     private var analyzer = PlayingAnalyzer()
     private var held: Set<UInt8> = []
@@ -217,6 +238,7 @@ public final class SceneDirector {
 
     /// Returns the theme's frame (GardenFrame, SteinwayFrame or a world's frame).
     public func step(dt: Double, t: Double, quality: QualityLevel) -> Any {
+        visualDt = dt
         hub.set(.held, held.isEmpty ? 0 : 1, at: t)
         analyzer.publish(to: hub, at: t)
         let frame = hub.frame(at: t, listenStrength: listenStrength)

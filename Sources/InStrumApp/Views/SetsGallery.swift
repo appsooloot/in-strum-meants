@@ -44,7 +44,7 @@ struct SetCard: View {
     let apply: () -> Void
     let restore: () -> Void
 
-    private var credit: Credit? { set.creditID.flatMap { CreditLibrary.credit(id: $0) } }
+    private var credit: Credit? { self.set.creditID.flatMap { CreditLibrary.credit(id: $0) } }
     /// The set's card: its song's, or for a set born from its place (no credit) its place card; nil when it has neither.
     private var card: InspiredByCard? {
         if let credit { return InspiredByCard(credit: credit) }

@@ -14,6 +14,7 @@ final class FakeEngine: InstrumentEngine {
     var state: Data? = Data([1, 2, 3])
     var audioLevel: Float = 0
     var masterVolume: Float = 0.8
+    var sleepGain: Float = 1
     var bufferFrames: UInt32 = 128
     var loadDelay: UInt64 = 0
     var log: [String] = []
@@ -218,8 +219,8 @@ final class AppModelTests: XCTestCase {
         XCTAssertFalse(AppModel.ambienceChanged(base, AmbienceScene(levels: [.fire: 0.7], indoors: 0.005)))
     }
 
-    /// The key the player is in counts as a change (the temple bell retunes at its next strike), and the canvas puts
-    /// the director's key on every frame's scene.
+    /// The key the player is in counts as a change (the temple bell retunes at its next strike), and the director puts
+    /// its key on every frame's scene (the canvas sends that on).
     func testKeyCountsAsAChange() {
         let base = AmbienceScene(levels: [.templeBell: 0.5])
         let inD = AmbienceScene(levels: [.templeBell: 0.5], key: AmbienceKey(root: 2, major: true))
@@ -235,14 +236,24 @@ final class AppModelTests: XCTestCase {
         m.updateAmbience(inD, at: 2)
         XCTAssertEqual(engine.scenes.count, 2, "the new key goes through, once")
         XCTAssertEqual(engine.scenes.last?.key, AmbienceKey(root: 2, major: true))
-        let lake = SceneDirector(themeID: MoonlitLakeModel.id, state: ThemeState(), reaction: ReactionPresets.expressivePianist)
-        let key = AmbienceKey(root: 7, major: false)
-        let scene = ThemeCanvas.ambience(for: lake.step(dt: 1.0 / 30, t: 0, quality: .lite), key: key)
+        let aMinor: [UInt8] = [57, 59, 60, 62, 64, 65, 68, 69] + [52, 56, 59] + [45, 57, 60, 64]
+        func playing(_ id: String) -> SceneDirector {
+            let d = SceneDirector(themeID: id, state: ThemeState(), reaction: ReactionPresets.expressivePianist)
+            for (i, n) in aMinor.enumerated() {
+                d.handle([.noteOn(note: n, velocity: 0.7)], at: Double(i) * 0.25)
+                d.handle([.noteOff(note: n)], at: Double(i) * 0.25 + 0.2)
+            }
+            return d
+        }
+        let key = AmbienceKey(root: 9, major: false)
+        let lake = playing(MoonlitLakeModel.id)
+        let scene = lake.ambience(for: lake.step(dt: 1.0 / 30, t: 4, quality: .lite), at: 4)
         XCTAssertEqual(scene.key, key, "the frame's scene carries the key")
         XCTAssertGreaterThan(scene.level(.water), 0.5, "and the world's own soundscape")
-        let steinway = SceneDirector(themeID: MidnightSteinwayModel.id, state: ThemeState(), reaction: ReactionPresets.expressivePianist)
-        XCTAssertEqual(ThemeCanvas.ambience(for: steinway.step(dt: 1.0 / 30, t: 0, quality: .lite), key: key).key, key, "every theme carries it")
-        XCTAssertNil(ThemeCanvas.ambience(for: steinway.step(dt: 1.0 / 30, t: 0.1, quality: .lite), key: nil).key)
+        let steinway = playing(MidnightSteinwayModel.id)
+        XCTAssertEqual(steinway.ambience(for: steinway.step(dt: 1.0 / 30, t: 4, quality: .lite), at: 4).key, key, "every theme carries it")
+        let quiet = SceneDirector(themeID: MidnightSteinwayModel.id, state: ThemeState(), reaction: ReactionPresets.expressivePianist)
+        XCTAssertNil(quiet.ambience(for: quiet.step(dt: 1.0 / 30, t: 0.1, quality: .lite), at: 0.1).key)
     }
 
     func testLeavingTheCabinUnmufflesTheBeach() {
@@ -376,17 +387,17 @@ final class AppModelTests: XCTestCase {
     func testNonWorldThemesSilenceAmbience() throws {
         let m = makeModel()
         let lakeDirector = SceneDirector(themeID: MoonlitLakeModel.id, state: ThemeState(), reaction: ReactionPresets.expressivePianist)
-        let lake = ThemeCanvas.ambience(for: lakeDirector.step(dt: 1.0 / 30, t: 0, quality: .lite))
+        let lake = lakeDirector.ambience(for: lakeDirector.step(dt: 1.0 / 30, t: 0, quality: .lite), at: 0)
         XCTAssertGreaterThan(lake.level(.water), 0.5)
         m.updateAmbience(lake, at: 0)
         let garden = SceneDirector(themeID: ButterflyGardenModel.id, state: ThemeState(), reaction: ReactionPresets.expressivePianist)
-        let quiet = ThemeCanvas.ambience(for: garden.step(dt: 1.0 / 30, t: 0, quality: .lite))
+        let quiet = garden.ambience(for: garden.step(dt: 1.0 / 30, t: 0, quality: .lite), at: 0)
         XCTAssertEqual(quiet, .silent)
         m.updateAmbience(quiet, at: 0.5)
         XCTAssertEqual(engine.scenes.count, 2)
         XCTAssertTrue(engine.scenes.last?.levels.isEmpty ?? false, "switching to Butterfly Garden sends silence")
         let steinway = SceneDirector(themeID: MidnightSteinwayModel.id, state: ThemeState(), reaction: ReactionPresets.expressivePianist)
-        XCTAssertEqual(ThemeCanvas.ambience(for: steinway.step(dt: 1.0 / 30, t: 0, quality: .lite)), .silent)
+        XCTAssertEqual(steinway.ambience(for: steinway.step(dt: 1.0 / 30, t: 0, quality: .lite), at: 0), .silent)
     }
 
     // MARK: - Sets
@@ -759,6 +770,93 @@ final class AppModelTests: XCTestCase {
         m.autosave()
         XCTAssertEqual(store.load().sky, s)
         XCTAssertEqual(makeModel().skySettings, s)
+    }
+
+    // MARK: - Small Wins seams
+
+    /// Each of Small Wins' settings saves and comes back; the hold pedal and the breath also reach the director's
+    /// controls, at once and at the next launch. Breathing's switch saves at once; its depth slider waits for the drag.
+    func testSmallWinsSettingsAreSavedAndSteerTheDirector() {
+        let m = makeModel()
+        XCTAssertEqual(m.holdPedal, .soft)
+        XCTAssertEqual(m.keyboardRange, .keys88)
+        XCTAssertEqual(m.breathSettings, AmbienceBreathSettings())
+        XCTAssertTrue(m.followReduceMotion)
+        XCTAssertEqual(m.sceneControls, SceneControls())
+        m.setHoldPedal(.sostenuto)
+        m.setKeyboardRange(.keys61)
+        m.setBreath(AmbienceBreathSettings(enabled: false, depth: 0.5))
+        m.setFollowReduceMotion(false)
+        XCTAssertEqual(m.sceneControls, SceneControls(holdPedal: .sostenuto, breath: AmbienceBreathSettings(enabled: false, depth: 0.5)))
+        let saved = store.load()
+        XCTAssertEqual(saved.holdPedal, .sostenuto)
+        XCTAssertEqual(saved.keyboardRange, .keys61)
+        XCTAssertEqual(saved.breath, AmbienceBreathSettings(enabled: false, depth: 0.5))
+        XCTAssertFalse(saved.followReduceMotion)
+        let again = makeModel()
+        XCTAssertEqual(again.holdPedal, .sostenuto)
+        XCTAssertEqual(again.keyboardRange, .keys61)
+        XCTAssertEqual(again.breathSettings.depth, 0.5)
+        XCTAssertFalse(again.followReduceMotion)
+        XCTAssertEqual(again.sceneControls.holdPedal, .sostenuto)
+        XCTAssertEqual(again.sceneControls.breath, AmbienceBreathSettings(enabled: false, depth: 0.5))
+        let before = again.saveCount
+        for i in 0..<60 { again.setBreath(AmbienceBreathSettings(enabled: false, depth: Double(i) / 40)) }
+        XCTAssertEqual(again.saveCount, before, "dragging the depth never writes on every tick")
+        XCTAssertEqual(again.sceneControls.breath.depth, 59.0 / 40, accuracy: 1e-12, "but the director hears it at once")
+        again.setBreath(AmbienceBreathSettings(enabled: true, depth: 59.0 / 40))
+        XCTAssertEqual(again.saveCount, before + 1, "the switch saves at once")
+        XCTAssertEqual(store.load().breath, AmbienceBreathSettings(enabled: true, depth: 59.0 / 40))
+    }
+
+    /// What wakes the sleep fade: a note-on, a sustain, sostenuto or soft pedal, or a click (noted by the views).
+    /// Letting go of a key and other controllers don't count.
+    func testActivityIsKeysAndPedals() {
+        let m = makeModel()
+        XCTAssertEqual(m.lastActivityTime, -.infinity)
+        m.handleMIDI(bytes: [0x90, 60, 100], time: 5)
+        XCTAssertEqual(m.lastActivityTime, 5)
+        m.handleMIDI(bytes: [0x80, 60, 0], time: 6)
+        m.handleMIDI(bytes: [0x90, 62, 0], time: 6.5)   // a note-on at velocity 0 lets go
+        XCTAssertEqual(m.lastActivityTime, 5)
+        m.handleMIDI(bytes: [0xB0, 64, 127], time: 7)
+        XCTAssertEqual(m.lastActivityTime, 7)
+        m.handleMIDI(bytes: [0xB0, 1, 64], time: 8)
+        m.handleMIDI(bytes: [0xE0, 0, 80], time: 8.2)
+        XCTAssertEqual(m.lastActivityTime, 7)
+        m.handleMIDI(bytes: [0xB0, 66, 0], time: 8.4)
+        XCTAssertEqual(m.lastActivityTime, 8.4)
+        m.handleMIDI(bytes: [0xB0, 67, 127], time: 8.6)
+        XCTAssertEqual(m.lastActivityTime, 8.6)
+        m.noteUserActivity(at: 9)
+        XCTAssertEqual(m.lastActivityTime, 9)
+        m.playFromScreen(note: 64, down: true)
+        XCTAssertGreaterThan(m.lastActivityTime, 9, "the on-screen keys count too")
+    }
+
+    /// A toast clears itself once its time is up (2.5 s in the app, sped up here), and a newer toast outlives the older
+    /// one's timer, then goes with its own.
+    func testToastClearsItself() async throws {
+        let m = makeModel()
+        XCTAssertEqual(AppModel.toastSeconds, 2.5)
+        XCTAssertEqual(m.toastDuration, 2.5)
+        m.toastDuration = 0.2
+        m.showToast("Kept · 0:12", symbol: "bookmark.fill")
+        XCTAssertEqual(m.toast?.text, "Kept · 0:12")
+        XCTAssertEqual(m.toast?.symbol, "bookmark.fill")
+        try await Task.sleep(nanoseconds: 600_000_000)
+        XCTAssertNil(m.toast, "gone once its time is up")
+        m.toastDuration = AppModel.toastSeconds
+        m.showToast("Nothing to keep yet", symbol: "bookmark")
+        let older = try XCTUnwrap(m.toast)
+        m.showToast("You're awake.", symbol: "sun.max")
+        let newer = try XCTUnwrap(m.toast)
+        XCTAssertNotEqual(older.id, newer.id)
+        m.toastExpired(older.id)   // the older toast's timer, firing late
+        try await Task.sleep(nanoseconds: 50_000_000)   // and the replaced timer, which ends at once
+        XCTAssertEqual(m.toast, newer, "the newer toast outlives the older timer")
+        m.toastExpired(newer.id)
+        XCTAssertNil(m.toast, "and goes with its own")
     }
 
     func testFirstLaunchAsksForInstrument() async {
