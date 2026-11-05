@@ -68,7 +68,7 @@ final class ExcitementTests: XCTestCase {
         for (setting, most) in [(ExcitementSettings.Moments.some, 2), (.lots, 4)] {
             var ex = Excitement()
             ex.settings.moments = setting
-            let hammer = (0..<80).flatMap { k in chord(at: Double(k) * 0.125, [48, 52, 55, 60], velocity: 1, spread: 0) }
+            let hammer: [Note] = (0..<80).flatMap { (k: Int) -> [Note] in chord(at: Double(k) * 0.125, [48, 52, 55, 60], velocity: 1, spread: 0) }
             let log = run(&ex, hammer, until: 10)
             XCTAssertLessThanOrEqual(log.moments.count, most, "\(setting)")
             XCTAssertGreaterThanOrEqual(log.moments.count, 1)
@@ -121,7 +121,10 @@ final class ExcitementTests: XCTestCase {
             var ex = Excitement(seed: 7)
             ex.settings.surprises = setting
             // An hour of steady playing: a note every second.
-            let notes = (0..<3600).flatMap { k in [Note(t: Double(k), on: true, note: 60 + k % 12, velocity: 0.6), Note(t: Double(k) + 0.3, on: false, note: 60 + k % 12, velocity: 0)] }
+            let notes: [Note] = (0..<3600).flatMap { (k: Int) -> [Note] in
+                let n: Int = 60 + k % 12
+                return [Note(t: Double(k), on: true, note: n, velocity: 0.6), Note(t: Double(k) + 0.3, on: false, note: n, velocity: 0)]
+            }
             let log = run(&ex, notes, until: 3600, surprises: 4)
             XCTAssertGreaterThan(log.surprises.count, setting == .often ? 20 : 5, "\(setting)")
             for k in 1..<log.surprises.count {
@@ -159,7 +162,7 @@ final class ExcitementTests: XCTestCase {
         ex.settings.moments = .lots
         ex.settings.surprises = .often
         ex.gentle = true
-        let hammer = (0..<80).flatMap { k in chord(at: Double(k) * 0.125, [48, 52, 55, 60], velocity: 1, spread: 0) }
+        let hammer: [Note] = (0..<80).flatMap { (k: Int) -> [Note] in chord(at: Double(k) * 0.125, [48, 52, 55, 60], velocity: 1, spread: 0) }
         XCTAssertLessThanOrEqual(run(&ex, hammer, until: 10).moments.count, 2, "gentle holds Lots to Some")
         var rm = Excitement()
         rm.reduceMotion = true
@@ -193,9 +196,16 @@ final class ExcitementTests: XCTestCase {
         func play() -> [Double] {
             var ex = Excitement(seed: 42)
             ex.settings.surprises = .often
-            let notes = (0..<600).flatMap { k in chord(at: Double(k) * 0.5, [40 + k % 7, 47, 52], velocity: k % 9 == 0 ? 1 : 0.5) }
+            var notes: [Note] = []
+            for k in 0..<600 {
+                let root: Int = 40 + k % 7
+                let velocity: Float = k % 9 == 0 ? 1 : 0.5
+                notes += chord(at: Double(k) * 0.5, [root, 47, 52], velocity: velocity)
+            }
             let log = run(&ex, notes, until: 300, surprises: 5)
-            return log.moments.map(\.t) + log.surprises.map { Double($0.s.index) + $0.t }
+            let moments: [Double] = log.moments.map { (entry: (t: Double, m: BigMoment)) -> Double in entry.t }
+            let surprises: [Double] = log.surprises.map { (entry: (t: Double, s: WorldSurprise)) -> Double in Double(entry.s.index) + entry.t }
+            return moments + surprises
         }
         XCTAssertEqual(play(), play())
     }
