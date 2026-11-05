@@ -7,7 +7,7 @@
 namespace isd {
 
 namespace {
-constexpr float kBrassGain = 0.20f, kBassGain = 0.42f;
+constexpr float kBrassGain = 0.10f, kBassGain = 0.42f;   // a 6-note chord at velocity 100 peaks near 0.58: the limiter is for extremes only
 constexpr float kPulseLevel = 0.30f, kPulseShape = 0.75f;
 constexpr float kCutoffLow = 180.f, kCutoffHigh = 900.f;   // the brass filter's resting cutoff across Blaze
 constexpr float kBrassKeyTrack = 0.5f, kBrassQ = 0.85f;
