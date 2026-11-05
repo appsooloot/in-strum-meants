@@ -87,7 +87,7 @@
 ### Task 0: Branch, previews, briefs, reservations
 - [ ] **Branch:** cut `sets-13-14` from `small-wins` and add it to the previews `if:` in `.github/workflows/build.yml`.
 - [ ] **Briefs:** write `docs/superpowers/briefs/magma-bass.md` and `replicant-brass.md` in the format of `blue-depth.md`, with the facts, targets, playing notes and preset tables from spec §4.2–§4.3.
-- [ ] **Reserve numbers:** add the engine, parameter, test-hook and ambience numbers (Global constraints) to `include/InStrumDSP.h`. Don't add the engines yet.
+- [ ] **Reserve numbers:** add the engine, parameter and test-hook numbers (Global constraints) to `include/InStrumDSP.h`. Don't add the engines yet. The ambience numbers come with Task 10, because adding them changes `ISD_AMB_COUNT` and the tables sized by it.
 - [ ] **Commit:** `chore: Sets 13 & 14 branch, previews, briefs and reserved numbers`.
 
 ### Task 1: The vintage-synth core grows, and the shared arpeggiator (DSP)

@@ -19,7 +19,8 @@ void isd_reverb_configure(ISDReverb *reverb, float size, float damping, float pr
 void isd_reverb_process(ISDReverb *reverb, const float *inL, const float *inR, float *outL, float *outR, int frames);
 
 // ---------- Built-in instruments ----------
-typedef enum { ISD_ENGINE_FELT_GLASS = 0, ISD_ENGINE_ORBIT_PAD = 1, ISD_ENGINE_HONEY_TAPE = 2, ISD_ENGINE_HAZE_BELLS = 3, ISD_ENGINE_CABIN_FELT = 4, ISD_ENGINE_MORNING_BOX = 5, ISD_ENGINE_POLAR_CHOIR = 6, ISD_ENGINE_PLANKTON_KEYS = 7, ISD_ENGINE_TEA_HOUSE_KOTO = 8, ISD_ENGINE_ZEN_SHAKUHACHI = 9, ISD_ENGINE_BLUE_DEPTH = 10, ISD_ENGINE_REEF_MARIMBA = 11 } ISDEngine;
+typedef enum { ISD_ENGINE_FELT_GLASS = 0, ISD_ENGINE_ORBIT_PAD = 1, ISD_ENGINE_HONEY_TAPE = 2, ISD_ENGINE_HAZE_BELLS = 3, ISD_ENGINE_CABIN_FELT = 4, ISD_ENGINE_MORNING_BOX = 5, ISD_ENGINE_POLAR_CHOIR = 6, ISD_ENGINE_PLANKTON_KEYS = 7, ISD_ENGINE_TEA_HOUSE_KOTO = 8, ISD_ENGINE_ZEN_SHAKUHACHI = 9, ISD_ENGINE_BLUE_DEPTH = 10, ISD_ENGINE_REEF_MARIMBA = 11,
+               ISD_ENGINE_MAGMA_BASS = 12, ISD_ENGINE_REPLICANT_BRASS = 13 } ISDEngine;
 
 /// Parameter addresses (stable: saved in presets and instrument state).
 enum {
@@ -36,6 +37,12 @@ enum {
     ISD_P_AIR = 94, ISD_P_BEND = 95, ISD_P_BAMBOO = 96,
     ISD_P_BLINK = 110, ISD_P_MURK = 111, ISD_P_GHOSTS = 112, ISD_P_BASS = 113, ISD_P_TEMPO = 114,
     ISD_P_MALLET = 120, ISD_P_STRIKE = 121, ISD_P_TUBE = 122, ISD_P_ROLL = 123, ISD_P_STEEL = 124,
+    /// Magma Bass (Sets 13 & 14, reserved; spec 2026-11-05-fire-and-neon-design.md §4.2).
+    ISD_P_GROWL = 130, ISD_P_HEAT = 131, ISD_P_ERUPT = 132, ISD_P_RUMBLE = 133, ISD_P_GRIT = 134, ISD_P_FLOW = 135,
+    ISD_P_SHAPE = 136, ISD_P_MONO = 137, ISD_P_SPARK = 138, ISD_P_RES = 139,
+    /// Replicant Brass with Chrome Bass (Sets 13 & 14, reserved; spec §4.3). Tempo 70…170, default 120.
+    ISD_P_SWELL_RB = 140, ISD_P_BLAZE = 141, ISD_P_UNISON_WIDTH = 142, ISD_P_HALL = 143, ISD_P_CHROME = 144,
+    ISD_P_PUNCH = 145, ISD_P_ARP_MODE = 146, ISD_P_ARP_RATE = 147, ISD_P_SPLIT = 148, ISD_P_TEMPO_RB = 149,
     ISD_P_MOOD_ENERGY = 100, ISD_P_MOOD_WARMTH = 101, ISD_P_MOOD_BRIGHTNESS = 102, ISD_P_MOOD_SPACE = 103, ISD_P_MOOD_MOTION = 104,
     /// Test hook (unit 3, never shown): Orbit Pad plays one plain saw, no detune, drift, motion or chorus.
     ISD_P_DEBUG_LAYER_A_ONLY = 200,
@@ -58,7 +65,10 @@ enum {
     ISD_P_DEBUG_NO_ARP = 213, ISD_P_DEBUG_DRY = 214,
     /// Test hooks (unit 3, never shown): Reef Marimba without its rolls; its bars alone (no tube, steel, untuned modes
     /// or reverb).
-    ISD_P_DEBUG_NO_ROLL = 215, ISD_P_DEBUG_BAR_ONLY = 216
+    ISD_P_DEBUG_NO_ROLL = 215, ISD_P_DEBUG_BAR_ONLY = 216,
+    /// Test hooks (unit 3, never shown; reserved for Sets 13 & 14): Magma Bass dry (no fold, drive or spark);
+    /// Replicant Brass without the Chrome arp; Replicant Brass dry (no chorus or hall).
+    ISD_P_DEBUG_MB_DRY = 217, ISD_P_DEBUG_RB_NO_ARP = 218, ISD_P_DEBUG_RB_DRY = 219
 };
 
 /// unit: 0 generic 0…1, 1 cents, 2 semitones, 3 internal (test hooks: hosts never show or save these).
