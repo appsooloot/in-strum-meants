@@ -923,7 +923,9 @@ final class MoonlitLakeRendererTests: XCTestCase {
     /// and nowhere else: not above the steam's reach (`steamTop`, with 0.1 more for the bloom), nor over the keys below.
     /// The low sun ahead lights the steam gold-pink.
     func testSteamRisesFromTheWaterBand() throws {
-        var dawn = Self.night; dawn.frozenHour = 6.6   // a late-October sunrise in Melbourne: the sun a few degrees up
+        // Frozen skies keep the March equinox in the city's own zone: in Melbourne (AEDT) the sun rises at about 7:24,
+        // so at 7:45 it stands about 4° up, low and ahead of the lake's view.
+        var dawn = Self.night; dawn.frozenHour = 7.75
         func shot(_ steam: Float) throws -> (image: CGImage, renderer: MoonlitLakeRenderer) {
             try renderLake(at: 1, sky: dawn, quality: .high, width: 640, height: 360) { s in
                 s.steam = steam; s.moon = SkyDirection(azimuth: 0, altitude: -30); s.moonLit = 0
@@ -1555,7 +1557,7 @@ final class WorldPreviewTests: XCTestCase {
             ("lake-smooth-t5", sky(hour: 22, phase: 0.55), .lite, 5),
             ("lake-ripples-t2.5", sky(hour: 22, phase: 0.55), .high, 2.5),
             ("lake-after-rain", sky(hour: 22, phase: 0.55, weather: .afterRain), .high, 5),
-            ("lake-sea-smoke", sky(hour: 6.6, phase: 0.3, weather: .seaSmoke), .high, 5),   // sunrise: steam lit gold-pink
+            ("lake-sea-smoke", sky(hour: 7.75, phase: 0.3, weather: .seaSmoke), .high, 5),   // the sun 4° up: steam lit gold-pink
         ]
         for (name, s, q, t) in cases {
             let image = try XCTUnwrap(preview.render(themeID: MoonlitLakeModel.id, at: [t], quality: q, sky: s, mood: .serene).first)
