@@ -89,11 +89,12 @@ final class PreviewRenderTests: XCTestCase {
         }
         // Every song card, the "Underwater" card (Set 11) among them.
         XCTAssertTrue(FileManager.default.fileExists(atPath: url.appendingPathComponent("card-underwater.png").path))
-        // The place cards (sets born from their place, no song).
-        let teaHouse = try XCTUnwrap(InspiredByCardTests.render(place: InspiredByCardTests.teaHouse, at: 2.4))
-        try PreviewRenderer.writePNG(teaHouse, to: url.appendingPathComponent("card-place-tea-house-snow.png"))
-        let garden = try XCTUnwrap(InspiredByCardTests.render(place: InspiredByCardTests.garden, at: 2.4))
-        try PreviewRenderer.writePNG(garden, to: url.appendingPathComponent("card-place-zen-rock-garden.png"))
+        // The place cards (sets born from their place, no song): card-place-tea-house-snow, card-place-zen-rock-garden.
+        for set in SetLibrary.all where set.creditID == nil {
+            let image = try XCTUnwrap(InspiredByCardTests.render(place: set, at: 2.4), set.id)
+            try PreviewRenderer.writePNG(image, to: url.appendingPathComponent("card-place-\(set.id).png"))
+        }
+        // The reef is place-born too, but its set arrives with Sets 11 & 12 Task 13; until then, its stand-in.
         let reef = try XCTUnwrap(InspiredByCardTests.render(place: InspiredByCardTests.reef, at: 2.4))
         try PreviewRenderer.writePNG(reef, to: url.appendingPathComponent("card-place-great-barrier-reef.png"))
     }

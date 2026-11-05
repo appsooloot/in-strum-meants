@@ -2,11 +2,14 @@ import XCTest
 @testable import InStrumCore
 
 final class SetsTests: XCTestCase {
-    func testEightSetsAreComplete() throws {
+    /// Every set is whole: its world, visual and preset exist, and it carries a song's credit or, born from its place, none
+    /// (the App's `InspiredByCardTests.testEverySetHasACardOrPlaceArt` checks that each one then has its card).
+    func testTenSetsAreComplete() throws {
         XCTAssertEqual(SetLibrary.all.map(\.id), ["moonlit-lake", "spaceship-lounge", "golden-hour-beach", "coast-road",
-                                                  "snowbound-cabin", "bedroom-dawn", "aurora-fjord", "bioluminescent-bay"])
-        XCTAssertEqual(Set(SetLibrary.all.map(\.id)).count, 8, "ids are unique")
-        XCTAssertEqual(Set(SetLibrary.all.map(\.worldID)).count, 8, "one world each")
+                                                  "snowbound-cabin", "bedroom-dawn", "aurora-fjord", "bioluminescent-bay",
+                                                  "tea-house-snow", "zen-rock-garden"])
+        XCTAssertEqual(Set(SetLibrary.all.map(\.id)).count, 10, "ids are unique")
+        XCTAssertEqual(Set(SetLibrary.all.map(\.worldID)).count, 10, "one world each")
         for s in SetLibrary.all {
             XCTAssertEqual(ThemeRegistry.resolve(s.worldID), s.worldID, s.id)
             let visual = try XCTUnwrap(ThemeRegistry.parameters(for: s.worldID).first { $0.id == "visual" }, s.id)
@@ -90,6 +93,32 @@ final class SetsTests: XCTestCase {
         XCTAssertEqual(bay.patchID, "plankton-keys")
         XCTAssertEqual(bay.ambience, AmbienceSettings())
         XCTAssertEqual(bay.creditID, CreditLibrary.happinessIsAButterfly.id)
+        let tea = try XCTUnwrap(SetLibrary.set(id: "tea-house-snow"))
+        XCTAssertEqual(tea, SetLibrary.teaHouseSnow)
+        XCTAssertEqual(tea.name, "Tea House Snow")
+        XCTAssertEqual(tea.moodName, "Delicate, hushed")
+        XCTAssertEqual(tea.mood, .delicate)
+        XCTAssertEqual(tea.worldID, TeaHouseSnowModel.id)
+        XCTAssertEqual(tea.visual, "Steam Lines")
+        XCTAssertTrue(TeaHouseSnowModel.visuals.contains(tea.visual))
+        XCTAssertEqual(PatchLibrary.all.first { $0.id == tea.patchID }?.engine, .teaHouseKoto)
+        XCTAssertEqual(tea.patchID, "tea-house-koto")
+        XCTAssertEqual(tea.ambience, AmbienceSettings())
+        XCTAssertNil(tea.creditID, "born from its place, not a song")
+        let garden = try XCTUnwrap(SetLibrary.set(id: "zen-rock-garden"))
+        XCTAssertEqual(garden, SetLibrary.zenRockGarden)
+        XCTAssertEqual(garden.name, "Zen Rock Garden")
+        XCTAssertEqual(garden.moodName, "Ordered calm")
+        XCTAssertEqual(garden.mood, .orderedCalm)
+        XCTAssertEqual(garden.worldID, ZenRockGardenModel.id)
+        XCTAssertEqual(garden.visual, "Rake Lines")
+        XCTAssertTrue(ZenRockGardenModel.visuals.contains(garden.visual))
+        XCTAssertEqual(PatchLibrary.all.first { $0.id == garden.patchID }?.engine, .zenShakuhachi)
+        XCTAssertEqual(garden.patchID, "zen-shakuhachi")
+        XCTAssertEqual(garden.ambience, AmbienceSettings())
+        XCTAssertNil(garden.creditID, "born from its place, not a song")
+        // Only the two still places go without a song.
+        XCTAssertEqual(SetLibrary.all.filter { $0.creditID == nil }.map(\.id), ["tea-house-snow", "zen-rock-garden"])
         // Every set's mood is its own.
         let setMoods = SetLibrary.all.map(\.mood)
         for i in 0..<setMoods.count { for j in (i + 1)..<setMoods.count { XCTAssertNotEqual(setMoods[i], setMoods[j]) } }
@@ -99,7 +128,9 @@ final class SetsTests: XCTestCase {
     }
 
     /// Sets saved by older builds always carried a credit; they still decode now it is optional. A set born from its
-    /// place (no credit) is written without the key and reads back as nil, as does an explicit null.
+    /// place (no credit) is written without the key and reads back as nil, as does an explicit null. And the gallery an
+    /// eight-set build stored (Review focus 4) reads back as this build's first eight, in their places, with their credits;
+    /// the two still places come after them.
     func testOldSetsWithACreditStillDecode() throws {
         let old = #"{"id":"moonlit-lake","name":"Moonlit Lake","moodName":"Serene","#
             + #""mood":{"energy":0.2,"warmth":0.45,"brightness":0.3,"space":0.85,"motion":0.25},"#
@@ -111,16 +142,28 @@ final class SetsTests: XCTestCase {
         for s in SetLibrary.all {
             XCTAssertEqual(try JSONDecoder().decode(InStrumSet.self, from: JSONEncoder().encode(s)), s, s.id)
         }
-        let place = InStrumSet(id: "tea-house-snow", name: "Tea House Snow", moodName: "Delicate, hushed",
-                               mood: Mood(energy: 0.2, warmth: 0.55, brightness: 0.5, space: 0.3, motion: 0.2),
-                               worldID: "tea-house-snow", visual: "Steam Lines", patchID: "tea-house-koto",
-                               ambience: AmbienceSettings(), creditID: nil)
-        let written = try JSONEncoder().encode(place)
-        XCTAssertFalse(String(decoding: written, as: UTF8.self).contains("creditID"))
-        XCTAssertEqual(try JSONDecoder().decode(InStrumSet.self, from: written), place)
+        let places = SetLibrary.all.filter { $0.creditID == nil }
+        XCTAssertEqual(places, [SetLibrary.teaHouseSnow, SetLibrary.zenRockGarden])
+        for place in places {
+            let written = try JSONEncoder().encode(place)
+            XCTAssertFalse(String(decoding: written, as: UTF8.self).contains("creditID"), place.id)
+            XCTAssertEqual(try JSONDecoder().decode(InStrumSet.self, from: written), place, place.id)
+        }
         let withNull = old.replacingOccurrences(of: #""creditID":"come-back-to-earth""#, with: #""creditID":null"#)
         XCTAssertNotEqual(withNull, old)
         XCTAssertNil(try JSONDecoder().decode(InStrumSet.self, from: Data(withNull.utf8)).creditID)
+        // The eight-set gallery: every set with its song's credit (a credited set is written the same then and now).
+        let eightSetGallery = ["moonlit-lake", "spaceship-lounge", "golden-hour-beach", "coast-road", "snowbound-cabin",
+                               "bedroom-dawn", "aurora-fjord", "bioluminescent-bay"]
+        let eight = Array(SetLibrary.all.prefix(8))
+        XCTAssertEqual(eight.map(\.id), eightSetGallery, "the older sets keep their places")
+        let stored = try JSONEncoder().encode(eight)
+        let parsed = try JSONSerialization.jsonObject(with: stored)
+        let objects = try XCTUnwrap(parsed as? [[String: Any]])
+        XCTAssertEqual(objects.compactMap { $0["creditID"] as? String }, eight.compactMap(\.creditID), "every older set carries its credit")
+        XCTAssertEqual(objects.count, 8)
+        XCTAssertEqual(try JSONDecoder().decode([InStrumSet].self, from: stored), eight)
+        XCTAssertEqual(Array(SetLibrary.all.dropFirst(8)), [SetLibrary.teaHouseSnow, SetLibrary.zenRockGarden])
     }
 
     func testNewMoods() {
@@ -131,7 +174,11 @@ final class SetsTests: XCTestCase {
         XCTAssertEqual(Mood.softWaking, Mood(energy: 0.25, warmth: 0.6, brightness: 0.65, space: 0.55, motion: 0.3))
         XCTAssertEqual(Mood.electricAwe, Mood(energy: 0.45, warmth: 0.25, brightness: 0.45, space: 0.95, motion: 0.6))
         XCTAssertEqual(Mood.secretGlow, Mood(energy: 0.3, warmth: 0.55, brightness: 0.35, space: 0.7, motion: 0.4))
-        let moods = [Mood.serene, .dreamy, .warmHaze, .restless, .hushedWarm, .softWaking, .electricAwe, .secretGlow]
+        // The still places (spec §8.1, §9.1).
+        XCTAssertEqual(Mood.delicate, Mood(energy: 0.2, warmth: 0.55, brightness: 0.5, space: 0.3, motion: 0.2))
+        XCTAssertEqual(Mood.orderedCalm, Mood(energy: 0.15, warmth: 0.45, brightness: 0.55, space: 0.5, motion: 0.15))
+        let moods = [Mood.serene, .dreamy, .warmHaze, .restless, .hushedWarm, .softWaking, .electricAwe, .secretGlow,
+                     .delicate, .orderedCalm]
         for i in 0..<moods.count { for j in (i + 1)..<moods.count { XCTAssertNotEqual(moods[i], moods[j]) } }
     }
 
